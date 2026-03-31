@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "scripts": {
+    "start": "bun scripts/start.ts",
     "dev": "turbo run dev --parallel --filter=@agent-center/api --filter=@agent-center/worker --filter=@agent-center/runner",
     "dev:api": "turbo run dev --filter=@agent-center/api",
     "dev:worker": "turbo run dev --filter=@agent-center/worker",
