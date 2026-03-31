@@ -21,7 +21,4 @@ console.log("[db] migrations complete");
 
 await seed();
 
-// Only close the connection if running standalone (not imported by another service)
-if (process.argv[1]?.endsWith("migrate.ts")) {
-  await sql.end();
-}
+await sql.end();
