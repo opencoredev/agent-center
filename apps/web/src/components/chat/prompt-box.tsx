@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback } from 'react';
 import {
-  ArrowRight,
+  ArrowUp,
   Paperclip,
   X,
   FileText,
@@ -9,12 +9,10 @@ import {
   Square,
   Loader2,
   GitBranch,
-  Github,
   Bot,
-  Settings2,
-  ClipboardList,
-  RotateCcw,
+  Plus,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface AttachedFile {
   id: string;
@@ -28,11 +26,10 @@ interface PromptBoxProps {
   isStreaming?: boolean;
   onStop?: () => void;
   placeholder?: string;
-  centered?: boolean;
+  compact?: boolean;
 }
 
-function fileTypeIcon(type: AttachedFile['type']) {
-  if (type === 'pdf') return <FileText className="w-3.5 h-3.5" />;
+function FileTypeIcon({ type }: { type: AttachedFile['type'] }) {
   if (type === 'image') return <ImageIcon className="w-3.5 h-3.5" />;
   return <FileText className="w-3.5 h-3.5" />;
 }
@@ -41,8 +38,8 @@ export function PromptBox({
   onSubmit,
   isStreaming = false,
   onStop,
-  placeholder = 'Plan a new task for Agent to handle... (use \'@\' to mention apps or files)',
-  centered = false,
+  placeholder = "Describe what you want to build...",
+  compact = false,
 }: PromptBoxProps) {
   const [value, setValue] = useState('');
   const [files, setFiles] = useState<AttachedFile[]>([]);
@@ -83,19 +80,22 @@ export function PromptBox({
     setFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
+  const hasContent = value.trim().length > 0 || files.length > 0;
+
   return (
-    <div className={centered ? 'w-full max-w-3xl mx-auto' : 'w-full'}>
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+    <div className="w-full">
+      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden transition-shadow focus-within:shadow-md focus-within:border-ring/30">
         {/* Attached files */}
         {files.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-0">
+          <div className="flex flex-wrap gap-1.5 px-4 pt-3">
             {files.map((file) => (
               <div
                 key={file.id}
-                className="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-secondary text-xs text-card-foreground"
+                className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-md bg-muted text-xs text-foreground"
               >
-                {fileTypeIcon(file.type)}
-                <span className="max-w-[120px] truncate">{file.name}</span>
+                <FileTypeIcon type={file.type} />
+                <span className="max-w-[140px] truncate">{file.name}</span>
+                <span className="text-muted-foreground">{file.size}</span>
                 <button
                   onClick={() => removeFile(file.id)}
                   className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
@@ -114,51 +114,42 @@ export function PromptBox({
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          rows={centered ? 3 : 1}
+          rows={compact ? 1 : 3}
           className={`
-            w-full bg-transparent text-[15px] text-card-foreground
+            w-full bg-transparent text-sm text-card-foreground
             placeholder:text-muted-foreground
             resize-none outline-none
             px-4 py-3
             max-h-[40vh]
-            ${centered ? 'min-h-[80px]' : 'min-h-[44px]'}
+            ${compact ? 'min-h-[44px]' : 'min-h-[80px]'}
           `}
         />
 
-        {/* Bottom action bar */}
+        {/* Bottom toolbar */}
         <div className="flex items-center justify-between px-3 pb-2.5 pt-0">
-          {/* Left: repo, branch, agent selectors */}
+          {/* Left: selectors */}
           <div className="flex items-center gap-1.5">
             <button
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium
-                text-muted-foreground bg-secondary/50 border border-border
-                hover:bg-secondary hover:text-foreground transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs
+                text-muted-foreground border border-border
+                hover:bg-muted/50 hover:text-foreground transition-all cursor-pointer"
             >
-              <Github className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Repository</span>
+              <Bot className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Claude Code</span>
               <ChevronDown className="w-3 h-3 opacity-50" />
             </button>
             <button
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium
-                text-muted-foreground bg-secondary/50 border border-border
-                hover:bg-secondary hover:text-foreground transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs
+                text-muted-foreground border border-border
+                hover:bg-muted/50 hover:text-foreground transition-all cursor-pointer"
             >
               <GitBranch className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">main</span>
               <ChevronDown className="w-3 h-3 opacity-50" />
             </button>
-            <button
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium
-                text-muted-foreground bg-secondary/50 border border-border
-                hover:bg-secondary hover:text-foreground transition-all cursor-pointer"
-            >
-              <Bot className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Claude Code: Opus 4.6</span>
-              <ChevronDown className="w-3 h-3 opacity-50" />
-            </button>
           </div>
 
-          {/* Right: action icons + submit */}
+          {/* Right: actions */}
           <div className="flex items-center gap-1">
             <input
               ref={fileInputRef}
@@ -167,62 +158,55 @@ export function PromptBox({
               className="hidden"
               onChange={handleFileChange}
             />
-            <button
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
-              title="Settings"
-            >
-              <Settings2 className="w-4 h-4" />
-            </button>
-            <button
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
-              title="Clipboard"
-            >
-              <ClipboardList className="w-4 h-4" />
-            </button>
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground"
               onClick={() => fileInputRef.current?.click()}
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
               title="Attach files"
             >
-              <Paperclip className="w-4 h-4" />
-            </button>
-            <button
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
-              title="Retry"
+              <Paperclip className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground"
+              title="Add context"
             >
-              <RotateCcw className="w-4 h-4" />
-            </button>
+              <Plus className="w-3.5 h-3.5" />
+            </Button>
 
             {isStreaming ? (
-              <button
+              <Button
                 onClick={onStop}
-                className="flex items-center justify-center w-8 h-8 rounded-full bg-destructive text-destructive-foreground hover:opacity-90 transition-colors cursor-pointer ml-1"
+                size="icon"
+                variant="destructive"
+                className="h-7 w-7 rounded-full ml-1"
                 title="Stop"
               >
-                <Square className="w-3.5 h-3.5" fill="currentColor" />
-              </button>
+                <Square className="w-3 h-3" fill="currentColor" />
+              </Button>
             ) : (
-              <button
+              <Button
                 onClick={handleSubmit}
-                disabled={!value.trim() && files.length === 0}
-                className="flex items-center justify-center w-8 h-8 rounded-full
-                  bg-foreground text-background font-bold
-                  hover:opacity-90 transition-all cursor-pointer ml-1
-                  disabled:opacity-30 disabled:cursor-not-allowed"
+                disabled={!hasContent}
+                size="icon"
+                className="h-7 w-7 rounded-full ml-1"
                 title="Send (Enter)"
               >
-                <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
-              </button>
+                <ArrowUp className="w-3.5 h-3.5" strokeWidth={2.5} />
+              </Button>
             )}
           </div>
         </div>
       </div>
 
-      {centered && (
-        <p className="text-center text-[11px] text-muted-foreground mt-3">
-          Press <kbd className="px-1 py-0.5 rounded bg-secondary text-muted-foreground font-mono text-[10px]">Enter</kbd> to send
-          {' '}/{' '}
-          <kbd className="px-1 py-0.5 rounded bg-secondary text-muted-foreground font-mono text-[10px]">Shift+Enter</kbd> for new line
+      {!compact && (
+        <p className="text-center text-xs text-muted-foreground/60 mt-2.5">
+          <kbd className="px-1 py-0.5 rounded bg-muted text-muted-foreground font-mono text-[10px]">Enter</kbd>
+          {' '}to send{' '}
+          <kbd className="px-1 py-0.5 rounded bg-muted text-muted-foreground font-mono text-[10px]">Shift+Enter</kbd>
+          {' '}for new line
         </p>
       )}
     </div>

@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Zap, Loader2 } from 'lucide-react';
+import { Loader2, Zap } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
 import { apiFetch } from '@/lib/api-client';
 import { getApiUrl } from '@/lib/config';
 import { useAuth } from '@/contexts/auth-context';
@@ -66,70 +69,67 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[var(--color-surface)] px-4">
-      <div className="w-full max-w-sm animate-fade-up">
+    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+      <div className="w-full max-w-sm animate-fade-in">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-2xl bg-[var(--color-accent)]/15 border border-[var(--color-border-default)] flex items-center justify-center mb-4">
-            <Zap className="w-5 h-5 text-[var(--color-accent)]" />
+          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-3">
+            <Zap className="w-5 h-5 text-primary" />
           </div>
-          <h1 className="text-lg font-semibold text-zinc-200">Agent Center</h1>
-          <p className="text-sm text-zinc-500 mt-1">Sign in to continue</p>
+          <h1 className="text-lg font-semibold text-foreground">Agent Center</h1>
+          <p className="text-sm text-muted-foreground mt-1">Sign in to continue</p>
         </div>
 
-        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] p-6 space-y-4">
-          {/* Google OAuth */}
-          <button
-            type="button"
-            onClick={handleGoogleLogin}
-            className="w-full flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-medium
-              text-zinc-300 bg-white/[0.04] border border-[var(--color-border-default)]
-              hover:bg-white/[0.07] transition-all cursor-pointer"
-          >
-            Continue with Google
-          </button>
-
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-[var(--color-border-subtle)]" />
-            <span className="text-[11px] text-zinc-600 uppercase tracking-wider">or</span>
-            <div className="flex-1 h-px bg-[var(--color-border-subtle)]" />
-          </div>
-
-          {/* Basic auth */}
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Username"
-              required
-              className="w-full h-10 px-3 rounded-xl text-sm bg-white/[0.03] border border-[var(--color-border-subtle)] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-[var(--color-border-strong)] transition-colors"
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              required
-              className="w-full h-10 px-3 rounded-xl text-sm bg-white/[0.03] border border-[var(--color-border-subtle)] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-[var(--color-border-strong)] transition-colors"
-            />
-            {error && (
-              <p className="text-xs text-red-400 text-center">{error}</p>
-            )}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full h-10 rounded-xl text-sm font-medium
-                bg-[var(--color-accent)] text-zinc-950
-                hover:brightness-110 transition-all cursor-pointer
-                disabled:opacity-50 disabled:cursor-not-allowed
-                flex items-center justify-center gap-2"
+        <Card>
+          <CardContent className="pt-6 space-y-4">
+            {/* Google OAuth */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleGoogleLogin}
+              className="w-full"
             >
-              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
-        </div>
+              Continue with Google
+            </Button>
+
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">or</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+
+            {/* Basic auth */}
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <Input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Username"
+                required
+                autoComplete="username"
+              />
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Password"
+                required
+                autoComplete="current-password"
+              />
+              {error && (
+                <p className="text-xs text-destructive text-center">{error}</p>
+              )}
+              <Button
+                type="submit"
+                disabled={loading}
+                className="w-full"
+              >
+                {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                {loading ? 'Signing in...' : 'Sign In'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

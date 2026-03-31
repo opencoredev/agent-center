@@ -1,12 +1,9 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
-import { apiGet, apiPost, apiDelete } from '../../lib/api-client';
-import { getApiUrl } from '../../lib/config';
-
-// -- Types ------------------------------------------------------------------
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { apiGet, apiPost, apiDelete } from '@/lib/api-client';
 
 interface CredentialStatus {
   connected: boolean;
@@ -23,8 +20,6 @@ interface Workspace {
   createdAt: string;
 }
 
-// -- Hooks ------------------------------------------------------------------
-
 function useCredentialStatus() {
   return useQuery({
     queryKey: ['credentials', 'claude'],
@@ -40,8 +35,6 @@ function useWorkspaces() {
     staleTime: 60_000,
   });
 }
-
-// -- Claude Connection Card -------------------------------------------------
 
 function ClaudeConnectionCard() {
   const { data: credStatus, refetch, isLoading } = useCredentialStatus();
@@ -76,9 +69,9 @@ function ClaudeConnectionCard() {
   const isMutating = disconnectMutation.isPending || apiKeyMutation.isPending;
 
   return (
-    <Card className="bg-zinc-900 border-zinc-800">
+    <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold text-zinc-50">
+        <CardTitle className="text-base font-semibold">
           Claude Connection
         </CardTitle>
       </CardHeader>
@@ -87,39 +80,38 @@ function ClaudeConnectionCard() {
         <div className="flex items-start gap-3">
           <span
             className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${
-              isConnected ? 'bg-green-500' : 'bg-zinc-600'
+              isConnected ? 'bg-emerald-500' : 'bg-muted-foreground/30'
             }`}
           />
           <div>
             {isLoading ? (
-              <div className="h-4 w-32 rounded bg-zinc-800 animate-pulse" />
+              <div className="h-4 w-32 rounded bg-muted animate-pulse" />
             ) : isConnected ? (
               <>
-                <p className="text-sm font-medium text-zinc-100">Connected</p>
+                <p className="text-sm font-medium text-foreground">Connected</p>
                 {credStatus?.email && (
-                  <p className="text-xs text-zinc-400 mt-0.5">{credStatus.email}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{credStatus.email}</p>
                 )}
                 {credStatus?.subscriptionType && (
-                  <p className="text-xs text-zinc-500 mt-0.5 capitalize">
+                  <p className="text-xs text-muted-foreground/60 mt-0.5 capitalize">
                     {credStatus.subscriptionType} subscription
                   </p>
                 )}
-                <p className="text-xs text-zinc-600 mt-0.5">via API key</p>
+                <p className="text-xs text-muted-foreground/40 mt-0.5">via API key</p>
               </>
             ) : (
               <>
-                <p className="text-sm text-zinc-400">Not connected</p>
-                <p className="text-xs text-zinc-500 mt-1">
+                <p className="text-sm text-muted-foreground">Not connected</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">
                   Provide an API key from{' '}
                   <a
                     href="https://console.anthropic.com"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-zinc-400 underline underline-offset-2 hover:text-zinc-300"
+                    className="text-foreground underline underline-offset-2 hover:text-primary"
                   >
                     console.anthropic.com
                   </a>
-                  , or authenticate the host's Claude CLI.
                 </p>
               </>
             )}
@@ -132,7 +124,6 @@ function ClaudeConnectionCard() {
             size="sm"
             onClick={() => disconnectMutation.mutate()}
             disabled={isMutating}
-            className="w-full lg:w-auto"
           >
             {disconnectMutation.isPending ? 'Disconnecting...' : 'Disconnect'}
           </Button>
@@ -143,19 +134,17 @@ function ClaudeConnectionCard() {
               placeholder="sk-ant-..."
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-zinc-600"
               autoComplete="off"
               spellCheck={false}
             />
             {apiKeyError && (
-              <p className="text-xs text-red-400">{apiKeyError}</p>
+              <p className="text-xs text-destructive">{apiKeyError}</p>
             )}
             <Button
               type="submit"
               size="sm"
               variant="secondary"
               disabled={!apiKey.trim() || apiKeyMutation.isPending}
-              className="w-full lg:w-auto"
             >
               {apiKeyMutation.isPending ? 'Saving...' : 'Save API Key'}
             </Button>
@@ -166,16 +155,14 @@ function ClaudeConnectionCard() {
   );
 }
 
-// -- Workspace Card ---------------------------------------------------------
-
 function WorkspaceCard() {
   const { data: workspaces, isLoading } = useWorkspaces();
   const workspace = workspaces?.[0];
 
   return (
-    <Card className="bg-zinc-900 border-zinc-800">
+    <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold text-zinc-50">
+        <CardTitle className="text-base font-semibold">
           Workspace
         </CardTitle>
       </CardHeader>
@@ -183,23 +170,21 @@ function WorkspaceCard() {
       <CardContent>
         {isLoading ? (
           <div className="space-y-2">
-            <div className="h-4 w-40 rounded bg-zinc-800 animate-pulse" />
-            <div className="h-3 w-24 rounded bg-zinc-800 animate-pulse" />
+            <div className="h-4 w-40 rounded bg-muted animate-pulse" />
+            <div className="h-3 w-24 rounded bg-muted animate-pulse" />
           </div>
         ) : workspace ? (
           <div>
-            <p className="text-sm font-medium text-zinc-100">{workspace.name}</p>
-            <p className="text-xs text-zinc-500 mt-0.5">/{workspace.slug}</p>
+            <p className="text-sm font-medium text-foreground">{workspace.name}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">/{workspace.slug}</p>
           </div>
         ) : (
-          <p className="text-sm text-zinc-400">No workspace found.</p>
+          <p className="text-sm text-muted-foreground">No workspace found.</p>
         )}
       </CardContent>
     </Card>
   );
 }
-
-// -- API Keys Card ----------------------------------------------------------
 
 interface ApiKeyEntry {
   id: string;
@@ -248,23 +233,23 @@ function ApiKeysCard() {
   }
 
   return (
-    <Card className="bg-zinc-900 border-zinc-800">
+    <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold text-zinc-50">
+        <CardTitle className="text-base font-semibold">
           API Keys
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted-foreground">
           Use API keys to authenticate programmatic access or connect a remote frontend.
         </p>
 
         {revealedKey && (
-          <div className="rounded-md border border-green-800/50 bg-green-900/30 p-3">
-            <p className="text-xs text-green-400 mb-1">
+          <div className="rounded-md border border-emerald-800/50 bg-emerald-900/20 p-3">
+            <p className="text-xs text-emerald-400 mb-1">
               Copy this key now — it won't be shown again.
             </p>
-            <code className="text-xs text-green-300 break-all select-all font-mono">
+            <code className="text-xs text-emerald-300 break-all select-all font-mono">
               {revealedKey}
             </code>
           </div>
@@ -275,7 +260,7 @@ function ApiKeysCard() {
             value={newKeyName}
             onChange={(e) => setNewKeyName(e.target.value)}
             placeholder="Key name (e.g. CI/CD)"
-            className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 flex-1"
+            className="flex-1"
           />
           <Button
             type="submit"
@@ -286,18 +271,18 @@ function ApiKeysCard() {
           </Button>
         </form>
 
-        {isLoading && <p className="text-xs text-zinc-500">Loading keys...</p>}
+        {isLoading && <p className="text-xs text-muted-foreground">Loading keys...</p>}
 
         {keys.length > 0 && (
           <div className="space-y-2">
             {keys.map((k) => (
               <div
                 key={k.id}
-                className="flex items-center justify-between rounded-md border border-zinc-800 px-3 py-2"
+                className="flex items-center justify-between rounded-md border border-border px-3 py-2"
               >
                 <div>
-                  <p className="text-sm text-zinc-200">{k.name}</p>
-                  <p className="text-xs text-zinc-500 font-mono">
+                  <p className="text-sm text-foreground">{k.name}</p>
+                  <p className="text-xs text-muted-foreground font-mono">
                     {k.keyPrefix}...
                     {k.lastUsedAt && (
                       <> · last used {new Date(k.lastUsedAt).toLocaleDateString()}</>
@@ -307,7 +292,7 @@ function ApiKeysCard() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="text-red-400 border-zinc-700 hover:bg-red-900/30 hover:text-red-300"
+                  className="text-destructive hover:bg-destructive/10"
                   onClick={() => deleteMutation.mutate(k.id)}
                   disabled={deleteMutation.isPending}
                 >
@@ -322,18 +307,13 @@ function ApiKeysCard() {
   );
 }
 
-// -- Settings Page ----------------------------------------------------------
-
 export function SettingsPage() {
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold text-zinc-50">Settings</h1>
-
-      <div className="grid grid-cols-1 gap-6 max-w-2xl">
-        <ClaudeConnectionCard />
-        <ApiKeysCard />
-        <WorkspaceCard />
-      </div>
+    <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+      <h1 className="text-xl font-semibold text-foreground">Settings</h1>
+      <ClaudeConnectionCard />
+      <ApiKeysCard />
+      <WorkspaceCard />
     </div>
   );
 }

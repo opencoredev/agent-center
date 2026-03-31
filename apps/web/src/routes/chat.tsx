@@ -7,8 +7,6 @@ import { ChatMessages, type ChatMessage } from '@/components/chat/chat-messages'
 import { useRunStream, type RunEvent } from '@/hooks/use-run-stream';
 import { apiGet, apiPost } from '@/lib/api-client';
 
-// ── Types ─────────────────────────────────────────────────────────────────
-
 interface Task {
   id: string;
   title: string;
@@ -27,7 +25,7 @@ interface Workspace {
   name: string;
 }
 
-// ── Active Chat View ──────────────────────────────────────────────────────
+// ── Active Chat ──────────────────────────────────────────────────────────────
 
 function ActiveChat({
   messages,
@@ -51,14 +49,18 @@ function ActiveChat({
 
   return (
     <div className="flex flex-col h-full">
-      <ChatMessages messages={messagesWithEvents} isStreaming={isStreaming && messages[messages.length - 1]?.role === 'user'} />
-      <div className="flex-shrink-0 px-6 pb-4 pt-2 border-t border-border">
-        <div className="max-w-3xl mx-auto">
+      <ChatMessages
+        messages={messagesWithEvents}
+        isStreaming={isStreaming && messages[messages.length - 1]?.role === 'user'}
+      />
+      <div className="flex-shrink-0 px-4 pb-4 pt-2 border-t border-border">
+        <div className="max-w-2xl mx-auto">
           <PromptBox
             onSubmit={(prompt) => onSend(prompt)}
             isStreaming={isStreaming}
             onStop={onStop}
             placeholder="Follow up with anything..."
+            compact
           />
         </div>
       </div>
@@ -66,21 +68,15 @@ function ActiveChat({
   );
 }
 
-// ── Status helpers ────────────────────────────────────────────────────────
+// ── Status helpers ───────────────────────────────────────────────────────────
 
-function statusColor(status: string): string {
-  switch (status) {
-    case 'completed':
-      return 'text-emerald-400';
-    case 'running':
-    case 'in_progress':
-      return 'text-yellow-400';
-    case 'failed':
-    case 'error':
-      return 'text-red-400';
-    default:
-      return 'text-muted-foreground';
-  }
+function StatusDot({ status }: { status: string }) {
+  let color = 'text-muted-foreground/50';
+  if (status === 'completed') color = 'text-emerald-500';
+  else if (status === 'running' || status === 'in_progress') color = 'text-amber-400';
+  else if (status === 'failed' || status === 'error') color = 'text-red-400';
+
+  return <Circle className={`w-2.5 h-2.5 fill-current ${color}`} />;
 }
 
 function timeAgo(date: string): string {
@@ -94,7 +90,7 @@ function timeAgo(date: string): string {
   return `${days}d ago`;
 }
 
-// ── Hero / Home State ────────────────────────────────────────────────────
+// ── Home Page ────────────────────────────────────────────────────────────────
 
 function HomePage({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   const navigate = useNavigate();
@@ -110,69 +106,56 @@ function HomePage({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   );
 
   return (
-    <div className="flex-1 flex flex-col">
-      {/* Centered prompt area */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6">
-        <div className="w-full max-w-3xl">
-          <PromptBox
-            onSubmit={(prompt) => onSubmit(prompt)}
-            placeholder="Plan a new task for Agent to handle... (use '@' to mention apps or files)"
-            centered
-          />
-        </div>
+    <div className="flex flex-col h-full max-w-2xl w-full mx-auto gap-8 justify-start pt-[15vh] px-4">
+      {/* Prompt */}
+      <div className="animate-fade-in">
+        <PromptBox
+          onSubmit={(prompt) => onSubmit(prompt)}
+          placeholder="Describe what you want to build..."
+        />
       </div>
 
-      {/* Active Tasks section */}
-      <div className="px-6 pb-8">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-foreground">Active Tasks</h2>
-            <button
-              onClick={() => navigate({ to: '/' })}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            >
-              All Tasks
-              <ArrowRight className="w-3 h-3" />
-            </button>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card p-4">
-            {activeTasks.length === 0 ? (
-              <div className="text-center py-6">
-                <p className="text-sm text-muted-foreground">No active tasks</p>
-                <p className="text-xs text-muted-foreground/60 mt-1">
-                  You will see tasks in progress here
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {activeTasks.map((task) => (
-                  <button
-                    key={task.id}
-                    onClick={() =>
-                      navigate({ to: '/tasks/$taskId', params: { taskId: task.id } })
-                    }
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/50 transition-colors cursor-pointer text-left"
-                  >
-                    <Circle className={`w-2.5 h-2.5 fill-current flex-shrink-0 ${statusColor(task.status)}`} />
-                    <span className="text-sm text-foreground truncate flex-1">
-                      {task.title}
-                    </span>
-                    <span className="text-xs text-muted-foreground flex-shrink-0">
-                      {timeAgo(task.createdAt)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+      {/* Active Tasks */}
+      <div className="animate-fade-in" style={{ animationDelay: '0.1s', animationFillMode: 'backwards' }}>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-medium text-muted-foreground/70">Active Tasks</h2>
         </div>
+
+        {activeTasks.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-8 text-center">
+            <p className="text-sm text-muted-foreground">No active tasks</p>
+            <p className="text-xs text-muted-foreground/50 mt-1">
+              Tasks in progress will appear here
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-border bg-card divide-y divide-border">
+            {activeTasks.map((task) => (
+              <button
+                key={task.id}
+                onClick={() =>
+                  navigate({ to: '/tasks/$taskId', params: { taskId: task.id } })
+                }
+                className="w-full flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors cursor-pointer text-left first:rounded-t-xl last:rounded-b-xl"
+              >
+                <StatusDot status={task.status} />
+                <span className="text-sm text-foreground truncate flex-1">
+                  {task.title}
+                </span>
+                <span className="text-xs text-muted-foreground flex-shrink-0">
+                  {timeAgo(task.createdAt)}
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 text-muted-foreground/50" />
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ── Main Chat Page ────────────────────────────────────────────────────────
+// ── Main ─────────────────────────────────────────────────────────────────────
 
 export function ChatPage() {
   const queryClient = useQueryClient();
@@ -252,9 +235,7 @@ export function ChatPage() {
     setIsWorking(false);
   }, []);
 
-  const hasMessages = messages.length > 0;
-
-  if (!hasMessages) {
+  if (messages.length === 0) {
     return <HomePage onSubmit={handleSubmit} />;
   }
 
