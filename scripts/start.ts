@@ -3,10 +3,10 @@
  * Usage: RAILWAY_SERVICE=api bun scripts/start.ts
  */
 
-const service = process.env.RAILWAY_SERVICE;
+const service = process.env.APP_SERVICE || process.env.RAILWAY_SERVICE;
 
 if (!service) {
-  console.error("RAILWAY_SERVICE env var is required. Set to: api, runner, worker, or web");
+  console.error("APP_SERVICE env var is required. Set to: api, runner, worker, or web");
   process.exit(1);
 }
 
