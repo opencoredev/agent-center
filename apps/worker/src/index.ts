@@ -41,4 +41,15 @@ process.on("SIGTERM", () => {
   void shutdown("SIGTERM");
 });
 
+// Minimal health server so Railway knows we're alive
+const healthPort = Number(process.env.PORT) || 3001;
+Bun.serve({
+  port: healthPort,
+  hostname: "0.0.0.0",
+  fetch() {
+    return Response.json({ service: "worker", status: "ok" });
+  },
+});
+
+console.log(`[worker] health server on :${healthPort}`);
 console.log(`[worker] ready with log level ${workerEnv.WORKER_LOG_LEVEL}`);
