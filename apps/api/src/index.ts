@@ -15,3 +15,4 @@ const server = Bun.serve({
 
 console.log(`[api] listening on http://${server.hostname}:${server.port} (${apiEnv.NODE_ENV})`);
 console.log("[api] websocket endpoint available at /ws");
+
