@@ -4,8 +4,7 @@
 # ── Self-hosted (full stack): ─────────────────────────────────────────────
 # Run with: docker compose --profile full up
 #
-# This starts Postgres, runs migrations, then starts API (with frontend),
-# worker, and runner. Open http://localhost:3100 in your browser.
+# Open http://localhost:3100 in your browser.
 
 services:
   postgres:
@@ -25,25 +24,13 @@ services:
       timeout: 3s
       retries: 10
 
-  migrator:
-    build:
-      context: .
-      target: migrator
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
-    restart: "no"
-    profiles: [full]
-
   api:
     build:
       context: .
-      target: api
+      dockerfile: deploy/api.Dockerfile
     depends_on:
-      migrator:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     ports:
       - "${API_PORT:-3100}:3100"
     environment:
@@ -53,21 +40,19 @@ services:
       NODE_ENV: production
       SERVE_FRONTEND: "true"
       FRONTEND_DIST_PATH: apps/web/dist
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-changeme}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       AUTH_USERNAME: ${AUTH_USERNAME:-}
       AUTH_PASSWORD: ${AUTH_PASSWORD:-}
-      CLAUDE_OAUTH_CLIENT_ID: ${CLAUDE_OAUTH_CLIENT_ID:-}
-      CLAUDE_OAUTH_REDIRECT_URI: ${CLAUDE_OAUTH_REDIRECT_URI:-}
     profiles: [full]
 
   worker:
     build:
       context: .
-      target: worker
+      dockerfile: deploy/worker.Dockerfile
     depends_on:
-      migrator:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
       NODE_ENV: production
@@ -78,10 +63,10 @@ services:
   runner:
     build:
       context: .
-      target: runner
+      dockerfile: deploy/runner.Dockerfile
     depends_on:
-      migrator:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
       NODE_ENV: production
