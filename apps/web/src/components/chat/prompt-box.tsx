@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback } from 'react';
 import {
-  ArrowUp,
+  ArrowRight,
   Paperclip,
   X,
   FileText,
@@ -8,6 +8,12 @@ import {
   ChevronDown,
   Square,
   Loader2,
+  GitBranch,
+  Github,
+  Bot,
+  Settings2,
+  ClipboardList,
+  RotateCcw,
 } from 'lucide-react';
 
 interface AttachedFile {
@@ -35,12 +41,11 @@ export function PromptBox({
   onSubmit,
   isStreaming = false,
   onStop,
-  placeholder = 'Describe what you want to build...',
+  placeholder = 'Plan a new task for Agent to handle... (use \'@\' to mention apps or files)',
   centered = false,
 }: PromptBoxProps) {
   const [value, setValue] = useState('');
   const [files, setFiles] = useState<AttachedFile[]>([]);
-  const [agent, setAgent] = useState<'claude' | 'none'>('claude');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -79,30 +84,21 @@ export function PromptBox({
   };
 
   return (
-    <div className={centered ? 'w-full max-w-2xl mx-auto' : 'w-full'}>
-      <div
-        className={`
-          relative rounded-2xl border border-[var(--color-border-default)]
-          bg-[var(--color-surface-raised)]
-          transition-all duration-300
-          focus-within:border-[var(--color-border-strong)]
-          ${centered ? 'prompt-glow-idle focus-within:shadow-[0_0_0_1px_var(--color-border-strong),0_0_60px_var(--color-accent-glow)]' : ''}
-          ${centered ? '' : 'focus-within:shadow-[0_0_0_1px_var(--color-border-strong)]'}
-        `}
-      >
+    <div className={centered ? 'w-full max-w-3xl mx-auto' : 'w-full'}>
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
         {/* Attached files */}
         {files.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-0">
             {files.map((file) => (
               <div
                 key={file.id}
-                className="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-white/[0.05] border border-[var(--color-border-subtle)] text-xs text-zinc-300"
+                className="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-secondary text-xs text-card-foreground"
               >
                 {fileTypeIcon(file.type)}
                 <span className="max-w-[120px] truncate">{file.name}</span>
                 <button
                   onClick={() => removeFile(file.id)}
-                  className="p-0.5 rounded hover:bg-white/10 text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+                  className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -120,8 +116,8 @@ export function PromptBox({
           placeholder={placeholder}
           rows={centered ? 3 : 1}
           className={`
-            w-full bg-transparent text-[15px] text-zinc-100
-            placeholder:text-zinc-600
+            w-full bg-transparent text-[15px] text-card-foreground
+            placeholder:text-muted-foreground
             resize-none outline-none
             px-4 py-3
             max-h-[40vh]
@@ -131,21 +127,39 @@ export function PromptBox({
 
         {/* Bottom action bar */}
         <div className="flex items-center justify-between px-3 pb-2.5 pt-0">
-          {/* Left: agent selector */}
+          {/* Left: repo, branch, agent selectors */}
           <div className="flex items-center gap-1.5">
             <button
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
-                text-zinc-400 bg-white/[0.03] border border-[var(--color-border-subtle)]
-                hover:bg-white/[0.06] hover:text-zinc-300 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium
+                text-muted-foreground bg-secondary/50 border border-border
+                hover:bg-secondary hover:text-foreground transition-all cursor-pointer"
             >
-              <div className="w-3.5 h-3.5 rounded-full bg-[var(--color-accent)] opacity-80" />
-              {agent === 'claude' ? 'Claude' : 'Shell'}
-              <ChevronDown className="w-3 h-3 text-zinc-600" />
+              <Github className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Repository</span>
+              <ChevronDown className="w-3 h-3 opacity-50" />
+            </button>
+            <button
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium
+                text-muted-foreground bg-secondary/50 border border-border
+                hover:bg-secondary hover:text-foreground transition-all cursor-pointer"
+            >
+              <GitBranch className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">main</span>
+              <ChevronDown className="w-3 h-3 opacity-50" />
+            </button>
+            <button
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium
+                text-muted-foreground bg-secondary/50 border border-border
+                hover:bg-secondary hover:text-foreground transition-all cursor-pointer"
+            >
+              <Bot className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Claude Code: Opus 4.6</span>
+              <ChevronDown className="w-3 h-3 opacity-50" />
             </button>
           </div>
 
-          {/* Right: attach + send */}
-          <div className="flex items-center gap-1.5">
+          {/* Right: action icons + submit */}
+          <div className="flex items-center gap-1">
             <input
               ref={fileInputRef}
               type="file"
@@ -154,17 +168,35 @@ export function PromptBox({
               onChange={handleFileChange}
             />
             <button
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
+              title="Settings"
+            >
+              <Settings2 className="w-4 h-4" />
+            </button>
+            <button
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
+              title="Clipboard"
+            >
+              <ClipboardList className="w-4 h-4" />
+            </button>
+            <button
               onClick={() => fileInputRef.current?.click()}
-              className="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] transition-colors cursor-pointer"
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
               title="Attach files"
             >
               <Paperclip className="w-4 h-4" />
+            </button>
+            <button
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
+              title="Retry"
+            >
+              <RotateCcw className="w-4 h-4" />
             </button>
 
             {isStreaming ? (
               <button
                 onClick={onStop}
-                className="flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-200 transition-colors cursor-pointer"
+                className="flex items-center justify-center w-8 h-8 rounded-full bg-destructive text-destructive-foreground hover:opacity-90 transition-colors cursor-pointer ml-1"
                 title="Stop"
               >
                 <Square className="w-3.5 h-3.5" fill="currentColor" />
@@ -173,13 +205,13 @@ export function PromptBox({
               <button
                 onClick={handleSubmit}
                 disabled={!value.trim() && files.length === 0}
-                className="flex items-center justify-center w-8 h-8 rounded-lg
-                  bg-[var(--color-accent)] text-zinc-950 font-bold
-                  hover:brightness-110 transition-all cursor-pointer
+                className="flex items-center justify-center w-8 h-8 rounded-full
+                  bg-foreground text-background font-bold
+                  hover:opacity-90 transition-all cursor-pointer ml-1
                   disabled:opacity-30 disabled:cursor-not-allowed"
                 title="Send (Enter)"
               >
-                <ArrowUp className="w-4 h-4" strokeWidth={2.5} />
+                <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
               </button>
             )}
           </div>
@@ -187,8 +219,10 @@ export function PromptBox({
       </div>
 
       {centered && (
-        <p className="text-center text-[11px] text-zinc-600 mt-3">
-          Press <kbd className="px-1 py-0.5 rounded bg-white/[0.05] text-zinc-500 font-mono text-[10px]">Enter</kbd> to send · <kbd className="px-1 py-0.5 rounded bg-white/[0.05] text-zinc-500 font-mono text-[10px]">Shift+Enter</kbd> for new line
+        <p className="text-center text-[11px] text-muted-foreground mt-3">
+          Press <kbd className="px-1 py-0.5 rounded bg-secondary text-muted-foreground font-mono text-[10px]">Enter</kbd> to send
+          {' '}/{' '}
+          <kbd className="px-1 py-0.5 rounded bg-secondary text-muted-foreground font-mono text-[10px]">Shift+Enter</kbd> for new line
         </p>
       )}
     </div>
