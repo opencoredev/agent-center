@@ -20,4 +20,4 @@ RUN cd apps/web && bunx --bun vite build
 ENV SERVE_FRONTEND=true
 ENV FRONTEND_DIST_PATH=apps/web/dist
 
-CMD ["sh", "-c", "bun packages/db/src/migrate.ts 2>&1; echo '[start] migration done, starting api...'; exec bun apps/api/src/index.ts 2>&1"]
+CMD ["bun", "apps/api/src/index.ts"]

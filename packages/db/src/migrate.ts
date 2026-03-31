@@ -22,3 +22,4 @@ console.log("[db] migrations complete");
 await seed();
 
 await sql.end();
+console.log("[db] done");
