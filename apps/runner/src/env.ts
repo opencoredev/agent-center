@@ -9,7 +9,7 @@ export const runnerEnv = parseEnv(
     NODE_ENV: process.env.NODE_ENV,
     RUNNER_HOST: process.env.RUNNER_HOST,
     RUNNER_LOG_LEVEL: process.env.RUNNER_LOG_LEVEL,
-    RUNNER_PORT: process.env.RUNNER_PORT,
+    RUNNER_PORT: process.env.PORT || process.env.RUNNER_PORT,
   },
   {
     NODE_ENV: nodeEnv,

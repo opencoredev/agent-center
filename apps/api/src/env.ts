@@ -6,7 +6,7 @@ loadRootEnv();
 export const apiEnv = parseEnv(
   {
     API_HOST: process.env.API_HOST,
-    API_PORT: process.env.API_PORT,
+    API_PORT: process.env.PORT || process.env.API_PORT,
     NODE_ENV: process.env.NODE_ENV,
     CREDENTIAL_ENCRYPTION_KEY: process.env.CREDENTIAL_ENCRYPTION_KEY,
     CORS_ORIGIN: process.env.CORS_ORIGIN,
