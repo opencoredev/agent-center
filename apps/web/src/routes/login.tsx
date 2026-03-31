@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Zap, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { getApiUrl } from '@/lib/config';
 import { useAuth } from '@/contexts/auth-context';
@@ -15,7 +13,6 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Handle OAuth callback: /login?token=sess_xxx
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
@@ -45,7 +42,7 @@ export function LoginPage() {
       });
 
       if (res.status === 401) {
-        setError('Invalid username or password');
+        setError('Invalid credentials');
         return;
       }
 
@@ -54,11 +51,11 @@ export function LoginPage() {
         return;
       }
 
-      const json = (await res.json()) as { data: { token: string; expiresAt: string } };
+      const json = (await res.json()) as { data: { token: string } };
       login(json.data.token);
       await navigate({ to: '/' });
     } catch {
-      setError('Unable to connect. Please try again.');
+      setError('Unable to connect');
     } finally {
       setLoading(false);
     }
@@ -69,70 +66,71 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
-      <Card className="w-full max-w-sm bg-zinc-900 border-zinc-800">
-        <CardHeader className="text-center pb-2">
-          <div className="text-2xl mb-1">⬡</div>
-          <CardTitle className="text-xl text-zinc-50">Agent Center</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+    <div className="min-h-screen flex items-center justify-center bg-[var(--color-surface)] px-4">
+      <div className="w-full max-w-sm animate-fade-up">
+        {/* Logo */}
+        <div className="flex flex-col items-center mb-8">
+          <div className="w-12 h-12 rounded-2xl bg-[var(--color-accent)]/15 border border-[var(--color-border-default)] flex items-center justify-center mb-4">
+            <Zap className="w-5 h-5 text-[var(--color-accent)]" />
+          </div>
+          <h1 className="text-lg font-semibold text-zinc-200">Agent Center</h1>
+          <p className="text-sm text-zinc-500 mt-1">Sign in to continue</p>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-raised)] p-6 space-y-4">
           {/* Google OAuth */}
-          <Button
+          <button
             type="button"
-            variant="outline"
-            className="w-full border-zinc-700 bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50"
             onClick={handleGoogleLogin}
+            className="w-full flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-medium
+              text-zinc-300 bg-white/[0.04] border border-[var(--color-border-default)]
+              hover:bg-white/[0.07] transition-all cursor-pointer"
           >
             Continue with Google
-          </Button>
+          </button>
 
           <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-zinc-800" />
-            <span className="text-xs text-zinc-500">or sign in with credentials</span>
-            <div className="flex-1 h-px bg-zinc-800" />
+            <div className="flex-1 h-px bg-[var(--color-border-subtle)]" />
+            <span className="text-[11px] text-zinc-600 uppercase tracking-wider">or</span>
+            <div className="flex-1 h-px bg-[var(--color-border-subtle)]" />
           </div>
 
-          {/* Basic auth form */}
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm text-zinc-400" htmlFor="username">
-                Username
-              </label>
-              <Input
-                id="username"
-                type="text"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="bg-zinc-800 border-zinc-700 text-zinc-50 placeholder:text-zinc-500"
-                placeholder="admin"
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm text-zinc-400" htmlFor="password">
-                Password
-              </label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="bg-zinc-800 border-zinc-700 text-zinc-50 placeholder:text-zinc-500"
-                placeholder="••••••••"
-                required
-              />
-            </div>
+          {/* Basic auth */}
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Username"
+              required
+              className="w-full h-10 px-3 rounded-xl text-sm bg-white/[0.03] border border-[var(--color-border-subtle)] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-[var(--color-border-strong)] transition-colors"
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              required
+              className="w-full h-10 px-3 rounded-xl text-sm bg-white/[0.03] border border-[var(--color-border-subtle)] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-[var(--color-border-strong)] transition-colors"
+            />
             {error && (
-              <p className="text-sm text-red-400 text-center">{error}</p>
+              <p className="text-xs text-red-400 text-center">{error}</p>
             )}
-            <Button type="submit" disabled={loading} className="w-full">
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full h-10 rounded-xl text-sm font-medium
+                bg-[var(--color-accent)] text-zinc-950
+                hover:brightness-110 transition-all cursor-pointer
+                disabled:opacity-50 disabled:cursor-not-allowed
+                flex items-center justify-center gap-2"
+            >
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
               {loading ? 'Signing in...' : 'Sign In'}
-            </Button>
+            </button>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

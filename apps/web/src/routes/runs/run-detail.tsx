@@ -3,7 +3,7 @@ import { useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { StatusBadge } from '@/components/status-badge';
+import { Badge } from '@/components/ui/badge';
 import { TerminalViewer } from '@/components/terminal-viewer';
 import { useRunStream } from '@/hooks/use-run-stream';
 import { apiGet, apiPost } from '@/lib/api-client';
@@ -104,7 +104,7 @@ export function RunDetailPage() {
           <h1 className="text-2xl font-semibold text-zinc-50">
             Run #{run.attempt}
           </h1>
-          <StatusBadge status={effectiveStatus ?? 'pending'} />
+          <Badge variant="outline">{effectiveStatus ?? 'pending'}</Badge>
           <span
             className={`inline-flex items-center gap-1.5 text-xs ${isConnected ? 'text-green-400' : 'text-zinc-500'}`}
           >
