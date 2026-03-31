@@ -41,15 +41,9 @@ export function createApp(upgradeWebSocket: UpgradeWebSocket) {
 
   app.use("*", authMiddleware);
 
-  app.get("/", (context) => {
-    // If serving frontend, redirect root to the SPA
-    if (apiEnv.SERVE_FRONTEND) {
-      return context.redirect("/dashboard");
-    }
-    return context.json({
-      message: "Agent Center API",
-    });
-  });
+  if (!apiEnv.SERVE_FRONTEND) {
+    app.get("/", (context) => context.json({ message: "Agent Center API" }));
+  }
 
   app.route("/", healthRoutes);
   app.route("/api", apiRoutes);
