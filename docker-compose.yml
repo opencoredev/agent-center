@@ -1,0 +1,99 @@
+# ── Development: just Postgres ────────────────────────────────────────────
+# Run with: docker compose up postgres
+#
+# ── Self-hosted (full stack): ─────────────────────────────────────────────
+# Run with: docker compose --profile full up
+#
+# This starts Postgres, runs migrations, then starts API (with frontend),
+# worker, and runner. Open http://localhost:3100 in your browser.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agent-center-postgres
+    environment:
+      POSTGRES_DB: agent_center
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  migrator:
+    build:
+      context: .
+      target: migrator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
+    restart: "no"
+    profiles: [full]
+
+  api:
+    build:
+      context: .
+      target: api
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    ports:
+      - "${API_PORT:-3100}:3100"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
+      API_HOST: "0.0.0.0"
+      API_PORT: "3100"
+      NODE_ENV: production
+      SERVE_FRONTEND: "true"
+      FRONTEND_DIST_PATH: apps/web/dist
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      AUTH_USERNAME: ${AUTH_USERNAME:-}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      CLAUDE_OAUTH_CLIENT_ID: ${CLAUDE_OAUTH_CLIENT_ID:-}
+      CLAUDE_OAUTH_REDIRECT_URI: ${CLAUDE_OAUTH_REDIRECT_URI:-}
+    profiles: [full]
+
+  worker:
+    build:
+      context: .
+      target: worker
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
+      NODE_ENV: production
+      WORKER_ID: docker-worker
+      RUNNER_INTERNAL_BASE_URL: http://runner:3002
+    profiles: [full]
+
+  runner:
+    build:
+      context: .
+      target: runner
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
+      NODE_ENV: production
+      RUNNER_HOST: "0.0.0.0"
+      RUNNER_PORT: "3002"
+      RUNNER_API_URL: http://api:3100
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      E2B_API_KEY: ${E2B_API_KEY:-}
+    volumes:
+      - runner_workspaces:/app/.agent-center/runner-workspaces
+    profiles: [full]
+
+volumes:
+  postgres_data:
+  runner_workspaces:

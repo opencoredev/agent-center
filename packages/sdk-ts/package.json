@@ -1,0 +1,25 @@
+{
+  "name": "@agent-center/sdk-ts",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "examples"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "bunx oxlint src examples --deny-warnings",
+    "format": "bunx oxfmt src examples --write",
+    "format:check": "bunx oxfmt src examples --check"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@agent-center/config",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "bunx oxlint src --deny-warnings",
+    "format": "bunx oxfmt src --write",
+    "format:check": "bunx oxfmt src --check"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "zod": "^4.3.6"
+  }
+}

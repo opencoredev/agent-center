@@ -1,0 +1,25 @@
+{
+  "name": "@agent-center/runner",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "bunx oxlint src --deny-warnings",
+    "format": "bunx oxfmt src --write",
+    "format:check": "bunx oxfmt src --check",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@agent-center/config": "workspace:*",
+    "@agent-center/db": "workspace:*",
+    "@agent-center/github": "workspace:*",
+    "@agent-center/shared": "workspace:*",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.86",
+    "@e2b/code-interpreter": "^2.4.0",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.9"
+  }
+}

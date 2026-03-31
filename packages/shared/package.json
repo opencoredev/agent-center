@@ -1,0 +1,17 @@
+{
+  "name": "@agent-center/shared",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "bunx oxlint src --deny-warnings",
+    "format": "bunx oxfmt src --write",
+    "format:check": "bunx oxfmt src --check",
+    "test": "bun test"
+  }
+}
+

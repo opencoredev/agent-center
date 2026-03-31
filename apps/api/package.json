@@ -1,0 +1,24 @@
+{
+  "name": "@agent-center/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "bunx oxlint src --deny-warnings",
+    "format": "bunx oxfmt src --write",
+    "format:check": "bunx oxfmt src --check",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@agent-center/db": "workspace:*",
+    "@agent-center/config": "workspace:*",
+    "@agent-center/github": "workspace:*",
+    "@agent-center/shared": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.9",
+    "zod": "^4.3.6"
+  }
+}

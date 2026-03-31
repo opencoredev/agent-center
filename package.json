@@ -1,0 +1,33 @@
+{
+  "name": "agent-center",
+  "private": true,
+  "packageManager": "bun@1.3.5",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --parallel --filter=@agent-center/api --filter=@agent-center/worker --filter=@agent-center/runner",
+    "dev:api": "turbo run dev --filter=@agent-center/api",
+    "dev:worker": "turbo run dev --filter=@agent-center/worker",
+    "dev:runner": "turbo run dev --filter=@agent-center/runner",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "format": "turbo run format",
+    "format:check": "turbo run format:check",
+    "db:generate": "turbo run db:generate --filter=@agent-center/db",
+    "db:migrate": "turbo run db:migrate --filter=@agent-center/db",
+    "test": "turbo run test",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.11",
+    "oxfmt": "^0.42.0",
+    "oxlint": "^1.57.0",
+    "turbo": "^2.8.20",
+    "typescript": "^6.0.2"
+  }
+}
+

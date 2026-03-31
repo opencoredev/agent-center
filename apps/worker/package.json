@@ -1,0 +1,19 @@
+{
+  "name": "@agent-center/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "bunx oxlint src --deny-warnings",
+    "format": "bunx oxfmt src --write",
+    "format:check": "bunx oxfmt src --check"
+  },
+  "dependencies": {
+    "@agent-center/config": "workspace:*",
+    "@agent-center/db": "workspace:*",
+    "@agent-center/shared": "workspace:*"
+  }
+}

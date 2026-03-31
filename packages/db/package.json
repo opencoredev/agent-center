@@ -1,0 +1,27 @@
+{
+  "name": "@agent-center/db",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts src/migrate.ts --outdir dist --target bun --format esm",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "bunx oxlint src drizzle.config.ts --deny-warnings",
+    "format": "bunx oxfmt src drizzle.config.ts --write",
+    "format:check": "bunx oxfmt src drizzle.config.ts --check",
+    "db:generate": "bunx drizzle-kit generate --config=drizzle.config.ts",
+    "db:migrate": "bun src/migrate.ts"
+  },
+  "dependencies": {
+    "@agent-center/config": "workspace:*",
+    "@agent-center/shared": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.8",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.10"
+  }
+}
