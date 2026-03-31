@@ -1,5 +1,0 @@
-[phases.install]
-cmds = ["bun install", "cd packages/db && bun install", "cd packages/config && bun install", "cd packages/shared && bun install"]
-
-[start]
-cmd = "bun scripts/start.ts"
