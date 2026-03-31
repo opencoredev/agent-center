@@ -32,6 +32,7 @@ export function useRunStream(runId: string) {
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
+    if (!runId) return;
 
     const wsUrl = getWsUrl();
 

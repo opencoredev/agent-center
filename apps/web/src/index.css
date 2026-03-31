@@ -63,10 +63,6 @@ body {
   color: white;
 }
 
-/* Textarea resets */
-textarea {
-  field-sizing: content;
-}
 
 /* Prompt glow animation */
 @keyframes prompt-glow {
