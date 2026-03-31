@@ -8,8 +8,6 @@ import { TerminalViewer } from '@/components/terminal-viewer';
 import { useRunStream } from '@/hooks/use-run-stream';
 import { apiGet, apiPost } from '@/lib/api-client';
 
-// ── Types ──────────────────────────────────────────────────────────────────
-
 interface Run {
   id: string;
   taskId: string;
@@ -25,8 +23,6 @@ interface Run {
   branchName: string | null;
   createdAt: string;
 }
-
-// ── Page ───────────────────────────────────────────────────────────────────
 
 export function RunDetailPage() {
   const { runId } = useParams({ strict: false });
@@ -68,23 +64,27 @@ export function RunDetailPage() {
   };
 
   if (!runId) {
-    return <div className="text-zinc-400">No run ID provided.</div>;
+    return (
+      <div className="max-w-4xl mx-auto px-6 py-8">
+        <p className="text-muted-foreground">No run ID provided.</p>
+      </div>
+    );
   }
 
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-6">
-        <div className="h-8 w-48 rounded bg-zinc-800 animate-pulse" />
-        <div className="h-96 rounded-lg bg-zinc-800 animate-pulse" />
+      <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+        <div className="h-8 w-48 rounded-md bg-muted animate-pulse" />
+        <div className="h-96 rounded-lg bg-muted animate-pulse" />
       </div>
     );
   }
 
   if (isError || !run) {
     return (
-      <div className="flex flex-col gap-6">
-        <h1 className="text-2xl font-semibold text-zinc-50">Run not found</h1>
-        <p className="text-red-400 text-sm">
+      <div className="max-w-4xl mx-auto px-6 py-8 space-y-4">
+        <h1 className="text-2xl font-semibold text-foreground">Run not found</h1>
+        <p className="text-destructive text-sm">
           Failed to load run details. Check your API connection.
         </p>
       </div>
@@ -97,19 +97,19 @@ export function RunDetailPage() {
     effectiveStatus === 'running' || effectiveStatus === 'paused';
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold text-zinc-50">
+          <h1 className="text-2xl font-semibold text-foreground">
             Run #{run.attempt}
           </h1>
           <Badge variant="outline">{effectiveStatus ?? 'pending'}</Badge>
           <span
-            className={`inline-flex items-center gap-1.5 text-xs ${isConnected ? 'text-green-400' : 'text-zinc-500'}`}
+            className={`inline-flex items-center gap-1.5 text-xs ${isConnected ? 'text-status-success' : 'text-muted-foreground'}`}
           >
             <span
-              className={`h-1.5 w-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-zinc-600'}`}
+              className={`h-1.5 w-1.5 rounded-full ${isConnected ? 'bg-status-success' : 'bg-muted-foreground/40'}`}
             />
             {isConnected ? 'Live' : 'Disconnected'}
           </span>
@@ -117,31 +117,17 @@ export function RunDetailPage() {
 
         <div className="flex items-center gap-2">
           {showPause && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-zinc-700 bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50"
-              onClick={handlePause}
-            >
+            <Button size="sm" variant="outline" onClick={handlePause}>
               Pause
             </Button>
           )}
           {showResume && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-zinc-700 bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50"
-              onClick={handleResume}
-            >
+            <Button size="sm" variant="outline" onClick={handleResume}>
               Resume
             </Button>
           )}
           {showCancel && (
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={handleCancel}
-            >
+            <Button size="sm" variant="destructive" onClick={handleCancel}>
               Cancel
             </Button>
           )}
@@ -149,11 +135,9 @@ export function RunDetailPage() {
       </div>
 
       {/* Live Logs */}
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card>
         <CardHeader className="px-6 py-4">
-          <CardTitle className="text-base font-semibold text-zinc-50">
-            Live Logs
-          </CardTitle>
+          <CardTitle className="text-base font-semibold">Live Logs</CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4 pt-0">
           <TerminalViewer events={events} />
@@ -161,11 +145,9 @@ export function RunDetailPage() {
       </Card>
 
       {/* Run Info */}
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card>
         <CardHeader className="px-6 py-4">
-          <CardTitle className="text-base font-semibold text-zinc-50">
-            Run Info
-          </CardTitle>
+          <CardTitle className="text-base font-semibold">Run Info</CardTitle>
         </CardHeader>
         <CardContent className="px-6 pb-6 pt-0">
           <dl className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -195,8 +177,8 @@ export function RunDetailPage() {
             )}
             {run.errorMessage && (
               <div className="lg:col-span-2">
-                <dt className="text-xs font-medium text-zinc-500">Error</dt>
-                <dd className="mt-1 text-sm text-red-400 font-mono break-all">
+                <dt className="text-xs font-medium text-muted-foreground">Error</dt>
+                <dd className="mt-1 text-sm text-destructive font-mono break-all">
                   {run.errorMessage}
                 </dd>
               </div>
@@ -208,13 +190,11 @@ export function RunDetailPage() {
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────
-
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-medium text-zinc-500">{label}</dt>
-      <dd className="mt-1 text-sm text-zinc-200 truncate">{value}</dd>
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="mt-1 text-sm text-foreground truncate">{value}</dd>
     </div>
   );
 }

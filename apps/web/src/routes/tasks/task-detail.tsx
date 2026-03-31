@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface Task {
   id: string;
@@ -94,25 +95,36 @@ export function TaskDetailPage() {
   });
 
   if (isLoading) {
-    return <p className="text-zinc-400 text-sm">Loading...</p>;
+    return (
+      <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+        <div className="h-8 w-64 rounded-md bg-muted animate-pulse" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="h-40 rounded-lg bg-muted animate-pulse" />
+          <div className="h-40 rounded-lg bg-muted animate-pulse" />
+        </div>
+        <div className="h-48 rounded-lg bg-muted animate-pulse" />
+      </div>
+    );
   }
 
   if (error || !task) {
     return (
-      <p className="text-red-400 text-sm">
-        Error: {error ? (error as Error).message : 'Task not found'}
-      </p>
+      <div className="max-w-4xl mx-auto px-6 py-8">
+        <p className="text-destructive text-sm">
+          Error: {error ? (error as Error).message : 'Task not found'}
+        </p>
+      </div>
     );
   }
 
   const isActive = ACTIVE_STATUSES.has(task.status);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold text-zinc-50">{task.title}</h1>
-          <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <h1 className="text-2xl font-semibold text-foreground">{task.title}</h1>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Badge variant={statusVariant(task.status)}>{task.status}</Badge>
             <span>·</span>
             <span>{task.config?.agentProvider ?? 'none'}</span>
@@ -142,7 +154,7 @@ export function TaskDetailPage() {
       </div>
 
       {(retryMutation.isError || cancelMutation.isError) && (
-        <p className="text-sm text-red-400">
+        <p className="text-sm text-destructive">
           {retryMutation.isError
             ? (retryMutation.error as Error).message
             : (cancelMutation.error as Error).message}
@@ -150,74 +162,90 @@ export function TaskDetailPage() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="rounded-lg border border-zinc-800 p-4 flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wide">
-            Prompt
-          </h2>
-          <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">
-            {task.prompt}
-          </p>
-        </div>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Prompt
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+              {task.prompt}
+            </p>
+          </CardContent>
+        </Card>
 
-        <div className="rounded-lg border border-zinc-800 p-4 flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wide">
-            Configuration
-          </h2>
-          <dl className="flex flex-col gap-2">
-            <div className="flex justify-between text-sm">
-              <dt className="text-zinc-400">Agent</dt>
-              <dd className="text-zinc-50">
-                {task.config?.agentProvider ?? 'none'}
-              </dd>
-            </div>
-            <div className="flex justify-between text-sm">
-              <dt className="text-zinc-400">Permission Mode</dt>
-              <dd className="text-zinc-50">{task.permissionMode}</dd>
-            </div>
-            <div className="flex justify-between text-sm">
-              <dt className="text-zinc-400">Created</dt>
-              <dd className="text-zinc-50">
-                {new Date(task.createdAt).toLocaleString()}
-              </dd>
-            </div>
-            <div className="flex justify-between text-sm">
-              <dt className="text-zinc-400">Updated</dt>
-              <dd className="text-zinc-50">
-                {new Date(task.updatedAt).toLocaleString()}
-              </dd>
-            </div>
-          </dl>
-        </div>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Configuration
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="flex flex-col gap-2">
+              <div className="flex justify-between text-sm">
+                <dt className="text-muted-foreground">Agent</dt>
+                <dd className="text-foreground">
+                  {task.config?.agentProvider ?? 'none'}
+                </dd>
+              </div>
+              <div className="flex justify-between text-sm">
+                <dt className="text-muted-foreground">Permission Mode</dt>
+                <dd className="text-foreground">{task.permissionMode}</dd>
+              </div>
+              <div className="flex justify-between text-sm">
+                <dt className="text-muted-foreground">Created</dt>
+                <dd className="text-foreground">
+                  {new Date(task.createdAt).toLocaleString()}
+                </dd>
+              </div>
+              <div className="flex justify-between text-sm">
+                <dt className="text-muted-foreground">Updated</dt>
+                <dd className="text-foreground">
+                  {new Date(task.updatedAt).toLocaleString()}
+                </dd>
+              </div>
+            </dl>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold text-zinc-50">Runs</h2>
+        <h2 className="text-lg font-semibold text-foreground">Runs</h2>
         {runsLoading && (
-          <p className="text-zinc-400 text-sm">Loading runs...</p>
-        )}
-        {!runsLoading && runs.length === 0 && (
-          <div className="rounded-lg border border-zinc-800 px-4 py-8 text-center text-zinc-500 text-sm">
-            No runs yet. Click &quot;Trigger Run&quot; to start one.
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-12 rounded-md bg-muted animate-pulse" />
+            ))}
           </div>
         )}
+        {!runsLoading && runs.length === 0 && (
+          <Card>
+            <CardContent className="py-8 text-center">
+              <p className="text-sm text-muted-foreground">
+                No runs yet. Click &quot;Trigger Run&quot; to start one.
+              </p>
+            </CardContent>
+          </Card>
+        )}
         {runs.length > 0 && (
-          <div className="rounded-lg border border-zinc-800 overflow-hidden">
+          <div className="rounded-lg border border-border overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-zinc-900/50 border-b border-zinc-800">
-                  <th className="text-left px-4 py-3 font-medium text-zinc-400">
+                <tr className="bg-muted/50 border-b border-border">
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">
                     Attempt
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-zinc-400">
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">
                     Status
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-zinc-400">
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">
                     Started
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-zinc-400">
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">
                     Duration
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-zinc-400">
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">
                     Error
                   </th>
                 </tr>
@@ -232,23 +260,23 @@ export function TaskDetailPage() {
                         params: { runId: run.id },
                       })
                     }
-                    className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900/70 cursor-pointer transition-colors"
+                    className="border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer transition-colors"
                   >
-                    <td className="px-4 py-3 text-zinc-50">#{run.attempt}</td>
+                    <td className="px-4 py-3 text-foreground">#{run.attempt}</td>
                     <td className="px-4 py-3">
                       <Badge variant={statusVariant(run.status)}>
                         {run.status}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-zinc-400">
+                    <td className="px-4 py-3 text-muted-foreground">
                       {run.startedAt
                         ? new Date(run.startedAt).toLocaleString()
                         : '—'}
                     </td>
-                    <td className="px-4 py-3 text-zinc-400">
+                    <td className="px-4 py-3 text-muted-foreground">
                       {formatDuration(run.startedAt, run.completedAt)}
                     </td>
-                    <td className="px-4 py-3 text-zinc-400 max-w-xs truncate">
+                    <td className="px-4 py-3 text-muted-foreground max-w-xs truncate">
                       {run.errorMessage ?? '—'}
                     </td>
                   </tr>

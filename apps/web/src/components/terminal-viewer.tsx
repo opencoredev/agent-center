@@ -1,23 +1,20 @@
 import React, { useRef, useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
 import type { RunEvent } from '@/hooks/use-run-stream';
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
 function getEventColor(eventType: string, level: string | null): string {
-  if (level === 'error') return 'text-red-400';
-  if (eventType.includes('command.started')) return 'text-cyan-400';
-  if (eventType.includes('command.finished')) return 'text-green-400';
-  if (eventType.includes('clone')) return 'text-blue-400';
-  if (eventType.includes('completed')) return 'text-green-500';
-  if (eventType.includes('failed')) return 'text-red-500';
-  return 'text-zinc-300';
+  if (level === 'error') return 'text-destructive';
+  if (eventType.includes('command.started')) return 'text-status-info';
+  if (eventType.includes('command.finished')) return 'text-status-success';
+  if (eventType.includes('clone')) return 'text-sidebar-primary';
+  if (eventType.includes('completed')) return 'text-status-success';
+  if (eventType.includes('failed')) return 'text-destructive';
+  return 'text-foreground';
 }
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString();
 }
-
-// ── Component ──────────────────────────────────────────────────────────────
 
 const MAX_VISIBLE = 500;
 
@@ -44,24 +41,24 @@ export function TerminalViewer({ events }: TerminalViewerProps) {
   const visibleEvents = events.slice(-MAX_VISIBLE);
 
   return (
-    <div className="relative h-96 bg-zinc-950 rounded-lg border border-zinc-800">
+    <div className="relative h-96 bg-background rounded-lg border border-border">
       <div
         ref={scrollRef}
         className="h-full overflow-y-auto p-4 font-mono text-xs"
         onScroll={handleScroll}
       >
         {visibleEvents.length === 0 ? (
-          <span className="text-zinc-600">Waiting for events...</span>
+          <span className="text-muted-foreground/40">Waiting for events...</span>
         ) : (
           visibleEvents.map((event, i) => (
             <div
               key={event.id || i}
               className={`leading-5 ${getEventColor(event.eventType, event.level)}`}
             >
-              <span className="text-zinc-600 mr-2">
+              <span className="text-muted-foreground/40 mr-2">
                 {formatTime(event.createdAt)}
               </span>
-              <span className="text-zinc-500 mr-2">[{event.eventType}]</span>
+              <span className="text-muted-foreground/60 mr-2">[{event.eventType}]</span>
               {event.message || ''}
             </div>
           ))
@@ -69,16 +66,17 @@ export function TerminalViewer({ events }: TerminalViewerProps) {
       </div>
 
       {!autoScroll && (
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={() => {
             setAutoScroll(true);
             scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
           }}
-          className="absolute bottom-4 right-4 bg-zinc-800 text-zinc-200 px-3 py-1 rounded text-xs hover:bg-zinc-700 transition-colors"
+          className="absolute bottom-4 right-4"
         >
           &darr; Resume scroll
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -80,7 +80,7 @@ function ClaudeConnectionCard() {
         <div className="flex items-start gap-3">
           <span
             className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${
-              isConnected ? 'bg-emerald-500' : 'bg-muted-foreground/30'
+              isConnected ? 'bg-status-success' : 'bg-muted-foreground/30'
             }`}
           />
           <div>
@@ -245,11 +245,11 @@ function ApiKeysCard() {
         </p>
 
         {revealedKey && (
-          <div className="rounded-md border border-emerald-800/50 bg-emerald-900/20 p-3">
-            <p className="text-xs text-emerald-400 mb-1">
+          <div className="rounded-md border border-status-success/20 bg-status-success/10 p-3">
+            <p className="text-xs text-status-success mb-1">
               Copy this key now — it won't be shown again.
             </p>
-            <code className="text-xs text-emerald-300 break-all select-all font-mono">
+            <code className="text-xs text-status-success break-all select-all font-mono">
               {revealedKey}
             </code>
           </div>

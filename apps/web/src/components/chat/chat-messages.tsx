@@ -9,7 +9,10 @@ import {
   XCircle,
   Clock,
   Loader2,
+  Copy,
+  Check,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import type { RunEvent } from '@/hooks/use-run-stream';
 
 export interface ChatMessage {
@@ -25,12 +28,56 @@ function StatusIcon({ status }: { status?: string }) {
   if (status === 'running')
     return <Loader2 className="w-3.5 h-3.5 text-sidebar-primary animate-spin" />;
   if (status === 'completed')
-    return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
+    return <CheckCircle2 className="w-3.5 h-3.5 text-status-success" />;
   if (status === 'failed')
     return <XCircle className="w-3.5 h-3.5 text-destructive" />;
   if (status === 'pending')
     return <Clock className="w-3.5 h-3.5 text-muted-foreground" />;
   return null;
+}
+
+/**
+ * Simple inline markdown parser for agent messages.
+ * Converts **bold** and `code` to HTML elements.
+ */
+function parseSimpleMarkdown(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  // Match **bold** or `code` segments
+  const regex = /(\*\*(.+?)\*\*|`([^`]+?)`)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    // Text before this match
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    if (match[2] !== undefined) {
+      // **bold**
+      parts.push(<strong key={key++}>{match[2]}</strong>);
+    } else if (match[3] !== undefined) {
+      // `code`
+      parts.push(
+        <code
+          key={key++}
+          className="px-1 py-0.5 rounded bg-muted font-mono text-xs"
+        >
+          {match[3]}
+        </code>
+      );
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts;
 }
 
 function ToolOutputBlock({ events }: { events: RunEvent[] }) {
@@ -95,11 +142,41 @@ function ToolOutputBlock({ events }: { events: RunEvent[] }) {
   );
 }
 
+function CopyButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API may not be available
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+      onClick={handleCopy}
+      title="Copy message"
+    >
+      {copied ? (
+        <Check className="w-3 h-3 text-status-success" />
+      ) : (
+        <Copy className="w-3 h-3" />
+      )}
+    </Button>
+  );
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user';
 
   return (
-    <div className={isUser ? 'flex justify-end' : ''}>
+    <div className={`group relative ${isUser ? 'flex justify-end' : ''}`}>
       <div
         className={`p-2.5 rounded-md w-full break-words ${
           isUser
@@ -131,13 +208,21 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         </div>
 
         <div className="text-sm leading-relaxed text-foreground">
-          <p className="whitespace-pre-wrap">{message.content}</p>
+          {isUser ? (
+            <p className="whitespace-pre-wrap">{message.content}</p>
+          ) : (
+            <p className="whitespace-pre-wrap">
+              {parseSimpleMarkdown(message.content)}
+            </p>
+          )}
         </div>
 
         {message.events && message.events.length > 0 && (
           <ToolOutputBlock events={message.events} />
         )}
       </div>
+
+      <CopyButton content={message.content} />
     </div>
   );
 }

@@ -1,11 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowRight, Circle } from 'lucide-react';
+import { ArrowRight, Circle, CircleDashed } from 'lucide-react';
+import { toast } from 'sonner';
 import { PromptBox } from '@/components/chat/prompt-box';
 import { ChatMessages, type ChatMessage } from '@/components/chat/chat-messages';
 import { useRunStream, type RunEvent } from '@/hooks/use-run-stream';
 import { apiGet, apiPost } from '@/lib/api-client';
+import { Button } from '@/components/ui/button';
 
 interface Task {
   id: string;
@@ -24,6 +26,13 @@ interface Workspace {
   id: string;
   name: string;
 }
+
+const SUGGESTION_CHIPS = [
+  'Fix a bug',
+  'Add a feature',
+  'Write tests',
+  'Refactor code',
+] as const;
 
 // ── Active Chat ──────────────────────────────────────────────────────────────
 
@@ -72,11 +81,13 @@ function ActiveChat({
 
 function StatusDot({ status }: { status: string }) {
   let color = 'text-muted-foreground/50';
-  if (status === 'completed') color = 'text-emerald-500';
-  else if (status === 'running' || status === 'in_progress') color = 'text-amber-400';
-  else if (status === 'failed' || status === 'error') color = 'text-red-400';
+  if (status === 'completed') color = 'text-status-success';
+  else if (status === 'running' || status === 'in_progress') color = 'text-status-warning';
+  else if (status === 'failed' || status === 'error') color = 'text-status-error';
 
-  return <Circle className={`w-2.5 h-2.5 fill-current ${color}`} />;
+  const isRunning = status === 'running' || status === 'in_progress';
+
+  return <Circle className={`w-2.5 h-2.5 fill-current ${color} ${isRunning ? 'animate-pulse' : ''}`} />;
 }
 
 function timeAgo(date: string): string {
@@ -92,8 +103,15 @@ function timeAgo(date: string): string {
 
 // ── Home Page ────────────────────────────────────────────────────────────────
 
-function HomePage({ onSubmit }: { onSubmit: (prompt: string) => void }) {
+function HomePage({
+  onSubmit,
+  isSubmitting,
+}: {
+  onSubmit: (prompt: string) => void;
+  isSubmitting: boolean;
+}) {
   const navigate = useNavigate();
+  const [promptDefault, setPromptDefault] = useState<string | undefined>(undefined);
 
   const { data: tasks = [] } = useQuery({
     queryKey: ['tasks'],
@@ -105,14 +123,45 @@ function HomePage({ onSubmit }: { onSubmit: (prompt: string) => void }) {
     (t) => t.status === 'running' || t.status === 'in_progress'
   );
 
+  const handleChipClick = (text: string) => {
+    setPromptDefault(text);
+  };
+
   return (
-    <div className="flex flex-col h-full max-w-2xl w-full mx-auto gap-8 justify-start pt-[15vh] px-4">
+    <div className="animate-fade-in flex flex-col h-full max-w-3xl w-full mx-auto gap-8 justify-start pt-[12vh] pb-[10vh] px-4">
+      {/* Greeting */}
+      <div>
+        <h1 className="text-2xl font-semibold text-foreground mb-1">
+          What would you like to build?
+        </h1>
+        <p className="text-sm text-muted-foreground mb-6">
+          Describe your task and an AI agent will work on it.
+        </p>
+      </div>
+
       {/* Prompt */}
-      <div className="animate-fade-in">
+      <div>
         <PromptBox
           onSubmit={(prompt) => onSubmit(prompt)}
           placeholder="Describe what you want to build..."
+          defaultValue={promptDefault}
+          isSubmitting={isSubmitting}
         />
+      </div>
+
+      {/* Suggestion chips */}
+      <div className="flex flex-wrap gap-2">
+        {SUGGESTION_CHIPS.map((chip) => (
+          <Button
+            key={chip}
+            variant="outline"
+            size="sm"
+            className="text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => handleChipClick(chip)}
+          >
+            {chip}
+          </Button>
+        ))}
       </div>
 
       {/* Active Tasks */}
@@ -123,9 +172,10 @@ function HomePage({ onSubmit }: { onSubmit: (prompt: string) => void }) {
 
         {activeTasks.length === 0 ? (
           <div className="rounded-xl border border-border bg-card p-8 text-center">
-            <p className="text-sm text-muted-foreground">No active tasks</p>
+            <CircleDashed className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">No tasks running</p>
             <p className="text-xs text-muted-foreground/50 mt-1">
-              Tasks in progress will appear here
+              Start by describing what you want to build above
             </p>
           </div>
         ) : (
@@ -212,6 +262,10 @@ export function ChatPage() {
           status: 'running',
         },
       ]);
+      toast.success('Task created');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
     },
   });
 
@@ -236,7 +290,7 @@ export function ChatPage() {
   }, []);
 
   if (messages.length === 0) {
-    return <HomePage onSubmit={handleSubmit} />;
+    return <HomePage onSubmit={handleSubmit} isSubmitting={submitTask.isPending} />;
   }
 
   return (

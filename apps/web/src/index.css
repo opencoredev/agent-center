@@ -35,6 +35,10 @@
   --sidebar-accent-foreground: oklch(0.2050 0 0);
   --sidebar-border: oklch(0.9220 0 0);
   --sidebar-ring: oklch(0.7080 0 0);
+  --status-success: oklch(0.6500 0.1780 155);
+  --status-warning: oklch(0.7500 0.1500 85);
+  --status-error: oklch(0.6300 0.2000 25);
+  --status-info: oklch(0.6500 0.1500 240);
   --font-sans: DM Sans, ui-sans-serif, sans-serif, system-ui;
   --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   --font-mono: Geist Mono, ui-monospace, monospace;
@@ -90,6 +94,10 @@
   --sidebar-accent-foreground: oklch(0.9850 0 0);
   --sidebar-border: oklch(0.2750 0 0);
   --sidebar-ring: oklch(0.4390 0 0);
+  --status-success: oklch(0.7000 0.1800 155);
+  --status-warning: oklch(0.8000 0.1500 85);
+  --status-error: oklch(0.7000 0.1900 22);
+  --status-info: oklch(0.7000 0.1500 240);
   --font-sans: DM Sans, ui-sans-serif, sans-serif, system-ui;
   --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   --font-mono: Geist Mono, ui-monospace, monospace;
@@ -143,6 +151,11 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
+  --color-status-error: var(--status-error);
+  --color-status-info: var(--status-info);
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
