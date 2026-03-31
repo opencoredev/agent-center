@@ -20,7 +20,9 @@ FROM base AS builder
 WORKDIR /app
 
 COPY . .
-RUN bun run build
+
+# Build the frontend (vite needs devDeps which are already installed)
+RUN cd apps/web && bunx --bun vite build
 
 # ── Stage 3: API (serves frontend in production) ─────────────────────────
 FROM oven/bun:1-debian AS api
@@ -36,7 +38,7 @@ ENV SERVE_FRONTEND=true
 ENV FRONTEND_DIST_PATH=apps/web/dist
 
 EXPOSE 3100
-CMD ["bun", "apps/api/src/index.ts"]
+CMD ["sh", "-c", "bun packages/db/src/migrate.ts && bun apps/api/src/index.ts"]
 
 # ── Stage 4: Worker ──────────────────────────────────────────────────────
 FROM oven/bun:1-debian AS worker
@@ -69,7 +71,18 @@ COPY --from=builder /app/packages ./packages
 EXPOSE 3002
 CMD ["bun", "apps/runner/src/index.ts"]
 
-# ── Stage 6: Migrator (run migrations and seed, then exit) ───────────────
+# ── Stage 6: Web (static frontend via serve) ─────────────────────────────
+FROM oven/bun:1-debian AS web
+WORKDIR /app
+
+RUN bun add serve
+
+COPY --from=builder /app/apps/web/dist ./dist
+
+EXPOSE 3000
+CMD ["bunx", "serve", "dist", "-s", "-l", "3000"]
+
+# ── Stage 7: Migrator (run migrations and seed, then exit) ───────────────
 FROM oven/bun:1-debian AS migrator
 WORKDIR /app
 
