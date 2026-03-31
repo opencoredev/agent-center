@@ -309,8 +309,11 @@ function ApiKeysCard() {
 
 export function SettingsPage() {
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
-      <h1 className="text-xl font-semibold text-foreground">Settings</h1>
+    <div className="max-w-2xl mx-auto px-4 py-8 space-y-6 animate-page-enter">
+      <div>
+        <h1 className="text-xl font-semibold text-foreground">Settings</h1>
+        <p className="text-sm text-muted-foreground mt-1">Manage your connections and API keys</p>
+      </div>
       <ClaudeConnectionCard />
       <ApiKeysCard />
       <WorkspaceCard />

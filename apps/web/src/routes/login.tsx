@@ -69,8 +69,8 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm animate-fade-in">
+    <div className="min-h-screen flex items-center justify-center bg-[radial-gradient(ellipse_at_top,var(--muted)_0%,var(--background)_50%)] px-4">
+      <div className="w-full max-w-sm animate-page-enter">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-3">

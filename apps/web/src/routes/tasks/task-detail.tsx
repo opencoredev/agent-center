@@ -120,7 +120,7 @@ export function TaskDetailPage() {
   const isActive = ACTIVE_STATUSES.has(task.status);
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-4xl mx-auto px-6 py-8 space-y-6 animate-page-enter">
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold text-foreground">{task.title}</h1>
