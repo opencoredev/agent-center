@@ -11,7 +11,6 @@ import {
   Check,
   Type,
   Link,
-  ChevronRight,
   Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -27,45 +26,67 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-// ── Provider / Model Data ────────────────────────────────────────────────────
+// ── Provider Logos (inline SVG) ──────────────────────────────────────────────
 
-interface ModelDef {
+function AnthropicLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 46 32" fill="currentColor" className={className}>
+      <path d="M32.73 0H26.l-13.27 32h6.73L32.73 0ZM13.27 0 0 32h6.9l2.72-6.73h13.18l2.72 6.73h6.9L19.15 0h-5.88Zm-.36 19.54 4.36-10.76 4.36 10.76H12.91Z" />
+    </svg>
+  );
+}
+
+function OpenAILogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365 2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z" />
+    </svg>
+  );
+}
+
+// ── Model Data ───────────────────────────────────────────────────────────────
+
+interface ModelEntry {
   id: string;
+  providerId: string;
+  providerLabel: string;
   label: string;
+  description: string;
   context: string;
-  speed: string;
+  speed: 'Fast' | 'Moderate';
+  Logo: React.FC<{ className?: string }>;
 }
 
-interface ProviderDef {
-  id: string;
-  label: string;
-  icon: string;
-  iconBg: string;
-  dotColor: string;
-  models: ModelDef[];
-}
-
-const PROVIDERS: ProviderDef[] = [
+const MODELS: ModelEntry[] = [
   {
-    id: 'claude',
-    label: 'Claude Code',
-    icon: 'A\\',
-    iconBg: 'bg-[#D97757]/15 text-[#D97757]',
-    dotColor: 'bg-[#D97757]',
-    models: [
-      { id: 'claude-opus-4-20250514', label: 'Claude Opus 4', context: '1M', speed: 'Moderate' },
-      { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', context: '200K', speed: 'Fast' },
-    ],
+    id: 'claude-opus-4-20250514',
+    providerId: 'claude',
+    providerLabel: 'Anthropic',
+    label: 'Claude Opus 4',
+    description: 'Most capable model for complex reasoning',
+    context: '1M',
+    speed: 'Moderate',
+    Logo: AnthropicLogo,
+  },
+  {
+    id: 'claude-sonnet-4-20250514',
+    providerId: 'claude',
+    providerLabel: 'Anthropic',
+    label: 'Claude Sonnet 4',
+    description: 'Fast and efficient for everyday tasks',
+    context: '200K',
+    speed: 'Fast',
+    Logo: AnthropicLogo,
   },
   {
     id: 'codex',
+    providerId: 'codex',
+    providerLabel: 'OpenAI',
     label: 'Codex',
-    icon: 'CX',
-    iconBg: 'bg-status-success/15 text-status-success',
-    dotColor: 'bg-status-success',
-    models: [
-      { id: 'codex', label: 'Codex', context: '192K', speed: 'Fast' },
-    ],
+    description: 'OpenAI coding agent',
+    context: '192K',
+    speed: 'Fast',
+    Logo: OpenAILogo,
   },
 ];
 
@@ -93,123 +114,108 @@ interface PromptBoxProps {
   defaultValue?: string;
 }
 
-// ── Model Picker (two-panel) ─────────────────────────────────────────────────
+// ── Model Picker ─────────────────────────────────────────────────────────────
+
+function SpeedBadge({ speed }: { speed: 'Fast' | 'Moderate' }) {
+  return (
+    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+      speed === 'Fast'
+        ? 'bg-status-success/15 text-status-success'
+        : 'bg-status-info/15 text-status-info'
+    }`}>
+      {speed}
+    </span>
+  );
+}
 
 function ModelPicker({
-  selectedProvider,
   selectedModel,
   onSelect,
 }: {
-  selectedProvider: string;
   selectedModel: string;
-  onSelect: (providerId: string, modelId: string) => void;
+  onSelect: (model: ModelEntry) => void;
 }) {
   const [search, setSearch] = useState('');
-  const [activeProvider, setActiveProvider] = useState<string | null>(null);
 
-  const filteredProviders = search
-    ? PROVIDERS.filter(
-        (p) =>
-          p.label.toLowerCase().includes(search.toLowerCase()) ||
-          p.models.some((m) => m.label.toLowerCase().includes(search.toLowerCase()))
+  const filtered = search
+    ? MODELS.filter(
+        (m) =>
+          m.label.toLowerCase().includes(search.toLowerCase()) ||
+          m.providerLabel.toLowerCase().includes(search.toLowerCase()) ||
+          m.description.toLowerCase().includes(search.toLowerCase())
       )
-    : PROVIDERS;
-
-  const hoveredProvider = activeProvider
-    ? PROVIDERS.find((p) => p.id === activeProvider)
-    : null;
+    : MODELS;
 
   return (
-    <div className="flex flex-col">
-      {/* Search */}
-      <div className="px-2 pb-2">
-        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-border bg-background">
-          <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+    <div className="flex flex-col w-[340px]">
+      {/* Search bar */}
+      <div className="px-3 pt-2 pb-1.5">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50">
+          <Search className="w-4 h-4 text-muted-foreground/60 shrink-0" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search agents..."
-            className="w-full text-sm bg-transparent outline-none placeholder:text-muted-foreground"
+            placeholder="Search models..."
+            className="w-full text-sm bg-transparent outline-none placeholder:text-muted-foreground/60"
             autoFocus
           />
         </div>
       </div>
 
-      <div className="flex min-h-[200px]">
-        {/* Left: Providers */}
-        <div className="w-[200px] border-r border-border px-1 py-0.5">
-          {filteredProviders.map((provider) => {
-            const isSelected = provider.id === selectedProvider;
-            const isHovered = provider.id === activeProvider;
-
-            return (
-              <button
-                key={provider.id}
-                onMouseEnter={() => setActiveProvider(provider.id)}
-                onClick={() => {
-                  if (provider.models.length === 1) {
-                    onSelect(provider.id, provider.models[0]!.id);
-                  } else {
-                    setActiveProvider(provider.id);
-                  }
-                }}
-                className={`flex items-center gap-2.5 w-full px-2.5 py-2 rounded-md text-sm transition-colors cursor-pointer ${
-                  isHovered || isSelected
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-foreground hover:bg-accent/50'
-                }`}
-              >
-                {isSelected && !isHovered ? (
-                  <Check className="w-4 h-4 text-primary shrink-0" />
-                ) : (
-                  <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 ${provider.iconBg}`}>
-                    {provider.icon}
-                  </span>
-                )}
-                <span className="flex-1 text-left font-medium">{provider.label}</span>
-                {provider.models.length > 1 && (
-                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Right: Models for hovered provider */}
-        {hoveredProvider && hoveredProvider.models.length > 1 && (
-          <div className="w-[220px] px-1 py-0.5">
-            {hoveredProvider.models.map((model) => {
-              const isSelected =
-                hoveredProvider.id === selectedProvider && model.id === selectedModel;
-
-              return (
-                <button
-                  key={model.id}
-                  onClick={() => onSelect(hoveredProvider.id, model.id)}
-                  className={`flex items-center gap-2.5 w-full px-2.5 py-2 rounded-md text-sm transition-colors cursor-pointer ${
-                    isSelected
-                      ? 'bg-accent text-accent-foreground'
-                      : 'text-foreground hover:bg-accent/50'
-                  }`}
-                >
-                  <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 ${hoveredProvider.iconBg}`}>
-                    {hoveredProvider.icon}
-                  </span>
-                  <div className="flex-1 text-left min-w-0">
-                    <div className="font-medium">{model.label}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {model.context} ctx · {model.speed}
-                    </div>
-                  </div>
-                  {isSelected && (
-                    <Check className="w-4 h-4 text-primary shrink-0" />
-                  )}
-                </button>
-              );
-            })}
+      {/* Model list */}
+      <div className="px-1.5 pb-1.5 max-h-[320px] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+        {filtered.length === 0 && (
+          <div className="py-8 text-center text-sm text-muted-foreground">
+            No models found
           </div>
         )}
+        {filtered.map((model) => {
+          const isSelected = model.id === selectedModel;
+          const Logo = model.Logo;
+
+          return (
+            <button
+              key={model.id}
+              onClick={() => onSelect(model)}
+              className={`group flex items-start gap-3 w-full px-3 py-2.5 rounded-lg transition-all cursor-pointer ${
+                isSelected
+                  ? 'bg-accent'
+                  : 'hover:bg-muted/50'
+              }`}
+            >
+              {/* Provider logo */}
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                model.providerId === 'claude'
+                  ? 'bg-[#D97757]/12 text-[#D97757]'
+                  : 'bg-foreground/8 text-foreground/70'
+              }`}>
+                <Logo className="w-3.5 h-3.5" />
+              </div>
+
+              {/* Info */}
+              <div className="flex-1 min-w-0 text-left">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-foreground">
+                    {model.label}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground/60">
+                    {model.context}
+                  </span>
+                  <SpeedBadge speed={model.speed} />
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                  {model.description}
+                </p>
+              </div>
+
+              {/* Check */}
+              {isSelected && (
+                <Check className="w-4 h-4 text-primary shrink-0 mt-1" />
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -220,21 +226,6 @@ function ModelPicker({
 function FileTypeIcon({ type }: { type: AttachedFile['type'] }) {
   if (type === 'image') return <ImageIcon className="w-3.5 h-3.5" />;
   return <FileText className="w-3.5 h-3.5" />;
-}
-
-function ProviderDot({ providerId }: { providerId: string }) {
-  const provider = PROVIDERS.find((p) => p.id === providerId);
-  const color = provider?.dotColor ?? 'bg-muted-foreground/50';
-  return <span className={`inline-block w-2 h-2 rounded-full ${color}`} />;
-}
-
-function getDisplayLabel(providerId: string, modelId: string): string {
-  const provider = PROVIDERS.find((p) => p.id === providerId);
-  if (!provider) return 'Manual';
-  const model = provider.models.find((m) => m.id === modelId);
-  if (!model) return provider.label;
-  if (provider.models.length === 1) return provider.label;
-  return `${provider.label}: ${model.label.replace('Claude ', '')}`;
 }
 
 // ── Main Component ───────────────────────────────────────────────────────────
@@ -251,8 +242,7 @@ export function PromptBox({
 }: PromptBoxProps) {
   const [value, setValue] = useState(defaultValue ?? '');
   const [files, setFiles] = useState<AttachedFile[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState('claude');
-  const [selectedModel, setSelectedModel] = useState('claude-opus-4-20250514');
+  const [selectedModelId, setSelectedModelId] = useState('claude-opus-4-20250514');
   const [branch, setBranch] = useState('main');
   const [branchInput, setBranchInput] = useState('main');
   const [modelOpen, setModelOpen] = useState(false);
@@ -261,6 +251,8 @@ export function PromptBox({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const selectedModel = MODELS.find((m) => m.id === selectedModelId) ?? MODELS[0]!;
 
   useEffect(() => {
     if (defaultValue !== undefined) {
@@ -310,13 +302,12 @@ export function PromptBox({
     setFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
-  const handleModelPick = (providerId: string, modelId: string) => {
-    setSelectedProvider(providerId);
-    setSelectedModel(modelId);
+  const handleModelPick = (model: ModelEntry) => {
+    setSelectedModelId(model.id);
     setModelOpen(false);
     onConfigChange?.({
-      agentProvider: providerId,
-      agentModel: modelId,
+      agentProvider: model.providerId,
+      agentModel: model.id,
       branch,
     });
   };
@@ -326,14 +317,17 @@ export function PromptBox({
     setBranchInput(b);
     setBranchOpen(false);
     onConfigChange?.({
-      agentProvider: selectedProvider,
-      agentModel: selectedModel,
+      agentProvider: selectedModel.providerId,
+      agentModel: selectedModel.id,
       branch: b,
     });
   };
 
   const hasContent = value.trim().length > 0 || files.length > 0;
-  const displayLabel = getDisplayLabel(selectedProvider, selectedModel);
+
+  // Trigger label: "Claude Opus 4" or "Codex"
+  const triggerLabel = selectedModel.label;
+  const TriggerLogo = selectedModel.Logo;
 
   const resolvedPlaceholder =
     placeholder ||
@@ -386,26 +380,26 @@ export function PromptBox({
         {/* Bottom toolbar */}
         <div className="flex items-center justify-between px-3 pb-2.5 pt-0">
           {/* Left: selectors */}
-          <div className="flex items-center gap-1.5">
-            {/* Model selector — two-panel */}
+          <div className="flex items-center gap-1">
+            {/* Model selector */}
             <Popover open={modelOpen} onOpenChange={setModelOpen}>
               <PopoverTrigger asChild>
                 <Button
                   variant="ghost"
-                  className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                  size="xs"
+                  className="text-muted-foreground hover:text-foreground gap-1.5"
                 >
-                  <ProviderDot providerId={selectedProvider} />
-                  <span className="hidden sm:inline">{displayLabel}</span>
+                  <TriggerLogo className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{triggerLabel}</span>
                 </Button>
               </PopoverTrigger>
               <PopoverContent
                 align="start"
-                className="w-auto p-1.5"
+                className="w-auto p-0 overflow-hidden"
                 sideOffset={8}
               >
                 <ModelPicker
-                  selectedProvider={selectedProvider}
-                  selectedModel={selectedModel}
+                  selectedModel={selectedModelId}
                   onSelect={handleModelPick}
                 />
               </PopoverContent>
@@ -416,7 +410,8 @@ export function PromptBox({
               <PopoverTrigger asChild>
                 <Button
                   variant="ghost"
-                  className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                  size="xs"
+                  className="text-muted-foreground hover:text-foreground gap-1.5"
                 >
                   <GitBranch className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">{branch}</span>
@@ -472,7 +467,7 @@ export function PromptBox({
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 text-muted-foreground"
-                    title="Add context"
+                    title="Attach"
                   >
                     <Paperclip className="w-3.5 h-3.5" />
                   </Button>
