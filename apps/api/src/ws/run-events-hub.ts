@@ -33,6 +33,7 @@ interface ConnectionSession {
 
 export class RunEventsHub {
   private readonly sessions = new Map<ConnectionKey, ConnectionSession>();
+  private readonly taskSubscribers = new Set<ConnectionKey>();
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private pollInFlight = false;
 
@@ -53,7 +54,9 @@ export class RunEventsHub {
   }
 
   unregister(socket: ConnectionSocket) {
-    this.sessions.delete(this.getConnectionKey(socket));
+    const key = this.getConnectionKey(socket);
+    this.sessions.delete(key);
+    this.taskSubscribers.delete(key);
 
     if (this.sessions.size === 0) {
       this.stopPolling();
@@ -86,6 +89,16 @@ export class RunEventsHub {
       return;
     }
 
+    if (message.type === "subscribe_tasks") {
+      this.taskSubscribers.add(this.getConnectionKey(session.socket));
+      return;
+    }
+
+    if (message.type === "unsubscribe_tasks") {
+      this.taskSubscribers.delete(this.getConnectionKey(session.socket));
+      return;
+    }
+
     if (message.type === "subscribe_run") {
       if (!session.subscriptions.has(message.runId)) {
         session.subscriptions.set(message.runId, {
@@ -107,6 +120,19 @@ export class RunEventsHub {
 
     if (!this.hasActiveSubscriptions()) {
       this.stopPolling();
+    }
+  }
+
+  notifyTasksChanged() {
+    for (const key of this.taskSubscribers) {
+      const session = this.sessions.get(key);
+
+      if (!session) {
+        this.taskSubscribers.delete(key);
+        continue;
+      }
+
+      this.send(session.socket, { type: "tasks_changed" });
     }
   }
 

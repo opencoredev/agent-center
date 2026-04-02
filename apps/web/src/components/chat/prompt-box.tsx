@@ -8,10 +8,11 @@ import {
   Square,
   Loader2,
   GitBranch,
-  Bot,
   Check,
   Type,
   Link,
+  ChevronRight,
+  Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,44 +27,56 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
+// ── Provider / Model Data ────────────────────────────────────────────────────
+
+interface ModelDef {
+  id: string;
+  label: string;
+  context: string;
+  speed: string;
+}
+
+interface ProviderDef {
+  id: string;
+  label: string;
+  icon: string;
+  iconBg: string;
+  dotColor: string;
+  models: ModelDef[];
+}
+
+const PROVIDERS: ProviderDef[] = [
+  {
+    id: 'claude',
+    label: 'Claude Code',
+    icon: 'A\\',
+    iconBg: 'bg-[#D97757]/15 text-[#D97757]',
+    dotColor: 'bg-[#D97757]',
+    models: [
+      { id: 'claude-opus-4-20250514', label: 'Claude Opus 4', context: '1M', speed: 'Moderate' },
+      { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', context: '200K', speed: 'Fast' },
+    ],
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    icon: 'CX',
+    iconBg: 'bg-status-success/15 text-status-success',
+    dotColor: 'bg-status-success',
+    models: [
+      { id: 'codex', label: 'Codex', context: '192K', speed: 'Fast' },
+    ],
+  },
+];
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
 interface AttachedFile {
   id: string;
   name: string;
   type: 'pdf' | 'image' | 'file';
   size: string;
 }
-
-interface ModelOption {
-  provider: string;
-  model: string;
-  label: string;
-}
-
-const MODEL_GROUPS: { group: string; items: ModelOption[] }[] = [
-  {
-    group: 'No Agent',
-    items: [{ provider: 'none', model: 'manual', label: 'Manual' }],
-  },
-  {
-    group: 'Claude Code',
-    items: [
-      {
-        provider: 'claude',
-        model: 'claude-opus-4-20250514',
-        label: 'Opus',
-      },
-      {
-        provider: 'claude',
-        model: 'claude-sonnet-4-20250514',
-        label: 'Sonnet',
-      },
-    ],
-  },
-  {
-    group: 'Codex',
-    items: [{ provider: 'codex', model: 'codex', label: 'Codex' }],
-  },
-];
 
 interface PromptBoxProps {
   onSubmit: (prompt: string, files: AttachedFile[]) => void;
@@ -80,10 +93,151 @@ interface PromptBoxProps {
   defaultValue?: string;
 }
 
+// ── Model Picker (two-panel) ─────────────────────────────────────────────────
+
+function ModelPicker({
+  selectedProvider,
+  selectedModel,
+  onSelect,
+}: {
+  selectedProvider: string;
+  selectedModel: string;
+  onSelect: (providerId: string, modelId: string) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [activeProvider, setActiveProvider] = useState<string | null>(null);
+
+  const filteredProviders = search
+    ? PROVIDERS.filter(
+        (p) =>
+          p.label.toLowerCase().includes(search.toLowerCase()) ||
+          p.models.some((m) => m.label.toLowerCase().includes(search.toLowerCase()))
+      )
+    : PROVIDERS;
+
+  const hoveredProvider = activeProvider
+    ? PROVIDERS.find((p) => p.id === activeProvider)
+    : null;
+
+  return (
+    <div className="flex flex-col">
+      {/* Search */}
+      <div className="px-2 pb-2">
+        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-border bg-background">
+          <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search agents..."
+            className="w-full text-sm bg-transparent outline-none placeholder:text-muted-foreground"
+            autoFocus
+          />
+        </div>
+      </div>
+
+      <div className="flex min-h-[200px]">
+        {/* Left: Providers */}
+        <div className="w-[200px] border-r border-border px-1 py-0.5">
+          {filteredProviders.map((provider) => {
+            const isSelected = provider.id === selectedProvider;
+            const isHovered = provider.id === activeProvider;
+
+            return (
+              <button
+                key={provider.id}
+                onMouseEnter={() => setActiveProvider(provider.id)}
+                onClick={() => {
+                  if (provider.models.length === 1) {
+                    onSelect(provider.id, provider.models[0]!.id);
+                  } else {
+                    setActiveProvider(provider.id);
+                  }
+                }}
+                className={`flex items-center gap-2.5 w-full px-2.5 py-2 rounded-md text-sm transition-colors cursor-pointer ${
+                  isHovered || isSelected
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-foreground hover:bg-accent/50'
+                }`}
+              >
+                {isSelected && !isHovered ? (
+                  <Check className="w-4 h-4 text-primary shrink-0" />
+                ) : (
+                  <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 ${provider.iconBg}`}>
+                    {provider.icon}
+                  </span>
+                )}
+                <span className="flex-1 text-left font-medium">{provider.label}</span>
+                {provider.models.length > 1 && (
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Right: Models for hovered provider */}
+        {hoveredProvider && hoveredProvider.models.length > 1 && (
+          <div className="w-[220px] px-1 py-0.5">
+            {hoveredProvider.models.map((model) => {
+              const isSelected =
+                hoveredProvider.id === selectedProvider && model.id === selectedModel;
+
+              return (
+                <button
+                  key={model.id}
+                  onClick={() => onSelect(hoveredProvider.id, model.id)}
+                  className={`flex items-center gap-2.5 w-full px-2.5 py-2 rounded-md text-sm transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-foreground hover:bg-accent/50'
+                  }`}
+                >
+                  <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 ${hoveredProvider.iconBg}`}>
+                    {hoveredProvider.icon}
+                  </span>
+                  <div className="flex-1 text-left min-w-0">
+                    <div className="font-medium">{model.label}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {model.context} ctx · {model.speed}
+                    </div>
+                  </div>
+                  {isSelected && (
+                    <Check className="w-4 h-4 text-primary shrink-0" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
 function FileTypeIcon({ type }: { type: AttachedFile['type'] }) {
   if (type === 'image') return <ImageIcon className="w-3.5 h-3.5" />;
   return <FileText className="w-3.5 h-3.5" />;
 }
+
+function ProviderDot({ providerId }: { providerId: string }) {
+  const provider = PROVIDERS.find((p) => p.id === providerId);
+  const color = provider?.dotColor ?? 'bg-muted-foreground/50';
+  return <span className={`inline-block w-2 h-2 rounded-full ${color}`} />;
+}
+
+function getDisplayLabel(providerId: string, modelId: string): string {
+  const provider = PROVIDERS.find((p) => p.id === providerId);
+  if (!provider) return 'Manual';
+  const model = provider.models.find((m) => m.id === modelId);
+  if (!model) return provider.label;
+  if (provider.models.length === 1) return provider.label;
+  return `${provider.label}: ${model.label.replace('Claude ', '')}`;
+}
+
+// ── Main Component ───────────────────────────────────────────────────────────
 
 export function PromptBox({
   onSubmit,
@@ -97,11 +251,8 @@ export function PromptBox({
 }: PromptBoxProps) {
   const [value, setValue] = useState(defaultValue ?? '');
   const [files, setFiles] = useState<AttachedFile[]>([]);
-  const [selectedModel, setSelectedModel] = useState<ModelOption>({
-    provider: 'claude',
-    model: 'claude-opus-4-20250514',
-    label: 'Claude Code \u00b7 Opus',
-  });
+  const [selectedProvider, setSelectedProvider] = useState('claude');
+  const [selectedModel, setSelectedModel] = useState('claude-opus-4-20250514');
   const [branch, setBranch] = useState('main');
   const [branchInput, setBranchInput] = useState('main');
   const [modelOpen, setModelOpen] = useState(false);
@@ -111,7 +262,6 @@ export function PromptBox({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync defaultValue prop
   useEffect(() => {
     if (defaultValue !== undefined) {
       setValue(defaultValue);
@@ -119,7 +269,6 @@ export function PromptBox({
     }
   }, [defaultValue]);
 
-  // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -161,19 +310,13 @@ export function PromptBox({
     setFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
-  const handleModelSelect = (item: ModelOption) => {
-    const label =
-      item.provider === 'none'
-        ? 'Manual'
-        : item.provider === 'codex'
-          ? 'Codex'
-          : `Claude Code \u00b7 ${item.label}`;
-    const next = { ...item, label };
-    setSelectedModel(next);
+  const handleModelPick = (providerId: string, modelId: string) => {
+    setSelectedProvider(providerId);
+    setSelectedModel(modelId);
     setModelOpen(false);
     onConfigChange?.({
-      agentProvider: item.provider,
-      agentModel: item.model,
+      agentProvider: providerId,
+      agentModel: modelId,
       branch,
     });
   };
@@ -183,13 +326,14 @@ export function PromptBox({
     setBranchInput(b);
     setBranchOpen(false);
     onConfigChange?.({
-      agentProvider: selectedModel.provider,
-      agentModel: selectedModel.model,
+      agentProvider: selectedProvider,
+      agentModel: selectedModel,
       branch: b,
     });
   };
 
   const hasContent = value.trim().length > 0 || files.length > 0;
+  const displayLabel = getDisplayLabel(selectedProvider, selectedModel);
 
   const resolvedPlaceholder =
     placeholder ||
@@ -243,48 +387,27 @@ export function PromptBox({
         <div className="flex items-center justify-between px-3 pb-2.5 pt-0">
           {/* Left: selectors */}
           <div className="flex items-center gap-1.5">
-            {/* Model selector */}
+            {/* Model selector — two-panel */}
             <Popover open={modelOpen} onOpenChange={setModelOpen}>
               <PopoverTrigger asChild>
                 <Button
                   variant="ghost"
                   className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground gap-1.5"
                 >
-                  <Bot className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">
-                    {selectedModel.label}
-                  </span>
+                  <ProviderDot providerId={selectedProvider} />
+                  <span className="hidden sm:inline">{displayLabel}</span>
                 </Button>
               </PopoverTrigger>
               <PopoverContent
                 align="start"
-                className="w-56 p-1"
+                className="w-auto p-1.5"
                 sideOffset={8}
               >
-                {MODEL_GROUPS.map((group) => (
-                  <div key={group.group}>
-                    <div className="px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                      {group.group}
-                    </div>
-                    {group.items.map((item) => {
-                      const isSelected =
-                        item.provider === selectedModel.provider &&
-                        item.model === selectedModel.model;
-                      return (
-                        <button
-                          key={`${item.provider}-${item.model}`}
-                          onClick={() => handleModelSelect(item)}
-                          className="flex items-center justify-between w-full px-2.5 py-1.5 text-sm rounded-md hover:bg-accent transition-colors cursor-pointer"
-                        >
-                          <span>{item.label}</span>
-                          {isSelected && (
-                            <Check className="w-3.5 h-3.5 text-primary" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
+                <ModelPicker
+                  selectedProvider={selectedProvider}
+                  selectedModel={selectedModel}
+                  onSelect={handleModelPick}
+                />
               </PopoverContent>
             </Popover>
 
@@ -342,7 +465,6 @@ export function PromptBox({
               onChange={handleFileChange}
             />
 
-            {/* Add Context (+) */}
             <TooltipProvider delayDuration={200}>
               <Popover open={contextOpen} onOpenChange={setContextOpen}>
                 <PopoverTrigger asChild>

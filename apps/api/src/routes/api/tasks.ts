@@ -11,13 +11,16 @@ import {
   taskIdParamsSchema,
   taskListQuerySchema,
 } from "../../validators/tasks";
+import { runEventsHub } from "../../ws";
 
 export const taskRoutes = new Hono<ApiEnv>();
 
 taskRoutes.post("/", async (context) => {
   const input = await validateJson(context, createTaskSchema);
+  const result = await taskService.create(input);
+  runEventsHub.notifyTasksChanged();
 
-  return ok(context, await taskService.create(input), 201);
+  return ok(context, result, 201);
 });
 
 taskRoutes.get("/", async (context) => {
@@ -32,6 +35,7 @@ taskRoutes.post("/:taskId/cancel", async (context) => {
     optionalBody: true,
   });
   const result = await taskService.cancel(taskId, input);
+  runEventsHub.notifyTasksChanged();
 
   return ok(
     context,
@@ -54,8 +58,10 @@ taskRoutes.post("/:taskId/retry", async (context) => {
       optionalBody: true,
     },
   );
+  const result = await taskService.retry(taskId, input);
+  runEventsHub.notifyTasksChanged();
 
-  return ok(context, await taskService.retry(taskId, input), 201);
+  return ok(context, result, 201);
 });
 
 taskRoutes.get("/:taskId", async (context) => {

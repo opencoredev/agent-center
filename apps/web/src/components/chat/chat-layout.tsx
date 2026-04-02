@@ -4,6 +4,7 @@ import { ChatSidebar } from './chat-sidebar';
 import { PanelLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { useRealtimeTasks } from '@/hooks/use-realtime-tasks';
 
 const SIDEBAR_WIDTH_KEY = 'agent_center_sidebar_width';
 const DEFAULT_WIDTH = 320;
@@ -40,6 +41,8 @@ function useIsMobile() {
 }
 
 export function ChatLayout() {
+  useRealtimeTasks();
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(getStoredWidth);
   const [isResizing, setIsResizing] = useState(false);

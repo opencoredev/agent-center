@@ -6,7 +6,7 @@ import { RunEventsHub } from "./run-events-hub";
 
 type UpgradeWebSocket = ReturnType<typeof createBunWebSocket>["upgradeWebSocket"];
 
-const runEventsHub = new RunEventsHub();
+export const runEventsHub = new RunEventsHub();
 
 export function registerWebSocketRoutes(app: Hono, upgradeWebSocket: UpgradeWebSocket) {
   app.get(

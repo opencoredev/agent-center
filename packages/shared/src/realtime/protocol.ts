@@ -12,9 +12,9 @@ type ParseFailure = {
 
 export type RealtimeParseResult<TData> = ParseSuccess<TData> | ParseFailure;
 
-export const REALTIME_CLIENT_MESSAGE_TYPES = ["subscribe_run", "unsubscribe_run", "ping"] as const;
+export const REALTIME_CLIENT_MESSAGE_TYPES = ["subscribe_run", "unsubscribe_run", "subscribe_tasks", "unsubscribe_tasks", "ping"] as const;
 
-export const REALTIME_SERVER_MESSAGE_TYPES = ["subscribed", "run_event", "error", "pong"] as const;
+export const REALTIME_SERVER_MESSAGE_TYPES = ["subscribed", "run_event", "tasks_changed", "error", "pong"] as const;
 
 export interface SubscribeRunMessage {
   type: "subscribe_run";
@@ -26,11 +26,24 @@ export interface UnsubscribeRunMessage {
   runId: string;
 }
 
+export interface SubscribeTasksMessage {
+  type: "subscribe_tasks";
+}
+
+export interface UnsubscribeTasksMessage {
+  type: "unsubscribe_tasks";
+}
+
 export interface PingMessage {
   type: "ping";
 }
 
-export type RealtimeClientMessage = SubscribeRunMessage | UnsubscribeRunMessage | PingMessage;
+export type RealtimeClientMessage =
+  | SubscribeRunMessage
+  | UnsubscribeRunMessage
+  | SubscribeTasksMessage
+  | UnsubscribeTasksMessage
+  | PingMessage;
 
 export interface SubscribedMessage {
   type: "subscribed";
@@ -48,6 +61,10 @@ export interface RealtimeErrorMessage {
   message: string;
 }
 
+export interface TasksChangedMessage {
+  type: "tasks_changed";
+}
+
 export interface PongMessage {
   type: "pong";
 }
@@ -55,6 +72,7 @@ export interface PongMessage {
 export type RealtimeServerMessage =
   | SubscribedMessage
   | RunEventMessage
+  | TasksChangedMessage
   | RealtimeErrorMessage
   | PongMessage;
 
@@ -86,6 +104,24 @@ export function parseRealtimeClientMessage(
       success: true,
       data: {
         type: "ping",
+      },
+    };
+  }
+
+  if (type === "subscribe_tasks") {
+    return {
+      success: true,
+      data: {
+        type: "subscribe_tasks",
+      },
+    };
+  }
+
+  if (type === "unsubscribe_tasks") {
+    return {
+      success: true,
+      data: {
+        type: "unsubscribe_tasks",
       },
     };
   }
