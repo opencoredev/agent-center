@@ -59,6 +59,11 @@
   --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
+
+  /* Shared motion */
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-open: 0.3s;
+  --duration-close: 0.2s;
 }
 
 .dark {
@@ -198,6 +203,15 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
@@ -218,13 +232,14 @@ body {
   background: oklch(0.4880 0.2430 264.3760 / 0.3);
 }
 
-/* Animations */
+/* ── Animations ──────────────────────────────────────────── */
+
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-in {
-  animation: fade-in 0.35s ease-out forwards;
+  animation: fade-in 0.35s var(--ease-smooth) forwards;
 }
 
 @keyframes slide-in {
@@ -232,7 +247,7 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-slide-in {
-  animation: slide-in 0.3s ease-out forwards;
+  animation: slide-in 0.3s var(--ease-smooth) forwards;
 }
 
 @keyframes pulse-dot {
@@ -243,11 +258,82 @@ body {
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
 
-/* Page enter */
 @keyframes page-enter {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-page-enter {
-  animation: page-enter 0.25s ease-out;
+  animation: page-enter 0.25s var(--ease-smooth);
+}
+
+/* ── Sidebar animation system ────────────────────────────── */
+
+/* The sidebar panel: positioned with left, not display */
+.sidebar-panel {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  overflow: hidden;
+  transition-property: left, opacity, transform;
+  transition-timing-function: var(--ease-smooth);
+  will-change: left, opacity, transform;
+}
+.sidebar-panel[data-state="open"] {
+  left: 0;
+  opacity: 1;
+  transform: scale(1);
+  transition-duration: var(--duration-open);
+}
+.sidebar-panel[data-state="closed"] {
+  opacity: 0.94;
+  transform: scale(0.995);
+  transition-duration: var(--duration-close);
+}
+
+/* Layout spacer: pushes main content smoothly */
+.sidebar-spacer {
+  flex-shrink: 0;
+  transition-property: width;
+  transition-timing-function: var(--ease-smooth);
+}
+.sidebar-spacer[data-state="open"] {
+  transition-duration: var(--duration-open);
+}
+.sidebar-spacer[data-state="closed"] {
+  width: 0px !important;
+  transition-duration: var(--duration-close);
+}
+
+/* Sidebar inner content fade */
+.sidebar-inner {
+  opacity: 1;
+  transition: opacity 0.15s var(--ease-smooth);
+}
+.sidebar-panel[data-state="closed"] .sidebar-inner {
+  opacity: 0;
+}
+
+/* Toggle button animation */
+.sidebar-toggle {
+  transition: opacity 0.2s var(--ease-smooth), transform 0.2s var(--ease-smooth);
+}
+.sidebar-toggle[data-visible="false"] {
+  opacity: 0;
+  transform: scale(0.9);
+  pointer-events: none;
+}
+.sidebar-toggle[data-visible="true"] {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Resize handle during drag */
+.sidebar-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+.sidebar-resizing .sidebar-panel,
+.sidebar-resizing .sidebar-spacer {
+  transition-duration: 0s !important;
 }

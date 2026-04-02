@@ -45,33 +45,27 @@ export function ChatLayout() {
   const [isResizing, setIsResizing] = useState(false);
   const isMobile = useIsMobile();
 
-  // Persist width to localStorage
   const persistWidth = useCallback((width: number) => {
     try {
       localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
     } catch {
-      // localStorage unavailable
+      // noop
     }
   }, []);
 
-  // Resize handle logic
+  // ── Resize handle ──────────────────────────────────────────
   const startX = useRef(0);
   const startWidth = useRef(0);
 
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
-      const delta = e.clientX - startX.current;
-      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth.current + delta));
-      setSidebarWidth(newWidth);
-    },
-    []
-  );
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    const delta = e.clientX - startX.current;
+    const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth.current + delta));
+    setSidebarWidth(newWidth);
+  }, []);
 
   const handleMouseUp = useCallback(() => {
     setIsResizing(false);
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-    // Persist final width
+    document.body.classList.remove('sidebar-resizing');
     setSidebarWidth((w) => {
       persistWidth(w);
       return w;
@@ -94,13 +88,12 @@ export function ChatLayout() {
       startX.current = e.clientX;
       startWidth.current = sidebarWidth;
       setIsResizing(true);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
+      document.body.classList.add('sidebar-resizing');
     },
     [sidebarWidth]
   );
 
-  // Keyboard shortcut: Cmd+B / Ctrl+B
+  // ── Keyboard shortcut: Cmd+B / Ctrl+B ─────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
@@ -112,7 +105,9 @@ export function ChatLayout() {
     return () => document.removeEventListener('keydown', handler);
   }, []);
 
-  // Mobile layout: use Sheet
+  const state = sidebarOpen ? 'open' : 'closed';
+
+  // ── Mobile: Sheet overlay ──────────────────────────────────
   if (isMobile) {
     return (
       <div className="flex h-screen overflow-hidden bg-background">
@@ -123,38 +118,41 @@ export function ChatLayout() {
         </Sheet>
 
         <div className="flex-1 flex flex-col min-w-0 relative">
-          {!sidebarOpen && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setSidebarOpen(true)}
-              className="absolute top-2.5 left-2.5 z-10 h-8 w-8"
-            >
-              <PanelLeft className="w-4 h-4" />
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setSidebarOpen(true)}
+            className="sidebar-toggle absolute top-2.5 left-2.5 z-10 h-8 w-8"
+            data-visible={!sidebarOpen}
+          >
+            <PanelLeft className="w-4 h-4" />
+          </Button>
           <Outlet />
         </div>
       </div>
     );
   }
 
-  // Desktop layout: resizable push sidebar
+  // ── Desktop: position-animated sidebar ─────────────────────
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {/* Sidebar */}
+      {/* Spacer div: smoothly animates width to push main content */}
       <div
-        className={`relative flex-shrink-0 border-r border-sidebar-border ${
-          isResizing ? '' : 'transition-[width] duration-200 ease-in-out'
-        } ${sidebarOpen ? '' : 'w-0 border-r-0'}`}
-        style={sidebarOpen ? { width: sidebarWidth } : undefined}
+        className="sidebar-spacer"
+        data-state={state}
+        style={{ width: sidebarOpen ? sidebarWidth : 0 }}
+      />
+
+      {/* Sidebar panel: positioned with left, not display */}
+      <div
+        className="sidebar-panel bg-sidebar border-r border-sidebar-border z-30"
+        data-state={state}
+        style={{
+          width: sidebarWidth,
+          left: sidebarOpen ? 0 : -sidebarWidth,
+        }}
       >
-        <div
-          className={`absolute inset-y-0 left-0 bg-sidebar overflow-hidden ${
-            isResizing ? '' : 'transition-transform duration-200 ease-in-out'
-          } ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
-          style={{ width: sidebarWidth }}
-        >
+        <div className="sidebar-inner h-full">
           <ChatSidebar onCollapse={() => setSidebarOpen(false)} />
         </div>
 
@@ -169,16 +167,15 @@ export function ChatLayout() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 relative">
-        {!sidebarOpen && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setSidebarOpen(true)}
-            className="absolute top-2.5 left-2.5 z-10 h-8 w-8"
-          >
-            <PanelLeft className="w-4 h-4" />
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setSidebarOpen(true)}
+          className="sidebar-toggle absolute top-2.5 left-2.5 z-10 h-8 w-8"
+          data-visible={!sidebarOpen}
+        >
+          <PanelLeft className="w-4 h-4" />
+        </Button>
         <Outlet />
       </div>
     </div>
