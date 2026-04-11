@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./zero-schema": "./src/zero-schema.gen.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts src/migrate.ts --outdir dist --target bun --format esm",
@@ -12,12 +13,15 @@
     "format": "bunx oxfmt src drizzle.config.ts --write",
     "format:check": "bunx oxfmt src drizzle.config.ts --check",
     "db:generate": "bunx drizzle-kit generate --config=drizzle.config.ts",
-    "db:migrate": "bun src/migrate.ts"
+    "db:migrate": "bun src/migrate.ts",
+    "zero:generate": "bunx drizzle-zero generate -s ./src/schema/index.ts -o ./src/zero-schema.gen.ts --suppress-defaults-warning"
   },
   "dependencies": {
     "@agent-center/config": "workspace:*",
     "@agent-center/shared": "workspace:*",
+    "@rocicorp/zero": "^1.1.1",
     "drizzle-orm": "^0.45.2",
+    "drizzle-zero": "^0.18.0",
     "postgres": "^3.4.8",
     "zod": "^4.3.6"
   },

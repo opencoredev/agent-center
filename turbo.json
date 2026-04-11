@@ -2,13 +2,20 @@
   "$schema": "https://turbo.build/schema.json",
   "globalEnv": [
     "NODE_ENV",
+    "PORT",
+    "PORTLESS_URL",
     "API_HOST",
     "API_PORT",
     "WORKER_LOG_LEVEL",
     "RUNNER_LOG_LEVEL",
     "DATABASE_URL",
     "VITE_API_URL",
-    "VITE_AUTH_ENABLED"
+    "VITE_ZERO_ENABLED",
+    "VITE_ZERO_CACHE_URL",
+    "VITE_AUTH_ENABLED",
+    "CONVEX_DEPLOYMENT",
+    "CONVEX_URL",
+    "CONVEX_SELF_HOSTED_URL"
   ],
   "tasks": {
     "build": {

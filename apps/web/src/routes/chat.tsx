@@ -1,19 +1,19 @@
-import React, { useState, useCallback } from 'react';
-import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
+import type { ExecutionRuntime } from '@agent-center/shared';
 import { ArrowRight, Circle, CircleDashed } from 'lucide-react';
 import { toast } from 'sonner';
-import { PromptBox } from '@/components/chat/prompt-box';
-import { ChatMessages, type ChatMessage } from '@/components/chat/chat-messages';
-import { useRunStream, type RunEvent } from '@/hooks/use-run-stream';
+import { AGENTS, MODELS, PromptBox, runtimeForSandboxMode } from '@/components/chat/prompt-box';
 import { apiGet, apiPost } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
+import { useTaskList } from '@/hooks/use-zero-queries';
 
 interface Task {
   id: string;
   title: string;
   status: string;
-  createdAt: string;
+  createdAt: string | number;
 }
 
 interface Run {
@@ -27,6 +27,47 @@ interface Workspace {
   name: string;
 }
 
+interface RepoConnection {
+  id: string;
+  workspaceId: string;
+  projectId: string | null;
+  defaultBranch: string | null;
+}
+
+interface PromptConfig {
+  agentProvider: string;
+  agentModel: string;
+  branch: string;
+  runtime: ExecutionRuntime;
+  workspaceId?: string;
+  repoConnectionId?: string;
+  projectId?: string;
+}
+
+interface UploadedAttachment {
+  attachmentId?: string;
+  contentType: string;
+  name: string;
+  type: 'pdf' | 'image' | 'file';
+  url?: string | null;
+}
+
+function sandboxSizeForRuntime(runtime: ExecutionRuntime) {
+  if (runtime.target === 'local') {
+    return 'medium' as const;
+  }
+
+  if (runtime.target === 'cloud' && runtime.sandboxProfile === 'full') {
+    return 'large' as const;
+  }
+
+  if (runtime.target === 'self_hosted') {
+    return 'medium' as const;
+  }
+
+  return 'small' as const;
+}
+
 const SUGGESTION_CHIPS = [
   'Fix a bug',
   'Add a feature',
@@ -34,63 +75,20 @@ const SUGGESTION_CHIPS = [
   'Refactor code',
 ] as const;
 
-// ── Active Chat ──────────────────────────────────────────────────────────────
-
-function ActiveChat({
-  messages,
-  events,
-  isStreaming,
-  onSend,
-  onStop,
-}: {
-  messages: ChatMessage[];
-  events: RunEvent[];
-  isStreaming: boolean;
-  onSend: (prompt: string) => void;
-  onStop: () => void;
-}) {
-  const messagesWithEvents = messages.map((msg, i) => {
-    if (msg.role === 'agent' && i === messages.length - 1) {
-      return { ...msg, events, status: isStreaming ? ('running' as const) : msg.status };
-    }
-    return msg;
-  });
-
-  return (
-    <div className="flex flex-col h-full">
-      <ChatMessages
-        messages={messagesWithEvents}
-        isStreaming={isStreaming && messages[messages.length - 1]?.role === 'user'}
-      />
-      <div className="flex-shrink-0 px-4 pb-4 pt-2 border-t border-border">
-        <div className="max-w-2xl mx-auto">
-          <PromptBox
-            onSubmit={(prompt) => onSend(prompt)}
-            isStreaming={isStreaming}
-            onStop={onStop}
-            placeholder="Follow up with anything..."
-            compact
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Status helpers ───────────────────────────────────────────────────────────
 
 function StatusDot({ status }: { status: string }) {
   let color = 'text-muted-foreground/50';
   if (status === 'completed') color = 'text-status-success';
-  else if (status === 'running' || status === 'in_progress') color = 'text-status-warning';
+  else if (['pending', 'queued', 'provisioning', 'cloning', 'running', 'in_progress'].includes(status)) color = 'text-status-warning';
   else if (status === 'failed' || status === 'error') color = 'text-status-error';
 
-  const isRunning = status === 'running' || status === 'in_progress';
+  const isRunning = ['pending', 'queued', 'provisioning', 'cloning', 'running', 'in_progress'].includes(status);
 
   return <Circle className={`w-2.5 h-2.5 fill-current ${color} ${isRunning ? 'animate-pulse' : ''}`} />;
 }
 
-function timeAgo(date: string): string {
+function timeAgo(date: string | number): string {
   const diff = Date.now() - new Date(date).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'just now';
@@ -103,24 +101,139 @@ function timeAgo(date: string): string {
 
 // ── Home Page ────────────────────────────────────────────────────────────────
 
-function HomePage({
-  onSubmit,
-  isSubmitting,
-}: {
-  onSubmit: (prompt: string) => void;
-  isSubmitting: boolean;
-}) {
+export function ChatPage() {
   const navigate = useNavigate();
+  const storedModelId = localStorage.getItem('ac_default_model') ?? 'gpt-5.4';
+  const initialModel =
+    MODELS.find((model) => model.id === storedModelId) ??
+    MODELS.find((model) => model.id === 'gpt-5.4') ??
+    MODELS[0]!;
+  const initialAgent =
+    AGENTS.find((agent) => agent.id === initialModel.agentId) ??
+    AGENTS[0]!;
   const [promptDefault, setPromptDefault] = useState<string | undefined>(undefined);
-
-  const { data: tasks = [] } = useQuery({
-    queryKey: ['tasks'],
-    queryFn: () => apiGet<Task[]>('/api/tasks'),
-    staleTime: 30_000,
+  const [promptConfig, setPromptConfig] = useState<PromptConfig>({
+    agentProvider: initialAgent.id,
+    agentModel: initialModel.id,
+    branch: 'main',
+    runtime: runtimeForSandboxMode('local'),
+    repoConnectionId: localStorage.getItem('ac_selected_repo') ?? undefined,
   });
 
+  const { tasks } = useTaskList();
+  const previousTaskStatusRef = useRef<Map<string, string>>(new Map());
+
+  const clearSelectedRepository = useCallback(() => {
+    localStorage.removeItem('ac_selected_repo');
+    setPromptConfig((current) => ({
+      ...current,
+      repoConnectionId: undefined,
+      projectId: undefined,
+    }));
+  }, []);
+
   const activeTasks = tasks.filter(
-    (t) => t.status === 'running' || t.status === 'in_progress'
+    (t) => ['queued', 'provisioning', 'cloning', 'running', 'in_progress', 'paused'].includes(t.status)
+  );
+
+  useEffect(() => {
+    const previous = previousTaskStatusRef.current;
+
+    for (const task of tasks) {
+      const lastStatus = previous.get(task.id);
+      if (task.status === 'failed' && lastStatus && lastStatus !== 'failed') {
+        toast.error(`${task.title} failed. Open the task to see the error and retry.`);
+      }
+      previous.set(task.id, task.status);
+    }
+
+    const liveIds = new Set(tasks.map((task) => task.id));
+    for (const id of Array.from(previous.keys())) {
+      if (!liveIds.has(id)) {
+        previous.delete(id);
+      }
+    }
+  }, [tasks]);
+
+  const submitTask = useMutation({
+    mutationFn: async ({ prompt, files }: { prompt: string; files: UploadedAttachment[] }) => {
+      const workspaces = await apiGet<Workspace[]>('/api/workspaces');
+      const defaultWorkspaceId = workspaces[0]?.id;
+
+      let repoConnection: RepoConnection | null = null;
+      if (promptConfig.repoConnectionId) {
+        const repoConnections = await apiGet<RepoConnection[]>('/api/repo-connections');
+        repoConnection =
+          repoConnections.find((repo) => repo.id === promptConfig.repoConnectionId) ?? null;
+
+        if (!repoConnection) {
+          clearSelectedRepository();
+          throw new Error('The selected repository no longer exists. Pick another repository in Settings -> Repositories.');
+        }
+
+        if (!repoConnection.projectId) {
+          clearSelectedRepository();
+          throw new Error('The selected repository is not attached to a project yet. Reconnect it in Settings -> Repositories.');
+        }
+      }
+
+      const workspaceId = repoConnection?.workspaceId ?? promptConfig.workspaceId ?? defaultWorkspaceId;
+      if (!workspaceId) throw new Error('No workspace found');
+
+      const baseBranch = repoConnection?.defaultBranch ?? null;
+      const branchName =
+        repoConnection && promptConfig.branch !== (baseBranch ?? 'main')
+          ? promptConfig.branch
+          : null;
+
+      const task = await apiPost<Task>('/api/tasks', {
+        workspaceId,
+        projectId: repoConnection?.projectId ?? promptConfig.projectId ?? null,
+        repoConnectionId: repoConnection?.id ?? null,
+        title: prompt.slice(0, 80),
+        prompt,
+        baseBranch,
+        branchName,
+        sandboxSize: sandboxSizeForRuntime(promptConfig.runtime),
+        config: {
+          agentProvider: promptConfig.agentProvider as 'claude' | 'codex',
+          agentModel: promptConfig.agentModel,
+          runtime: promptConfig.runtime,
+        },
+        permissionMode: 'safe',
+        metadata: {
+          attachments: files
+            .filter((file) => file.attachmentId && file.url)
+            .map((file) => ({
+              id: file.attachmentId,
+              kind: file.type,
+              name: file.name,
+              url: file.url,
+            })),
+          requestedRuntimeTarget: promptConfig.runtime.target,
+          requestedRuntimeProvider: promptConfig.runtime.provider,
+          requestedSandboxProfile: promptConfig.runtime.sandboxProfile,
+          runtimeRoutingStatus: 'planned',
+        },
+      });
+
+      const run = await apiPost<Run>(`/api/tasks/${task.id}/retry`);
+      return { task, run };
+    },
+    onSuccess: ({ task }) => {
+      navigate({ to: '/tasks/$taskId', params: { taskId: task.id } });
+    },
+    onError: (error: Error) => {
+      console.error('Task creation failed:', error.message);
+      toast.error(error.message);
+    },
+  });
+
+  const handleSubmit = useCallback(
+    (prompt: string, files: UploadedAttachment[]) => {
+      submitTask.mutate({ prompt, files });
+    },
+    [submitTask],
   );
 
   const handleChipClick = (text: string) => {
@@ -142,10 +255,11 @@ function HomePage({
       {/* Prompt */}
       <div>
         <PromptBox
-          onSubmit={(prompt) => onSubmit(prompt)}
+          onSubmit={handleSubmit}
+          onConfigChange={setPromptConfig}
           placeholder="Describe what you want to build..."
           defaultValue={promptDefault}
-          isSubmitting={isSubmitting}
+          isSubmitting={submitTask.isPending}
         />
       </div>
 
@@ -202,104 +316,5 @@ function HomePage({
         )}
       </div>
     </div>
-  );
-}
-
-// ── Main ─────────────────────────────────────────────────────────────────────
-
-export function ChatPage() {
-  const queryClient = useQueryClient();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [activeRunId, setActiveRunId] = useState<string | null>(null);
-  const [isWorking, setIsWorking] = useState(false);
-
-  const { events, runStatus } = useRunStream(activeRunId || '');
-
-  React.useEffect(() => {
-    if (runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled') {
-      setIsWorking(false);
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.role === 'agent') {
-          return [
-            ...prev.slice(0, -1),
-            { ...last, status: runStatus as ChatMessage['status'] },
-          ];
-        }
-        return prev;
-      });
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    }
-  }, [runStatus, queryClient]);
-
-  const submitTask = useMutation({
-    mutationFn: async (prompt: string) => {
-      const workspaces = await apiGet<Workspace[]>('/api/workspaces');
-      const workspaceId = workspaces[0]?.id;
-      if (!workspaceId) throw new Error('No workspace found');
-
-      const task = await apiPost<Task>('/api/tasks', {
-        workspaceId,
-        title: prompt.slice(0, 80),
-        prompt,
-        config: { agentProvider: 'claude' },
-        permissionMode: 'safe',
-      });
-
-      const run = await apiPost<Run>(`/api/tasks/${task.id}/retry`);
-      return { task, run };
-    },
-    onSuccess: ({ task, run }) => {
-      setActiveRunId(run.id);
-      setIsWorking(true);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `agent-${run.id}`,
-          role: 'agent',
-          content: `Working on: ${task.title}`,
-          timestamp: new Date().toISOString(),
-          status: 'running',
-        },
-      ]);
-      toast.success('Task created');
-    },
-    onError: (error: Error) => {
-      toast.error(error.message);
-    },
-  });
-
-  const handleSubmit = useCallback(
-    (prompt: string) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `user-${Date.now()}`,
-          role: 'user',
-          content: prompt,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-      submitTask.mutate(prompt);
-    },
-    [submitTask],
-  );
-
-  const handleStop = useCallback(() => {
-    setIsWorking(false);
-  }, []);
-
-  if (messages.length === 0) {
-    return <HomePage onSubmit={handleSubmit} isSubmitting={submitTask.isPending} />;
-  }
-
-  return (
-    <ActiveChat
-      messages={messages}
-      events={events}
-      isStreaming={isWorking}
-      onSend={handleSubmit}
-      onStop={handleStop}
-    />
   );
 }

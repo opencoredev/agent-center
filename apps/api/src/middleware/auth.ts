@@ -13,6 +13,8 @@ const PUBLIC_PATHS = [
   "/api/auth/google/callback",
   "/api/auth/claude/start",
   "/api/auth/claude/callback",
+  "/api/auth/claude/exchange",
+  "/api/auth/codex/save-auth",
   "/health",
   "/assets/",
 ];

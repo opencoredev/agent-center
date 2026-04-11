@@ -1,5 +1,9 @@
-import type { ExecutionCommand, RunStatus } from "@agent-center/shared";
+import { readFile } from "node:fs/promises";
 
+import type { ExecutionCommand, RunStatus } from "@agent-center/shared";
+import { Effect } from "effect";
+
+import { getRunnerErrorMessage } from "../../effect/errors";
 import type {
   ActiveRunSnapshot,
   RunControlResponse,
@@ -15,9 +19,11 @@ import type {
 import { CommandExecutor } from "./command-executor";
 import type { ExecutionBackend, WorkspaceHandle } from "./backends/types";
 import { type ClaudeExecutionHandle, startClaudeAgent } from "./claude-executor";
+import { type CodexExecutionHandle, startCodexAgent } from "./codex-executor";
 import { CancelledError } from "./errors";
 import { assertCommandAllowed } from "./permission-service";
 import { RunPersistence } from "./persistence";
+import { runFlow } from "./run-flow";
 import { GitService } from "../git/git-service";
 
 interface RunSessionOptions {
@@ -56,6 +62,7 @@ export class RunSession implements CommandExecutionController {
   #workspaceHandle: WorkspaceHandle | null = null;
   #cancelRequested = false;
   #claudeHandle: ClaudeExecutionHandle | null = null;
+  #codexHandle: CodexExecutionHandle | null = null;
   #controlPoller: ReturnType<typeof setInterval> | null = null;
   #disposed = false;
 
@@ -174,83 +181,78 @@ export class RunSession implements CommandExecutionController {
     this.#startControlPolling();
 
     try {
-      this.#runStartedAt = new Date().toISOString();
-      await this.#transitionStatus("provisioning", "Provisioning host-local workspace", "running");
-      await this.#waitUntilRunnable();
-
-      this.#workspaceHandle = await this.#backend.createWorkspace(this.runId);
-      this.#workspacePath = this.#workspaceHandle.path;
-      await this.#persistence.recordWorkspacePath(this.#workspacePath);
-      await this.#persistence.appendLog("Workspace created", {
-        phase: "provisioning",
-        source: "runner",
-        workspacePath: this.#workspacePath,
-      });
-
-      if (this.#target.repoConnection) {
-        await this.#transitionStatus("cloning", "Cloning repository into local workspace");
-        await this.#waitUntilRunnable();
-        await this.#gitService.cloneRepository(this.#target, {
-          control: this,
-          persistence: this.#persistence,
-          workspacePath: this.#workspacePath,
-        });
-        await this.#gitService.prepareBranch(this.#target, {
-          control: this,
-          persistence: this.#persistence,
-          workspacePath: this.#workspacePath,
-        });
-      }
-
       const agentProvider = this.#target.run.config.agentProvider ?? "none";
       const commands = this.#resolveCommands();
 
-      if (agentProvider === "claude") {
-        await this.#transitionStatus("running", "Starting Claude Code agent session");
-        await this.#waitUntilRunnable();
-        await this.#executeClaudeAgent();
-      }
-
-      if (commands.length === 0 && agentProvider === "none") {
-        throw new Error("Run has no commands configured");
-      }
-
-      if (commands.length > 0) {
-        await this.#transitionStatus("running", `Executing ${commands.length} configured command(s)`);
-      }
-
-      for (const [index, command] of commands.entries()) {
-        await this.#waitUntilRunnable();
-        await this.#executeCommand(command, index + 1, commands.length);
-      }
-
-      await this.#transitionStatus("completed", "Run completed successfully", "completed");
-      await this.#persistence.appendEvent({
-        eventType: "run.completed",
-        level: "info",
-        message: "Run completed successfully",
-        payload: {
-          workspacePath: this.#workspacePath,
-        },
-      });
-      await this.#cleanupWorkspace("completed");
-    } catch (error) {
-      if (error instanceof CancelledError) {
-        await this.#transitionStatus("cancelled", error.message, "cancelled");
-        await this.#cleanupWorkspace("cancelled");
-      } else {
-        const message = error instanceof Error ? error.message : "Run failed";
-        await this.#transitionStatus("failed", message, "failed", message);
-        await this.#persistence.appendEvent({
-          eventType: "run.failed",
-          level: "error",
-          message,
-          payload: {
-            workspacePath: this.#workspacePath,
+      await Effect.runPromise(
+        runFlow({
+          agentProvider,
+          commands,
+          createWorkspace: () => this.#backend.createWorkspace(this.runId),
+          appendCompletedEvent: async () => {
+            await this.#persistence.appendEvent({
+              eventType: "run.completed",
+              level: "info",
+              message: "Run completed successfully",
+              payload: {
+                workspacePath: this.#workspacePath,
+              },
+            });
           },
-        });
-        await this.#cleanupWorkspace("failed");
-      }
+          appendFailedEvent: async (message) => {
+            await this.#persistence.appendEvent({
+              eventType: "run.failed",
+              level: "error",
+              message,
+              payload: {
+                workspacePath: this.#workspacePath,
+              },
+            });
+          },
+          cleanupWorkspace: (status) => this.#cleanupWorkspace(status),
+          executeClaudeAgent: () => this.#executeClaudeAgent(),
+          executeCodexAgent: () => this.#executeCodexAgent(),
+          executeCommand: (command, index, total) => this.#executeCommand(command, index, total),
+          getFailureMessage: getRunnerErrorMessage,
+          hasRepository: Boolean(this.#target.repoConnection),
+          markRunStarted: () => {
+            this.#runStartedAt = new Date().toISOString();
+          },
+          onWorkspaceCreated: async (workspaceHandle) => {
+            this.#workspaceHandle = workspaceHandle;
+            this.#workspacePath = workspaceHandle.path;
+            await this.#persistence.recordWorkspacePath(this.#workspacePath);
+            await this.#persistence.appendLog("Workspace created", {
+              phase: "provisioning",
+              source: "runner",
+              workspacePath: this.#workspacePath,
+            });
+          },
+          prepareBranch: async () => {
+            if (!this.#workspacePath) {
+              throw new Error("Workspace path was not prepared before branch setup");
+            }
+            await this.#gitService.prepareBranch(this.#target, {
+              control: this,
+              persistence: this.#persistence,
+              workspacePath: this.#workspacePath,
+            });
+          },
+          cloneRepository: async () => {
+            if (!this.#workspacePath) {
+              throw new Error("Workspace path was not prepared before repository clone");
+            }
+            await this.#gitService.cloneRepository(this.#target, {
+              control: this,
+              persistence: this.#persistence,
+              workspacePath: this.#workspacePath,
+            });
+          },
+          transitionStatus: (status, message, taskStatus, errorMessage) =>
+            this.#transitionStatus(status, message, taskStatus, errorMessage),
+          waitUntilRunnable: () => this.#waitUntilRunnable(),
+        }),
+      );
     } finally {
       this.#disposed = true;
       if (this.#controlPoller) {
@@ -450,11 +452,26 @@ export class RunSession implements CommandExecutionController {
       }, 2_000).unref();
     }
 
+    if (this.#codexHandle) {
+      this.#codexHandle.interrupt();
+      setTimeout(() => {
+        this.#codexHandle?.close();
+      }, 2_000).unref();
+    }
+
     if (this.#currentProcess) {
       this.terminateProcess("SIGTERM");
       setTimeout(() => {
         this.terminateProcess("SIGKILL");
       }, 2_000).unref();
+    }
+
+    if (!TERMINAL_STATUSES.has(this.#currentStatus)) {
+      await this.#transitionStatus(
+        "cancelled",
+        payload.reason ?? "Cancellation requested. Stopping the run and preserving current progress.",
+        "cancelled",
+      );
     }
 
     this.#handledControls.add(key);
@@ -516,7 +533,7 @@ export class RunSession implements CommandExecutionController {
     } else {
       // Try to fetch from API credential service
       try {
-        const apiUrl = process.env.RUNNER_API_URL ?? "http://localhost:3100";
+        const apiUrl = process.env.RUNNER_API_URL ?? "http://api.agent-center.localhost:1355";
         const res = await fetch(`${apiUrl}/internal/credentials/claude/resolve`);
         if (res.ok) {
           const data = (await res.json()) as { data: { type: string; value: string } };
@@ -566,6 +583,102 @@ export class RunSession implements CommandExecutionController {
 
     if (!result.success) {
       throw new Error(`Claude agent session failed: ${result.error}`);
+    }
+  }
+
+  async #executeCodexAgent() {
+    if (!this.#workspacePath) {
+      throw new Error("Workspace path was not prepared before agent execution");
+    }
+
+    const prompt = this.#target.run.config.agentPrompt ?? this.#target.run.prompt;
+    const model = this.#target.run.config.agentModel;
+
+    await this.#persistence.appendEvent({
+      eventType: "run.command.started",
+      level: "info",
+      message: "Codex agent session started",
+      payload: {
+        agentProvider: "codex",
+        model: model ?? "gpt-5.4",
+        prompt: prompt.slice(0, 200),
+      },
+    });
+
+    const authJson = await this.#resolveCodexAuthJson();
+    const openAiApiKey = await this.#resolveOpenAIApiKey();
+
+    const handle = startCodexAgent({
+      cwd: this.#workspacePath,
+      model,
+      permissionMode: this.#target.run.permissionMode,
+      prompt,
+      authJson,
+      env: openAiApiKey ? { OPENAI_API_KEY: openAiApiKey } : undefined,
+      onEvent: async (event) => {
+        await this.#persistence.appendLog(event.message, {
+          agentProvider: "codex",
+          eventType: event.type,
+          ...event.payload,
+        });
+      },
+    });
+
+    this.#codexHandle = handle;
+
+    const result = await handle.result;
+
+    this.#codexHandle = null;
+
+    await this.#persistence.appendEvent({
+      eventType: "run.command.finished",
+      level: result.success ? "info" : "error",
+      message: result.success
+        ? "Codex agent session completed"
+        : `Codex agent failed: ${result.error}`,
+      payload: {
+        agentProvider: "codex",
+        durationMs: result.durationMs,
+        success: result.success,
+      },
+    });
+
+    if (!result.success) {
+      throw new Error(`Codex agent session failed: ${result.error}`);
+    }
+  }
+
+  async #resolveCodexAuthJson() {
+    const authPath = process.env.CODEX_AUTH_PATH ?? `${process.env.HOME ?? ""}/.codex/auth.json`;
+    if (!authPath) {
+      return null;
+    }
+
+    try {
+      const raw = await readFile(authPath, "utf8");
+      return raw.trim().length > 0 ? raw : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async #resolveOpenAIApiKey() {
+    const openAiApiKey = process.env.OPENAI_API_KEY;
+    if (openAiApiKey) {
+      return openAiApiKey;
+    }
+
+    try {
+      const apiUrl = process.env.RUNNER_API_URL ?? "http://api.agent-center.localhost:1355";
+      const res = await fetch(`${apiUrl}/internal/credentials/openai/resolve`);
+      if (!res.ok) {
+        return null;
+      }
+
+      const data = (await res.json()) as { data: { type: string; value: string } };
+      return data.data.value;
+    } catch {
+      return null;
     }
   }
 

@@ -11,3 +11,9 @@ internalCredentialRoutes.get("/claude/resolve", async (context) => {
 
   return ok(context, credential);
 });
+
+internalCredentialRoutes.get("/openai/resolve", async (context) => {
+  const credential = await credentialService.resolveCodexCredential();
+
+  return ok(context, credential);
+});

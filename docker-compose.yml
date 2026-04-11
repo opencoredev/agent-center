@@ -10,6 +10,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: agent-center-postgres
+    command: postgres -c wal_level=logical -c max_replication_slots=5 -c max_wal_senders=5
     environment:
       POSTGRES_DB: agent_center
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -23,6 +24,21 @@ services:
       interval: 3s
       timeout: 3s
       retries: 10
+
+  zero-cache:
+    image: rocicorp/zero:latest
+    container_name: agent-center-zero
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${ZERO_PORT:-4848}:4848"
+    environment:
+      ZERO_UPSTREAM_DB: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
+      ZERO_CVR_DB: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
+      ZERO_CHANGE_DB: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
+      ZERO_REPLICA_FILE: /tmp/zero-cache.db
+      ZERO_NUM_SYNC_WORKERS: 4
 
   api:
     build:

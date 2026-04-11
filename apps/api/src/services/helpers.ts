@@ -1,4 +1,6 @@
-import type { DomainMetadata, RunStatus } from "@agent-center/shared";
+import type { DomainMetadata, ExecutionConfig, RunStatus } from "@agent-center/shared";
+
+import { ApiError } from "../http/errors";
 
 export function mergeMetadata(base: DomainMetadata, patch?: DomainMetadata) {
   if (patch === undefined) {
@@ -42,4 +44,26 @@ const activeRunStatuses = new Set<RunStatus>([
 
 export function isActiveRunStatus(status: RunStatus) {
   return activeRunStatuses.has(status);
+}
+
+const launchReadyRuntimeProviders = new Set([
+  "legacy_local",
+]);
+
+export function assertLaunchReadyExecutionConfig(config: ExecutionConfig) {
+  const provider = config.runtime?.provider;
+
+  if (!provider || launchReadyRuntimeProviders.has(provider)) {
+    return;
+  }
+
+  throw new ApiError(
+    400,
+    "runtime_not_launch_ready",
+    "This runtime is not launch-ready yet. Switch the task to Local and retry.",
+    {
+      provider,
+      target: config.runtime?.target ?? null,
+    },
+  );
 }

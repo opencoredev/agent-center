@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+
+browser_bin="${AGENT_BROWSER_BIN:-}"
+if [[ -z "$browser_bin" ]]; then
+  if [[ -x "$HOME/.cargo/bin/agent-browser" ]]; then
+    browser_bin="$HOME/.cargo/bin/agent-browser"
+  else
+    browser_bin="$(command -v agent-browser)"
+  fi
+fi
+
+export AGENT_BROWSER_IDLE_TIMEOUT_MS="${AGENT_BROWSER_IDLE_TIMEOUT_MS:-90000}"
+export AGENT_BROWSER_CONTENT_BOUNDARIES="${AGENT_BROWSER_CONTENT_BOUNDARIES:-1}"
+export AGENT_BROWSER_SCREENSHOT_DIR="${AGENT_BROWSER_SCREENSHOT_DIR:-$repo_root/.agent-browser/screenshots}"
+export AGENT_BROWSER_DOWNLOAD_PATH="${AGENT_BROWSER_DOWNLOAD_PATH:-$repo_root/.agent-browser/downloads}"
+
+mkdir -p "$AGENT_BROWSER_SCREENSHOT_DIR" "$AGENT_BROWSER_DOWNLOAD_PATH"
+
+exec "$browser_bin" "$@"

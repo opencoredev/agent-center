@@ -36,6 +36,13 @@ export async function findLatestRunForTask(taskId: string) {
   });
 }
 
+export async function listRunsForTask(taskId: string) {
+  return db.query.runs.findMany({
+    where: eq(runs.taskId, taskId),
+    orderBy: [desc(runs.attempt)],
+  });
+}
+
 export async function listRunEvents(runId: string) {
   return db.query.runEvents.findMany({
     where: eq(runEvents.runId, runId),

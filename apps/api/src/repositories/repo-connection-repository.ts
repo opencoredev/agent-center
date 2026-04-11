@@ -51,11 +51,41 @@ export async function findRepoConnectionByWorkspaceAndId(
   });
 }
 
+export async function findRepoConnectionByWorkspaceAndRepo(
+  workspaceId: string,
+  provider: typeof repoConnections.$inferSelect.provider,
+  owner: string,
+  repo: string,
+) {
+  return db.query.repoConnections.findFirst({
+    where: and(
+      eq(repoConnections.workspaceId, workspaceId),
+      eq(repoConnections.provider, provider),
+      eq(repoConnections.owner, owner),
+      eq(repoConnections.repo, repo),
+    ),
+    orderBy: desc(repoConnections.createdAt),
+  });
+}
+
 export async function createRepoConnection(values: typeof repoConnections.$inferInsert) {
   const [repoConnection] = await db.insert(repoConnections).values(values).returning();
 
   if (repoConnection === undefined) {
     throw new Error("Failed to create repo connection");
+  }
+
+  return repoConnection;
+}
+
+export async function deleteRepoConnection(repoConnectionId: string) {
+  const [repoConnection] = await db
+    .delete(repoConnections)
+    .where(eq(repoConnections.id, repoConnectionId))
+    .returning();
+
+  if (repoConnection === undefined) {
+    throw new Error(`Failed to delete repo connection ${repoConnectionId}`);
   }
 
   return repoConnection;

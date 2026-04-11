@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo="vercel-labs/agent-browser"
+tag="${1:-latest}"
+
+os="$(uname -s)"
+arch="$(uname -m)"
+
+case "$os/$arch" in
+  Darwin/arm64)
+    asset_name="agent-browser-darwin-arm64"
+    ;;
+  Darwin/x86_64)
+    asset_name="agent-browser-darwin-x64"
+    ;;
+  Linux/arm64 | Linux/aarch64)
+    asset_name="agent-browser-linux-arm64"
+    ;;
+  Linux/x86_64)
+    asset_name="agent-browser-linux-x64"
+    ;;
+  *)
+    printf 'Unsupported platform for automatic install: %s/%s\n' "$os" "$arch" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "$tag" == "latest" ]]; then
+  release_url="https://api.github.com/repos/$repo/releases/latest"
+else
+  release_url="https://api.github.com/repos/$repo/releases/tags/$tag"
+fi
+
+release_json="$(curl -fsSL "$release_url")"
+download_url="$(
+  printf '%s' "$release_json" | ASSET_NAME="$asset_name" bun -e '
+    const chunks = [];
+    for await (const chunk of Bun.stdin.stream()) chunks.push(chunk);
+    const release = JSON.parse(Buffer.concat(chunks).toString());
+    const asset = (release.assets ?? []).find((item) => item.name === process.env.ASSET_NAME);
+    if (!asset) {
+      console.error(`Asset not found: ${process.env.ASSET_NAME}`);
+      process.exit(1);
+    }
+    console.log(asset.browser_download_url);
+  '
+)"
+
+resolved_tag="$(
+  printf '%s' "$release_json" | bun -e '
+    const chunks = [];
+    for await (const chunk of Bun.stdin.stream()) chunks.push(chunk);
+    const release = JSON.parse(Buffer.concat(chunks).toString());
+    console.log(release.tag_name);
+  '
+)"
+
+install_dir="${HOME}/.cargo/bin"
+target_path="$install_dir/agent-browser"
+tmp_path="$(mktemp)"
+
+mkdir -p "$install_dir"
+curl -fL "$download_url" -o "$tmp_path"
+chmod +x "$tmp_path"
+mv "$tmp_path" "$target_path"
+
+printf 'Installed %s to %s\n' "$resolved_tag" "$target_path"
+"$target_path" --version

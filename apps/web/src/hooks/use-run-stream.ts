@@ -20,6 +20,20 @@ interface WsMessage {
   event?: RunEvent;
 }
 
+function mergeRunEvents(previous: RunEvent[], next: RunEvent[]): RunEvent[] {
+  const merged = new Map<string, RunEvent>();
+
+  for (const event of previous) {
+    merged.set(`${event.runId}:${event.sequence}`, event);
+  }
+
+  for (const event of next) {
+    merged.set(`${event.runId}:${event.sequence}`, event);
+  }
+
+  return Array.from(merged.values()).sort((left, right) => left.sequence - right.sequence);
+}
+
 // ── Hook ───────────────────────────────────────────────────────────────────
 
 export function useRunStream(runId: string) {
@@ -48,7 +62,7 @@ export function useRunStream(runId: string) {
       const msg: WsMessage = JSON.parse(evt.data as string);
 
       if (msg.type === 'run_event' && msg.event) {
-        setEvents((prev) => [...prev, msg.event!]);
+        setEvents((prev) => mergeRunEvents(prev, [msg.event!]));
 
         // Track status changes from run.status_changed events
         if (
@@ -68,6 +82,12 @@ export function useRunStream(runId: string) {
     };
 
     ws.onerror = () => ws.close();
+  }, [runId]);
+
+  useEffect(() => {
+    setEvents([]);
+    setIsConnected(false);
+    setRunStatus(null);
   }, [runId]);
 
   useEffect(() => {

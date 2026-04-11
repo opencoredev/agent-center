@@ -15,14 +15,16 @@ import {
   findRunById,
   listRunEvents,
   listRunLogEvents,
+  listRunsForTask,
   updateRun,
 } from "../repositories/run-repository";
 import { findTaskById } from "../repositories/task-repository";
-import { isActiveRunStatus, mergeMetadata, withControlIntent } from "./helpers";
+import { assertLaunchReadyExecutionConfig, isActiveRunStatus, mergeMetadata, withControlIntent } from "./helpers";
 import { serializeRun, serializeRunEvent } from "./serializers";
 
 interface RunCreateRequest {
   taskId: string;
+  prompt?: string | null;
   baseBranch?: string | null;
   branchName?: string | null;
   sandboxSize?: SandboxSize;
@@ -69,16 +71,19 @@ export const runService = {
       });
     }
 
+    const nextConfig = input.config ?? task.config;
+    assertLaunchReadyExecutionConfig(nextConfig);
+
     const run = await createRunRecord({
       taskId: task.id,
       repoConnectionId: task.repoConnectionId,
-      prompt: task.prompt,
+      prompt: input.prompt ?? task.prompt,
       baseBranch: input.baseBranch ?? task.baseBranch,
       branchName: input.branchName ?? task.branchName,
       sandboxSize: input.sandboxSize ?? task.sandboxSize,
       permissionMode: input.permissionMode ?? task.permissionMode,
       policy: input.policy ?? task.policy,
-      config: input.config ?? task.config,
+      config: nextConfig,
       metadata: mergeMetadata(task.metadata, input.metadata),
       source,
     });
@@ -94,6 +99,17 @@ export const runService = {
     }
 
     return serializeRun(run);
+  },
+
+  async listByTask(taskId: string) {
+    const task = await findTaskById(taskId);
+
+    if (task === undefined) {
+      throw notFoundError("task", taskId);
+    }
+
+    const taskRuns = await listRunsForTask(taskId);
+    return taskRuns.map(serializeRun);
   },
 
   async listEvents(runId: string) {

@@ -1,8 +1,11 @@
 import { Hono } from "hono";
+import { Effect } from "effect";
 
+import { runApiEffect, runApiResponseEffect, tryApiPromise } from "../../effect/http";
 import { ok } from "../../http/responses";
 import { validateJson, validateParams, validateQuery } from "../../http/validation";
 import type { ApiEnv } from "../../http/types";
+import { runService } from "../../services/run-service";
 import { taskService } from "../../services/task-service";
 import { createRunSchema } from "../../validators/runs";
 import {
@@ -10,6 +13,7 @@ import {
   taskControlSchema,
   taskIdParamsSchema,
   taskListQuerySchema,
+  updateTaskSchema,
 } from "../../validators/tasks";
 import { runEventsHub } from "../../ws";
 
@@ -17,16 +21,18 @@ export const taskRoutes = new Hono<ApiEnv>();
 
 taskRoutes.post("/", async (context) => {
   const input = await validateJson(context, createTaskSchema);
-  const result = await taskService.create(input);
-  runEventsHub.notifyTasksChanged();
-
-  return ok(context, result, 201);
+  return runApiEffect(
+    context,
+    tryApiPromise(() => taskService.create(input)).pipe(
+      Effect.tap(() => Effect.sync(() => runEventsHub.notifyTasksChanged())),
+    ),
+    201,
+  );
 });
 
 taskRoutes.get("/", async (context) => {
   const filters = validateQuery(context, taskListQuerySchema);
-
-  return ok(context, await taskService.list(filters));
+  return runApiEffect(context, tryApiPromise(() => taskService.list(filters)));
 });
 
 taskRoutes.post("/:taskId/cancel", async (context) => {
@@ -34,16 +40,21 @@ taskRoutes.post("/:taskId/cancel", async (context) => {
   const input = await validateJson(context, taskControlSchema, {
     optionalBody: true,
   });
-  const result = await taskService.cancel(taskId, input);
-  runEventsHub.notifyTasksChanged();
-
-  return ok(
+  return runApiResponseEffect(
     context,
-    {
-      task: result.task,
-      control: result.control,
-    },
-    result.statusCode,
+    tryApiPromise(() => taskService.cancel(taskId, input)).pipe(
+      Effect.tap(() => Effect.sync(() => runEventsHub.notifyTasksChanged())),
+      Effect.map((result) =>
+        ok(
+          context,
+          {
+            task: result.task,
+            control: result.control,
+          },
+          result.statusCode,
+        ),
+      ),
+    ),
   );
 });
 
@@ -58,14 +69,33 @@ taskRoutes.post("/:taskId/retry", async (context) => {
       optionalBody: true,
     },
   );
-  const result = await taskService.retry(taskId, input);
-  runEventsHub.notifyTasksChanged();
-
-  return ok(context, result, 201);
+  return runApiEffect(
+    context,
+    tryApiPromise(() => taskService.retry(taskId, input)).pipe(
+      Effect.tap(() => Effect.sync(() => runEventsHub.notifyTasksChanged())),
+    ),
+    201,
+  );
 });
 
 taskRoutes.get("/:taskId", async (context) => {
   const { taskId } = validateParams(context, taskIdParamsSchema);
+  return runApiEffect(context, tryApiPromise(() => taskService.getById(taskId)));
+});
 
-  return ok(context, await taskService.getById(taskId));
+taskRoutes.patch("/:taskId", async (context) => {
+  const { taskId } = validateParams(context, taskIdParamsSchema);
+  const input = await validateJson(context, updateTaskSchema);
+
+  return runApiEffect(
+    context,
+    tryApiPromise(() => taskService.update(taskId, input)).pipe(
+      Effect.tap(() => Effect.sync(() => runEventsHub.notifyTasksChanged())),
+    ),
+  );
+});
+
+taskRoutes.get("/:taskId/runs", async (context) => {
+  const { taskId } = validateParams(context, taskIdParamsSchema);
+  return runApiEffect(context, tryApiPromise(() => runService.listByTask(taskId)));
 });

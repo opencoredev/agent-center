@@ -1,16 +1,15 @@
 /**
- * Credential types for API key authentication.
+ * Credential types for provider authentication.
  *
- * OAuth-based subscription credentials are NOT supported — Anthropic's TOS
- * prohibits third-party apps from implementing Claude OAuth or routing
- * requests through subscription tokens.  Users should either:
- *   1. Provide an API key from console.anthropic.com, or
- *   2. Authenticate the host's Claude CLI (`claude auth login`) so the
- *      Agent SDK picks up the local session automatically.
+ * Supports two flows:
+ *   1. API key — user provides key from the provider's console
+ *   2. OAuth — user signs in with their subscription (Claude, Codex)
+ *      Claude OAuth creates an API key via the token; Codex stores
+ *      access + refresh tokens from the local CLI auth.
  */
 
 /** Source of the credential */
-export type CredentialSource = "api_key";
+export type CredentialSource = "api_key" | "oauth";
 
 export interface CredentialStatus {
   /** Whether the credential is currently connected/valid */

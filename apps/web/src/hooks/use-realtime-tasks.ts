@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getWsUrl } from '../lib/config';
+import { ZERO_ENABLED } from './use-zero';
 
 const RECONNECT_DELAY_MS = 3_000;
 
@@ -14,6 +15,8 @@ interface WsMessage {
  * automatically invalidated so the sidebar and home page refresh.
  */
 export function useRealtimeTasks() {
+  if (ZERO_ENABLED) return;
+
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);

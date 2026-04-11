@@ -4,6 +4,7 @@ import type {
   AgentCenterClientOptions,
   Automation,
   AutomationListParams,
+  CredentialStatus,
   CreateAutomationInput,
   CreateProjectInput,
   CreateRepoConnectionInput,
@@ -19,6 +20,8 @@ import type {
   RetryTaskInput,
   Run,
   RunControlResult,
+  SaveApiKeyInput,
+  SaveCodexAuthInput,
   RunStreamOptions,
   RunEvent,
   Task,
@@ -130,6 +133,14 @@ export class AgentCenterClient {
         signal: options?.signal,
       });
     },
+    delete: async (repoConnectionId: string, options?: RequestOptions) => {
+      return await this.http.request<{ deleted: true }>({
+        headers: options?.headers,
+        method: "DELETE",
+        path: `/repo-connections/${repoConnectionId}`,
+        signal: options?.signal,
+      });
+    },
   };
 
   readonly tasks = {
@@ -165,6 +176,14 @@ export class AgentCenterClient {
         method: "GET",
         path: "/tasks",
         query: params === undefined ? undefined : { ...params },
+        signal: options?.signal,
+      });
+    },
+    listRuns: async (taskId: string, options?: RequestOptions) => {
+      return await this.http.request<Run[]>({
+        headers: options?.headers,
+        method: "GET",
+        path: `/tasks/${taskId}/runs`,
         signal: options?.signal,
       });
     },
@@ -294,6 +313,71 @@ export class AgentCenterClient {
         headers: options?.headers,
         method: "PATCH",
         path: `/automations/${automationId}`,
+        signal: options?.signal,
+      });
+    },
+  };
+
+  readonly credentials = {
+    getClaude: async (options?: RequestOptions) => {
+      return await this.http.request<CredentialStatus>({
+        headers: options?.headers,
+        method: "GET",
+        path: "/credentials/claude",
+        signal: options?.signal,
+      });
+    },
+    getOpenAI: async (options?: RequestOptions) => {
+      return await this.http.request<CredentialStatus>({
+        headers: options?.headers,
+        method: "GET",
+        path: "/credentials/openai",
+        signal: options?.signal,
+      });
+    },
+    saveClaudeApiKey: async (input: SaveApiKeyInput, options?: RequestOptions) => {
+      return await this.http.request<CredentialStatus>({
+        body: input,
+        headers: options?.headers,
+        method: "POST",
+        path: "/credentials/claude/api-key",
+        signal: options?.signal,
+      });
+    },
+    saveOpenAIApiKey: async (input: SaveApiKeyInput, options?: RequestOptions) => {
+      return await this.http.request<CredentialStatus>({
+        body: input,
+        headers: options?.headers,
+        method: "POST",
+        path: "/credentials/openai/api-key",
+        signal: options?.signal,
+      });
+    },
+    deleteClaude: async (options?: RequestOptions) => {
+      return await this.http.request<{ deleted: boolean }>({
+        headers: options?.headers,
+        method: "DELETE",
+        path: "/credentials/claude",
+        signal: options?.signal,
+      });
+    },
+    deleteOpenAI: async (options?: RequestOptions) => {
+      return await this.http.request<{ deleted: boolean }>({
+        headers: options?.headers,
+        method: "DELETE",
+        path: "/credentials/openai",
+        signal: options?.signal,
+      });
+    },
+  };
+
+  readonly auth = {
+    saveCodexAuth: async (input: SaveCodexAuthInput, options?: RequestOptions) => {
+      return await this.http.request<CredentialStatus>({
+        body: input,
+        headers: options?.headers,
+        method: "POST",
+        path: "/auth/codex/save-auth",
         signal: options?.signal,
       });
     },

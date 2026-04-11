@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 
-import { ok } from "../../http/responses";
+import { Effect } from "effect";
+
+import { runApiEffect } from "../../effect/http";
 import { validateJson, validateParams } from "../../http/validation";
 import type { ApiEnv } from "../../http/types";
 import { runService } from "../../services/run-service";
@@ -11,25 +13,25 @@ export const runRoutes = new Hono<ApiEnv>();
 runRoutes.post("/", async (context) => {
   const input = await validateJson(context, createRunSchema);
 
-  return ok(context, await runService.create(input), 201);
+  return runApiEffect(context, Effect.tryPromise(() => runService.create(input)), 201);
 });
 
 runRoutes.get("/:runId", async (context) => {
   const { runId } = validateParams(context, runIdParamsSchema);
 
-  return ok(context, await runService.getById(runId));
+  return runApiEffect(context, Effect.tryPromise(() => runService.getById(runId)));
 });
 
 runRoutes.get("/:runId/events", async (context) => {
   const { runId } = validateParams(context, runIdParamsSchema);
 
-  return ok(context, await runService.listEvents(runId));
+  return runApiEffect(context, Effect.tryPromise(() => runService.listEvents(runId)));
 });
 
 runRoutes.get("/:runId/logs", async (context) => {
   const { runId } = validateParams(context, runIdParamsSchema);
 
-  return ok(context, await runService.listLogs(runId));
+  return runApiEffect(context, Effect.tryPromise(() => runService.listLogs(runId)));
 });
 
 runRoutes.post("/:runId/pause", async (context) => {
@@ -37,15 +39,15 @@ runRoutes.post("/:runId/pause", async (context) => {
   const input = await validateJson(context, runControlSchema, {
     optionalBody: true,
   });
-  const result = await runService.pause(runId, input);
-
-  return ok(
+  return runApiEffect(
     context,
-    {
-      run: result.run,
-      control: result.control,
-    },
-    result.statusCode,
+    Effect.tryPromise(() => runService.pause(runId, input)).pipe(
+      Effect.map((result) => ({
+        run: result.run,
+        control: result.control,
+      })),
+    ),
+    202,
   );
 });
 
@@ -54,14 +56,14 @@ runRoutes.post("/:runId/resume", async (context) => {
   const input = await validateJson(context, runControlSchema, {
     optionalBody: true,
   });
-  const result = await runService.resume(runId, input);
-
-  return ok(
+  return runApiEffect(
     context,
-    {
-      run: result.run,
-      control: result.control,
-    },
-    result.statusCode,
+    Effect.tryPromise(() => runService.resume(runId, input)).pipe(
+      Effect.map((result) => ({
+        run: result.run,
+        control: result.control,
+      })),
+    ),
+    202,
   );
 });

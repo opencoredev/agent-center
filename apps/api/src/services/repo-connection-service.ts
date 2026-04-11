@@ -9,7 +9,9 @@ import type { GitRepository, RepoProvider } from "@agent-center/shared";
 import { ApiError, notFoundError } from "../http/errors";
 import {
   createRepoConnection,
+  deleteRepoConnection,
   findRepoConnectionById,
+  findRepoConnectionByWorkspaceAndRepo,
   findRepoConnectionByWorkspaceAndId,
   listRepoConnections,
 } from "../repositories/repo-connection-repository";
@@ -143,8 +145,22 @@ function normalizeRepoConnectionTestError(error: unknown, repoConnectionId: stri
 export const repoConnectionService = {
   async list(filters: { workspaceId?: string; projectId?: string; provider?: RepoProvider }) {
     const repoConnections = await listRepoConnections(filters);
+    const deduped = new Map<string, (typeof repoConnections)[number]>();
 
-    return repoConnections.map(serializeRepoConnection);
+    for (const repoConnection of repoConnections) {
+      const key = [
+        repoConnection.workspaceId,
+        repoConnection.provider,
+        repoConnection.owner.toLowerCase(),
+        repoConnection.repo.toLowerCase(),
+      ].join(":");
+
+      if (!deduped.has(key)) {
+        deduped.set(key, repoConnection);
+      }
+    }
+
+    return Array.from(deduped.values()).map(serializeRepoConnection);
   },
 
   async create(input: {
@@ -165,6 +181,17 @@ export const repoConnectionService = {
 
     if (input.projectId !== null) {
       await projectService.assertWithinWorkspace(input.workspaceId, input.projectId);
+    }
+
+    const existing = await findRepoConnectionByWorkspaceAndRepo(
+      input.workspaceId,
+      input.provider,
+      input.owner,
+      input.repo,
+    );
+
+    if (existing) {
+      return serializeRepoConnection(existing);
     }
 
     const repoConnection = await createRepoConnection({
@@ -189,6 +216,18 @@ export const repoConnectionService = {
     }
 
     return serializeRepoConnection(repoConnection);
+  },
+
+  async delete(repoConnectionId: string) {
+    const repoConnection = await findRepoConnectionById(repoConnectionId);
+
+    if (repoConnection === undefined) {
+      throw notFoundError("repo_connection", repoConnectionId);
+    }
+
+    await deleteRepoConnection(repoConnectionId);
+
+    return { deleted: true as const };
   },
 
   async test(repoConnectionId: string) {
