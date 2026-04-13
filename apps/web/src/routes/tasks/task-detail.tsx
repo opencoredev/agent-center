@@ -30,7 +30,7 @@ import {
   useReasoning,
 } from '@/components/ai-elements/reasoning';
 import { Shimmer } from '@/components/ai-elements/shimmer';
-import { PromptBox, sandboxModeForProviderKey, type SandboxMode } from '@/components/chat/prompt-box';
+import { AGENTS, MODELS, PromptBox, sandboxModeForProviderKey, type SandboxMode } from '@/components/chat/prompt-box';
 import { ZERO_ENABLED } from '@/hooks/use-zero';
 import { useTaskDetail, useRunEvents } from '@/hooks/use-zero-queries';
 import { useRunStream, type RunEvent } from '@/hooks/use-run-stream';
@@ -293,13 +293,14 @@ function buildConversationBlocks(task: Task, runs: Run[], eventsByRunId: Map<str
       );
       const { setupItems, workItems } = splitActivityItems(runEvents);
       const firstAgentIndex = runBlocks.findIndex((block) => block.type === 'agent');
+      const meaningfulWorkItems = workItems.filter((item) => !isLowSignalWorkItem(item));
 
-      if (firstAgentIndex >= 0 && workItems.length > 0) {
+      if (firstAgentIndex >= 0 && meaningfulWorkItems.length > 0) {
         const reasoningBlock: MessageBlock = {
           type: 'reasoning',
-          activityItems: workItems,
+          activityItems: meaningfulWorkItems,
           duration: getReasoningDurationSeconds(run, runEvents),
-          label: getCompletedRunLabel(getReasoningDurationSeconds(run, runEvents), workItems),
+          label: getCompletedRunLabel(getReasoningDurationSeconds(run, runEvents), meaningfulWorkItems),
           isStreaming: false,
           timestamp: String(run.createdAt),
         };
@@ -585,22 +586,37 @@ function getCompletedRunLabel(duration: number | undefined, items: ActivityItem[
   return `Completed in ${seconds} seconds`;
 }
 
+function isLowSignalWorkItem(item: ActivityItem) {
+  return [
+    'Started the Codex agent.',
+    'Started the Claude agent.',
+    'Codex session started.',
+    'Sent the message to the agent.',
+  ].some((fragment) => item.message.includes(fragment));
+}
+
+function getDisplayActivityItems(items: ActivityItem[]) {
+  const filtered = items.filter((item) => !isLowSignalWorkItem(item));
+  return filtered.length > 0 ? filtered : [];
+}
+
 function InlineReasoningDetails({ items }: { items: ActivityItem[] }) {
   const { isOpen } = useReasoning();
+  const displayItems = getDisplayActivityItems(items);
 
-  if (!isOpen || items.length === 0) {
+  if (!isOpen || displayItems.length === 0) {
     return null;
   }
 
   return (
     <div className="mt-3 pl-6 space-y-2">
-      {items.map((item, index) => (
+      {displayItems.map((item, index) => (
         <ChainOfThoughtStep
           key={`${item.id}-${index}`}
           className="text-xs"
           label={item.message}
           icon={item.kind === 'tool' ? Terminal : FileText}
-          status={index === items.length - 1 ? 'active' : 'complete'}
+          status={index === displayItems.length - 1 ? 'active' : 'complete'}
         />
       ))}
     </div>
@@ -653,6 +669,17 @@ function splitActivityItems(events: RunEvent[]) {
   return {
     setupItems: items.filter((item) => new Date(item.timestamp).getTime() < agentStart),
     workItems: items.filter((item) => new Date(item.timestamp).getTime() >= agentStart),
+  };
+}
+
+function resolveModelPresentation(agentProvider?: string, agentModel?: string) {
+  const model = MODELS.find((entry) => entry.id === agentModel);
+  const agent = AGENTS.find((entry) => entry.id === (agentProvider ?? model?.agentId));
+
+  return {
+    agentLabel: agent?.label ?? agentProvider ?? 'Agent',
+    logoId: agent?.logoId ?? 'openai',
+    modelLabel: model?.label ?? agentModel ?? 'Unknown model',
   };
 }
 
@@ -831,6 +858,10 @@ export function TaskDetailPage() {
     ? sandboxModeForProviderKey(task.config.runtime.provider)
     : 'local';
   const defaultBranch = latestRun?.branchName ?? task.branchName ?? latestRun?.baseBranch ?? task.baseBranch ?? 'main';
+  const modelPresentation = resolveModelPresentation(
+    latestRun?.config.agentProvider ?? task.config.agentProvider,
+    latestRun?.config.agentModel ?? task.config.agentModel,
+  );
 
   const blocks = buildConversationBlocks(task, runs, eventsByRunId);
   const hasAssistantReply = blocks.some((block) => block.type === 'agent');
@@ -851,6 +882,16 @@ export function TaskDetailPage() {
         <h1 className="text-sm font-medium text-foreground truncate flex-1">
           {task.title}
         </h1>
+
+        <div className="hidden lg:flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-2.5 py-1 text-[11px] text-muted-foreground">
+          <img
+            src={`https://models.dev/logos/${modelPresentation.logoId}.svg`}
+            alt={modelPresentation.agentLabel}
+            className="h-3.5 w-3.5 dark:invert"
+            draggable={false}
+          />
+          <span>{modelPresentation.modelLabel}</span>
+        </div>
 
         {isActive && (
           <Button
@@ -962,14 +1003,21 @@ export function TaskDetailPage() {
             }
 
             if (block.type === 'reasoning') {
-              const label = getCompletedRunLabel(block.duration, block.activityItems ?? []);
-
               return (
                 <div key={`reasoning-${i}`} className="mb-4 pl-1">
-                  <Reasoning className="mb-0" defaultOpen={false} duration={block.duration} isStreaming={false}>
+                  <Reasoning
+                    className="mb-0"
+                    defaultOpen={false}
+                    duration={block.duration}
+                    isStreaming={block.isStreaming}
+                  >
                     <ReasoningTrigger
                       getThinkingMessage={() => (
-                        <span>{label}</span>
+                        block.isStreaming ? (
+                          <Shimmer duration={1.1}>{block.label ?? 'Thinking...'}</Shimmer>
+                        ) : (
+                          <span>{block.label ?? getCompletedRunLabel(block.duration, block.activityItems ?? [])}</span>
+                        )
                       )}
                     />
                     <InlineReasoningDetails items={block.activityItems ?? []} />
@@ -1007,19 +1055,6 @@ export function TaskDetailPage() {
                 <ReasoningTrigger
                   getThinkingMessage={() => (
                     <Shimmer duration={1.1}>Setting up...</Shimmer>
-                  )}
-                />
-                <InlineReasoningDetails items={currentActivityItems} />
-              </Reasoning>
-            </div>
-          )}
-
-          {isActive && !hasAssistantReply && (
-            <div className="mb-4 pl-1">
-              <Reasoning className="mb-0" defaultOpen={false} isStreaming>
-                <ReasoningTrigger
-                  getThinkingMessage={() => (
-                    <Shimmer duration={1.1}>{pendingLabel}</Shimmer>
                   )}
                 />
                 <InlineReasoningDetails items={currentActivityItems} />
