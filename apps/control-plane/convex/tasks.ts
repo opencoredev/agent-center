@@ -73,7 +73,7 @@ export const updateStatus = mutation({
   handler: async (ctx, args) => {
     await ctx.db.patch(args.taskId, {
       status: args.status,
-      metadata: args.metadata,
+      ...(args.metadata !== undefined ? { metadata: args.metadata } : {}),
       updatedAt: now(),
     });
     return null;

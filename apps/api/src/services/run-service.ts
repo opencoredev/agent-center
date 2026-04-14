@@ -86,6 +86,17 @@ async function getUntrackedFiles(workspacePath: string) {
     .split("\n")
     .filter((line) => line.startsWith("?? "))
     .map((line) => line.slice(3).trim())
+    .map((line) => {
+      if (line.startsWith('"') && line.endsWith('"')) {
+        try {
+          return JSON.parse(line) as string;
+        } catch {
+          return line.slice(1, -1);
+        }
+      }
+
+      return line;
+    })
     .filter(Boolean);
 }
 
@@ -144,13 +155,14 @@ async function readWorkspaceDiff(workspacePath: string): Promise<RunDiffResponse
   let patch = await runGitCommand(resolvedWorkspacePath, ["diff", "--patch", "--minimal", "HEAD", "--"]);
   let stats = await runGitCommand(resolvedWorkspacePath, ["diff", "--stat", "--minimal", "HEAD", "--"]);
 
-  const missingHead =
+  let missingHead =
     patch.exitCode !== 0 &&
     (patch.stderr.includes("ambiguous argument 'HEAD'") || patch.stderr.includes("bad revision 'HEAD'"));
 
   if (missingHead) {
     patch = await runGitCommand(resolvedWorkspacePath, ["diff", "--patch", "--minimal", "--"]);
     stats = await runGitCommand(resolvedWorkspacePath, ["diff", "--stat", "--minimal", "--"]);
+    missingHead = false;
   }
 
   const untrackedDiff = await buildUntrackedDiff(resolvedWorkspacePath, untrackedFiles);

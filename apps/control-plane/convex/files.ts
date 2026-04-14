@@ -85,8 +85,10 @@ export const getAttachment = query({
       return null;
     }
 
+    const { _creationTime: _ignoredCreationTime, ...attachmentWithoutSystemFields } = attachment;
+
     return {
-      ...attachment,
+      ...attachmentWithoutSystemFields,
       url: await ctx.storage.getUrl(attachment.storageId),
     };
   },

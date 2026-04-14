@@ -60,9 +60,9 @@ export const heartbeat = mutation({
   handler: async (ctx, args) => {
     await ctx.db.patch(args.sandboxId, {
       status: args.status,
-      leaseToken: args.leaseToken,
-      endpoint: args.endpoint,
-      metadata: args.metadata,
+      ...(args.leaseToken !== undefined ? { leaseToken: args.leaseToken } : {}),
+      ...(args.endpoint !== undefined ? { endpoint: args.endpoint } : {}),
+      ...(args.metadata !== undefined ? { metadata: args.metadata } : {}),
       lastHeartbeatAt: now(),
       updatedAt: now(),
     });

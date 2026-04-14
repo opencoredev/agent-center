@@ -230,6 +230,8 @@ async function pipeStream(
     }
   }
 
+  buffer += decoder.decode();
+
   const lastLine = buffer.trim();
   if (lastLine) {
     await onLine(lastLine);

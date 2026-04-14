@@ -183,11 +183,13 @@ export const repoConnectionService = {
       await projectService.assertWithinWorkspace(input.workspaceId, input.projectId);
     }
 
-    const existing = await findRepoConnectionByWorkspaceAndRepo(
-      input.workspaceId,
-      input.provider,
-      input.owner,
-      input.repo,
+    const existing = (await listRepoConnections({
+      workspaceId: input.workspaceId,
+      provider: input.provider,
+    })).find(
+      (repoConnection) =>
+        repoConnection.owner.toLowerCase() === input.owner.toLowerCase() &&
+        repoConnection.repo.toLowerCase() === input.repo.toLowerCase(),
     );
 
     if (existing) {
