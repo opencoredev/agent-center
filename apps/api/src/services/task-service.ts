@@ -31,7 +31,13 @@ export const taskService = {
         : null;
 
       if (archivedAt && now - archivedAt >= 30 * 24 * 60 * 60 * 1000) {
-        await deleteTask(task.id).catch(() => undefined);
+        await deleteTask(task.id).catch((error) => {
+          console.warn("[task-service] failed to auto-delete archived task", {
+            error,
+            taskId: task.id,
+          });
+          return undefined;
+        });
         continue;
       }
 

@@ -65,6 +65,12 @@ export class RunSession implements CommandExecutionController {
   #codexHandle: CodexExecutionHandle | null = null;
   #controlPoller: ReturnType<typeof setInterval> | null = null;
   #disposed = false;
+  #resolvedCodexCredential:
+    | {
+        authJson: string | null;
+        openAiApiKey: string | null;
+      }
+    | null = null;
 
   constructor(options: RunSessionOptions) {
     this.runId = options.target.run.id;
@@ -693,18 +699,8 @@ export class RunSession implements CommandExecutionController {
       }
     }
 
-    try {
-      const apiUrl = process.env.RUNNER_API_URL ?? "http://api.agent-center.localhost:1355";
-      const res = await fetch(`${apiUrl}/internal/credentials/openai/resolve`);
-      if (!res.ok) {
-        return null;
-      }
-
-      const data = (await res.json()) as { data: { type: string; value: string } };
-      return data.data.type === "auth_json" ? data.data.value : null;
-    } catch {
-      return null;
-    }
+    const resolved = await this.#resolveCodexCredential();
+    return resolved.authJson;
   }
 
   async #resolveOpenAIApiKey() {
@@ -713,17 +709,32 @@ export class RunSession implements CommandExecutionController {
       return openAiApiKey;
     }
 
+    const resolved = await this.#resolveCodexCredential();
+    return resolved.openAiApiKey;
+  }
+
+  async #resolveCodexCredential() {
+    if (this.#resolvedCodexCredential) {
+      return this.#resolvedCodexCredential;
+    }
+
     try {
       const apiUrl = process.env.RUNNER_API_URL ?? "http://api.agent-center.localhost:1355";
       const res = await fetch(`${apiUrl}/internal/credentials/openai/resolve`);
       if (!res.ok) {
-        return null;
+        this.#resolvedCodexCredential = { authJson: null, openAiApiKey: null };
+        return this.#resolvedCodexCredential;
       }
 
       const data = (await res.json()) as { data: { type: string; value: string } };
-      return data.data.type === "api_key" ? data.data.value : null;
+      this.#resolvedCodexCredential = {
+        authJson: data.data.type === "auth_json" ? data.data.value : null,
+        openAiApiKey: data.data.type === "api_key" ? data.data.value : null,
+      };
+      return this.#resolvedCodexCredential;
     } catch {
-      return null;
+      this.#resolvedCodexCredential = { authJson: null, openAiApiKey: null };
+      return this.#resolvedCodexCredential;
     }
   }
 

@@ -58,6 +58,8 @@ interface RunDiffResponse {
   workspacePath: string | null;
 }
 
+const MAX_UNTRACKED_DIFF_FILES = 20;
+
 async function runGitCommand(workspacePath: string, args: string[]) {
   const subprocess = Bun.spawn({
     cmd: ["git", ...args],
@@ -104,7 +106,7 @@ async function buildUntrackedDiff(workspacePath: string, files: string[]) {
   const patches: string[] = [];
   const stats: string[] = [];
 
-  for (const file of files) {
+  for (const file of files.slice(0, MAX_UNTRACKED_DIFF_FILES)) {
     const patch = await runGitCommand(workspacePath, ["diff", "--patch", "--no-index", "--", "/dev/null", file]);
     if (patch.stdout) {
       patches.push(patch.stdout);
@@ -131,11 +133,23 @@ function resolveWorkspacePath(workspacePath: string) {
         resolve(process.cwd(), "..", "..", "apps", "runner", workspacePath),
       ];
 
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
 async function readWorkspaceDiff(workspacePath: string): Promise<RunDiffResponse> {
   const resolvedWorkspacePath = resolveWorkspacePath(workspacePath);
+  if (!resolvedWorkspacePath) {
+    return {
+      available: false,
+      error: "Run workspace is not accessible from the API process in this deployment.",
+      hasChanges: false,
+      patch: null,
+      stats: null,
+      statusLines: [],
+      workspacePath: null,
+    };
+  }
+
   const status = await runGitCommand(resolvedWorkspacePath, ["status", "--short", "--untracked-files=all"]);
 
   if (status.exitCode !== 0) {
@@ -167,7 +181,16 @@ async function readWorkspaceDiff(workspacePath: string): Promise<RunDiffResponse
 
   const untrackedDiff = await buildUntrackedDiff(resolvedWorkspacePath, untrackedFiles);
   const combinedPatch = [patch.stdout, untrackedDiff.patch].filter(Boolean).join("\n");
-  const combinedStats = [stats.stdout, untrackedDiff.stats].filter(Boolean).join("\n");
+  const truncatedUntrackedCount = Math.max(0, untrackedFiles.length - MAX_UNTRACKED_DIFF_FILES);
+  const combinedStats = [
+    stats.stdout,
+    untrackedDiff.stats,
+    truncatedUntrackedCount > 0
+      ? `... ${truncatedUntrackedCount} additional untracked file${truncatedUntrackedCount === 1 ? "" : "s"} omitted`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return {
     available: true,
