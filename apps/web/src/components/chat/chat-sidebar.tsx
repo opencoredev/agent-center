@@ -18,6 +18,7 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useTaskList } from '@/hooks/use-zero-queries';
 import { apiPatch, apiPost } from '@/lib/api-client';
+import { broadcastTaskSync } from '@/lib/task-sync';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
@@ -90,6 +91,7 @@ export function ChatSidebar({ onCollapse }: { onCollapse: () => void }) {
     mutationFn: async ({ taskId, body }: { taskId: string; body: Record<string, unknown> }) =>
       apiPatch(`/api/tasks/${taskId}`, body),
     onSuccess: async () => {
+      broadcastTaskSync('task_updated');
       await queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
   });
@@ -97,6 +99,7 @@ export function ChatSidebar({ onCollapse }: { onCollapse: () => void }) {
   const cancelTaskMutation = useMutation({
     mutationFn: async (taskId: string) => apiPost(`/api/tasks/${taskId}/cancel`, {}),
     onSuccess: async () => {
+      broadcastTaskSync('task_cancelled');
       await queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
   });
@@ -156,22 +159,28 @@ export function ChatSidebar({ onCollapse }: { onCollapse: () => void }) {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-2 p-2">
+      <div className="p-3 pb-2">
+        <div className="flex items-center justify-between px-1 pb-3">
+          <div className="w-8" />
+          <span className="text-[15px] font-semibold tracking-tight text-sidebar-foreground">
+            Agent Center
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onCollapse}
+            className="h-8 w-8 text-muted-foreground"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </Button>
+        </div>
         <button
           onClick={() => navigate({ to: '/' })}
-          className="flex-1 flex items-center gap-2 rounded-md transition-colors hover:bg-sidebar-accent p-2 text-sm font-medium text-sidebar-foreground cursor-pointer"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-primary/18 bg-gradient-to-b from-primary/[0.08] to-primary/[0.03] px-3 py-3 text-sm font-semibold text-sidebar-foreground shadow-sm transition-colors hover:border-primary/28 hover:from-primary/[0.12] hover:to-primary/[0.05] cursor-pointer"
         >
           <SquarePen className="h-4 w-4" />
           <span>New Task</span>
         </button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onCollapse}
-          className="h-8 w-8 text-muted-foreground"
-        >
-          <PanelLeftClose className="h-4 w-4" />
-        </Button>
       </div>
 
       {/* Nav */}

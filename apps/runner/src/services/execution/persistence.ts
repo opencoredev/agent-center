@@ -31,9 +31,12 @@ interface EventInput {
 
 interface UiSummaryStep {
   at: string;
+  command?: string | null;
   id: string;
   label: string;
   message: string;
+  output?: string | null;
+  status?: "running" | "completed" | "failed";
 }
 
 interface UiSummary {
@@ -65,8 +68,9 @@ function compactCommand(command: string) {
   const trimmed = command.trim();
   if (!trimmed) return null;
 
-  const shellWrapped = trimmed.match(/^\/bin\/zsh -lc ["']([\s\S]+)["']$/);
-  const unwrapped = shellWrapped?.[1]?.trim() ?? trimmed;
+  const shellWrapped = trimmed.match(/^\/bin\/zsh -lc\s+([\s\S]+)$/);
+  const shellBody = shellWrapped?.[1]?.trim();
+  const unwrapped = shellBody?.replace(/^["']([\s\S]*)["']$/, "$1").trim() ?? trimmed;
   const segments = unwrapped
     .split("&&")
     .map((segment) => segment.trim())
@@ -108,7 +112,13 @@ function compactCommand(command: string) {
 function mapUiMessage(
   message: string | null | undefined,
   payload?: Record<string, unknown> | null,
-): { kind: "setup" | "work" | "ignore"; message: string | null } {
+): {
+  kind: "setup" | "work" | "ignore";
+  message: string | null;
+  command?: string | null;
+  output?: string | null;
+  status?: "running" | "completed" | "failed";
+} {
   if (!message) return { kind: "ignore", message: null };
 
   const item = payload?.item;
@@ -126,17 +136,38 @@ function mapUiMessage(
     }
 
     if (itemType === "command_execution") {
+      const command =
+        typeof (item as { command?: unknown }).command === "string"
+          ? (item as { command: string }).command
+          : null;
+
       if (payloadType === "item.started") {
         const nextMessage = compactCommand(
-          typeof (item as { command?: unknown }).command === "string"
-            ? (item as { command: string }).command
-            : "",
+          command ?? "",
         );
-        return { kind: "work", message: nextMessage ?? "Ran a command" };
+        return {
+          kind: "work",
+          message: nextMessage ?? "Ran a command",
+          command,
+          status: "running",
+        };
       }
 
       if (payloadType === "item.completed") {
-        return { kind: "ignore", message: null };
+        const output =
+          typeof (item as { aggregated_output?: unknown }).aggregated_output === "string"
+            ? (item as { aggregated_output: string }).aggregated_output
+            : null;
+        const status =
+          (item as { status?: unknown }).status === "failed" ? "failed" : "completed";
+        const nextMessage = compactCommand(command ?? "");
+        return {
+          kind: "work",
+          message: nextMessage ?? "Ran a command",
+          command,
+          output,
+          status,
+        };
       }
     }
   }
@@ -232,6 +263,9 @@ function withUiSummary(
       id: crypto.randomUUID(),
       label: mappedMessage.kind === "work" || next.phase === "thinking" ? "Work" : "Setup",
       message: mappedMessage.message,
+      command: mappedMessage.command ?? null,
+      output: mappedMessage.output ?? null,
+      status: mappedMessage.status,
     };
     const kind = mappedMessage.kind === "work" || next.phase === "thinking" ? "work" : "setup";
     Object.assign(next, appendUiStep(next, kind, step));

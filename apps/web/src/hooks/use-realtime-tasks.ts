@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getWsUrl } from '../lib/config';
 import { ZERO_ENABLED } from './use-zero';
+import { createTaskSyncSubscription } from '@/lib/task-sync';
 
 const RECONNECT_DELAY_MS = 3_000;
 
@@ -11,8 +12,8 @@ interface WsMessage {
 
 /**
  * Subscribes to realtime task change notifications via WebSocket.
- * When a `tasks_changed` message arrives, all `['tasks']` queries are
- * automatically invalidated so the sidebar and home page refresh.
+ * When a `tasks_changed` message arrives, task list and task detail queries are
+ * invalidated so sidebars and already-open task pages refresh immediately.
  */
 export function useRealtimeTasks() {
   if (ZERO_ENABLED) return;
@@ -37,6 +38,8 @@ export function useRealtimeTasks() {
 
       if (msg.type === 'tasks_changed') {
         queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        queryClient.invalidateQueries({ queryKey: ['task'] });
+        queryClient.invalidateQueries({ queryKey: ['task-runs'] });
       }
     };
 
@@ -52,9 +55,15 @@ export function useRealtimeTasks() {
   useEffect(() => {
     mountedRef.current = true;
     connect();
+    const unsubscribeTaskSync = createTaskSyncSubscription(() => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['task'] });
+      queryClient.invalidateQueries({ queryKey: ['task-runs'] });
+    });
 
     return () => {
       mountedRef.current = false;
+      unsubscribeTaskSync();
 
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -65,5 +74,5 @@ export function useRealtimeTasks() {
         wsRef.current.close();
       }
     };
-  }, [connect]);
+  }, [connect, queryClient]);
 }

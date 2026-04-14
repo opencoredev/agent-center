@@ -7,13 +7,20 @@ import { validateJson, validateParams } from "../../http/validation";
 import type { ApiEnv } from "../../http/types";
 import { runService } from "../../services/run-service";
 import { createRunSchema, runControlSchema, runIdParamsSchema } from "../../validators/runs";
+import { runEventsHub } from "../../ws";
 
 export const runRoutes = new Hono<ApiEnv>();
 
 runRoutes.post("/", async (context) => {
   const input = await validateJson(context, createRunSchema);
 
-  return runApiEffect(context, Effect.tryPromise(() => runService.create(input)), 201);
+  return runApiEffect(
+    context,
+    Effect.tryPromise(() => runService.create(input)).pipe(
+      Effect.tap(() => Effect.sync(() => runEventsHub.notifyTasksChanged())),
+    ),
+    201,
+  );
 });
 
 runRoutes.get("/:runId", async (context) => {
@@ -32,6 +39,12 @@ runRoutes.get("/:runId/logs", async (context) => {
   const { runId } = validateParams(context, runIdParamsSchema);
 
   return runApiEffect(context, Effect.tryPromise(() => runService.listLogs(runId)));
+});
+
+runRoutes.get("/:runId/diff", async (context) => {
+  const { runId } = validateParams(context, runIdParamsSchema);
+
+  return runApiEffect(context, Effect.tryPromise(() => runService.getDiff(runId)));
 });
 
 runRoutes.post("/:runId/pause", async (context) => {

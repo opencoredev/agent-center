@@ -61,6 +61,7 @@ interface RunRow {
   branchName: string | null;
   sandboxSize: string;
   permissionMode: string;
+  workspacePath?: string | null;
   createdAt: string | number;
 }
 
@@ -127,6 +128,7 @@ function zeroRunToRow(r: ZRun): RunRow {
     branchName: r.branchName ?? null,
     sandboxSize: r.sandboxSize ?? 'medium',
     permissionMode: r.permissionMode ?? 'safe',
+    workspacePath: r.workspacePath ?? null,
     createdAt: ts(r.createdAt),
   };
 }

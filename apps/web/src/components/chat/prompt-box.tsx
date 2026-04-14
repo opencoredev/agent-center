@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import {
   CornerDownLeft,
   Paperclip,
@@ -934,6 +934,7 @@ export function PromptBox({
     return isSandboxMode(stored) && isLaunchReadySandboxMode(stored) ? stored : 'local';
   });
   const [contextOpen, setContextOpen] = useState(false);
+  const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1049,6 +1050,22 @@ export function PromptBox({
     setFiles([]);
   }, []);
 
+  const hasContent = value.trim().length > 0 || files.length > 0;
+
+  const isApplePlatform = useMemo(() => {
+    if (typeof navigator === 'undefined') return true;
+    const platform =
+      (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ??
+      navigator.platform ??
+      '';
+    return /(Mac|iPhone|iPad)/i.test(platform);
+  }, []);
+  const primaryShortcutLabel = `${isApplePlatform ? 'Cmd' : 'Ctrl'}+Enter`;
+  const steerShortcutLabel = `Shift+${primaryShortcutLabel}`;
+  const shortcutHint = canComposeWhileStreaming && hasContent
+    ? `Enter for newline. ${primaryShortcutLabel} queues. ${steerShortcutLabel} steers.`
+    : `Enter for newline. ${primaryShortcutLabel} sends.`;
+
   const handleSubmit = useCallback((mode: 'send' | 'queue' | 'steer' = 'send') => {
     if (isSubmitting) return;
     if (!isCredentialLoading && selectedCredential?.connected === false) return;
@@ -1080,9 +1097,9 @@ export function PromptBox({
   }, [canComposeWhileStreaming, clearComposer, files, isCredentialLoading, isStreaming, isSubmitting, onQueueSubmit, onSteerSubmit, onStop, onSubmit, selectedCredential?.connected, value]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (canComposeWhileStreaming && (e.metaKey || e.ctrlKey) && (value.trim().length > 0 || files.length > 0)) {
+      if (canComposeWhileStreaming && e.shiftKey && (value.trim().length > 0 || files.length > 0)) {
         handleSubmit('steer');
         return;
       }
@@ -1280,7 +1297,6 @@ export function PromptBox({
     }
   };
 
-  const hasContent = value.trim().length > 0 || files.length > 0;
   const hasProviderCredentials = selectedCredential?.connected !== false;
   const hasPendingUploads = files.some((file) => file.status === 'uploading');
 
@@ -1289,12 +1305,6 @@ export function PromptBox({
     (compact
       ? 'Send a message...'
       : 'Describe what you want to build...');
-  const streamingHint = canComposeWhileStreaming
-    ? value.trim().length > 0 || files.length > 0
-      ? 'Enter queues this follow-up. Cmd/Ctrl+Enter steers the current run.'
-      : 'Enter stops the current run. Type a message to queue or steer.'
-    : null;
-
   const providerNotice =
     !isCredentialLoading && !hasProviderCredentials
       ? `${selectedAgent.label} is not connected. Add credentials in Settings -> Models before starting a run.`
@@ -1370,6 +1380,8 @@ export function PromptBox({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={() => setIsComposerFocused(true)}
+          onBlur={() => setIsComposerFocused(false)}
           onPaste={async (event) => {
             const pastedFiles = Array.from(event.clipboardData.files || []).filter((file) =>
               file.type.startsWith('image/'),
@@ -1483,7 +1495,7 @@ export function PromptBox({
                 size="sm"
                 variant="outline"
                 className="h-7 rounded-full px-2.5 text-[11px]"
-                title="Steer current run (Cmd/Ctrl+Enter)"
+                title={`Steer current run (${steerShortcutLabel})`}
               >
                 Steer
               </Button>
@@ -1511,10 +1523,10 @@ export function PromptBox({
                 className="h-7 w-7 rounded-full ml-1"
                 title={
                   canComposeWhileStreaming
-                    ? (hasContent ? 'Queue follow-up (Enter)' : 'Stop current run (Enter)')
+                    ? (hasContent ? `Queue follow-up (${primaryShortcutLabel})` : `Stop current run (${primaryShortcutLabel})`)
                     : isStreaming
                       ? 'Stop'
-                      : 'Send (Enter)'
+                      : `Send (${primaryShortcutLabel})`
                 }
               >
                 {isStreaming && canComposeWhileStreaming && !hasContent ? (
@@ -1528,14 +1540,14 @@ export function PromptBox({
             )}
           </div>
         </div>
+        {(isComposerFocused || hasContent || isStreaming) && !providerNotice && (
+          <div className="flex justify-end px-4 pb-2">
+            <p className="text-[11px] text-muted-foreground/65">{shortcutHint}</p>
+          </div>
+        )}
         {providerNotice && (
           <div className="px-4 pb-3 text-[11px] text-amber-600">
             {providerNotice}
-          </div>
-        )}
-        {streamingHint && (
-          <div className="px-4 pb-3 text-[11px] text-muted-foreground/80">
-            {streamingHint}
           </div>
         )}
       </div>

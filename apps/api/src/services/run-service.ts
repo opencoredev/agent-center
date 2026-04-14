@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
+
 import type {
   DomainMetadata,
   ExecutionConfig,
@@ -43,6 +46,91 @@ interface RunControlResponse {
   };
   run: ReturnType<typeof serializeRun>;
   statusCode: 202;
+}
+
+interface RunDiffResponse {
+  available: boolean;
+  error: string | null;
+  hasChanges: boolean;
+  patch: string | null;
+  stats: string | null;
+  statusLines: string[];
+  workspacePath: string | null;
+}
+
+async function runGitCommand(workspacePath: string, args: string[]) {
+  const subprocess = Bun.spawn({
+    cmd: ["git", ...args],
+    cwd: workspacePath,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const [stdout, stderr, exitCode] = await Promise.all([
+    subprocess.stdout ? new Response(subprocess.stdout).text() : Promise.resolve(""),
+    subprocess.stderr ? new Response(subprocess.stderr).text() : Promise.resolve(""),
+    subprocess.exited,
+  ]);
+
+  return {
+    exitCode,
+    stderr: stderr.trim(),
+    stdout: stdout.trim(),
+  };
+}
+
+function resolveWorkspacePath(workspacePath: string) {
+  const candidates = isAbsolute(workspacePath)
+    ? [workspacePath]
+    : [
+        resolve(process.cwd(), workspacePath),
+        resolve(process.cwd(), "..", "runner", workspacePath),
+        resolve(process.cwd(), "..", "..", "apps", "runner", workspacePath),
+      ];
+
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+}
+
+async function readWorkspaceDiff(workspacePath: string): Promise<RunDiffResponse> {
+  const resolvedWorkspacePath = resolveWorkspacePath(workspacePath);
+  const status = await runGitCommand(resolvedWorkspacePath, ["status", "--short", "--untracked-files=all"]);
+
+  if (status.exitCode !== 0) {
+    return {
+      available: false,
+      error: status.stderr || "Git status failed for this run workspace.",
+      hasChanges: false,
+      patch: null,
+      stats: null,
+      statusLines: [],
+      workspacePath: resolvedWorkspacePath,
+    };
+  }
+
+  let patch = await runGitCommand(resolvedWorkspacePath, ["diff", "--patch", "--minimal", "HEAD", "--"]);
+  let stats = await runGitCommand(resolvedWorkspacePath, ["diff", "--stat", "--minimal", "HEAD", "--"]);
+
+  const missingHead =
+    patch.exitCode !== 0 &&
+    (patch.stderr.includes("ambiguous argument 'HEAD'") || patch.stderr.includes("bad revision 'HEAD'"));
+
+  if (missingHead) {
+    patch = await runGitCommand(resolvedWorkspacePath, ["diff", "--patch", "--minimal", "--"]);
+    stats = await runGitCommand(resolvedWorkspacePath, ["diff", "--stat", "--minimal", "--"]);
+  }
+
+  return {
+    available: true,
+    error:
+      patch.exitCode !== 0 && !missingHead
+        ? (patch.stderr || "Git diff failed for this run workspace.")
+        : null,
+    hasChanges: status.stdout.length > 0 || patch.stdout.length > 0,
+    patch: patch.stdout || null,
+    stats: stats.stdout || null,
+    statusLines: status.stdout.length > 0 ? status.stdout.split("\n").filter(Boolean) : [],
+    workspacePath: resolvedWorkspacePath,
+  };
 }
 
 function assertPauseable(status: RunStatus) {
@@ -136,6 +224,28 @@ export const runService = {
     const events = await listRunLogEvents(runId);
 
     return events.map(serializeRunEvent);
+  },
+
+  async getDiff(runId: string): Promise<RunDiffResponse> {
+    const run = await findRunById(runId);
+
+    if (run === undefined) {
+      throw notFoundError("run", runId);
+    }
+
+    if (!run.workspacePath) {
+      return {
+        available: false,
+        error: "No workspace is available for this run yet.",
+        hasChanges: false,
+        patch: null,
+        stats: null,
+        statusLines: [],
+        workspacePath: null,
+      };
+    }
+
+    return readWorkspaceDiff(run.workspacePath);
   },
 
   async pause(runId: string, input: { reason?: string | null }): Promise<RunControlResponse> {

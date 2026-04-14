@@ -15,6 +15,7 @@ import {
   Square,
   Copy,
   Check,
+  FileCode2,
   AlertTriangle,
   Clock3,
   CornerUpRight,
@@ -25,6 +26,7 @@ import { code } from '@streamdown/code';
 import 'streamdown/styles.css';
 import type { ExecutionRuntime } from '@agent-center/shared';
 import { apiGet, apiPost } from '@/lib/api-client';
+import { broadcastTaskSync } from '@/lib/task-sync';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
@@ -35,8 +37,8 @@ import {
   ReasoningTrigger,
   useReasoning,
 } from '@/components/ai-elements/reasoning';
-import { Shimmer } from '@/components/ai-elements/shimmer';
 import { AGENTS, MODELS, PromptBox, sandboxModeForProviderKey, type SandboxMode } from '@/components/chat/prompt-box';
+import { RunDiffSheet } from '@/components/tasks/run-diff-sheet';
 import { ZERO_ENABLED } from '@/hooks/use-zero';
 import { useTaskDetail, useRunEvents } from '@/hooks/use-zero-queries';
 import { useRunStream, type RunEvent } from '@/hooks/use-run-stream';
@@ -79,6 +81,7 @@ interface Run {
   completedAt: string | number | null;
   errorMessage: string | null;
   metadata: Record<string, unknown>;
+  workspacePath?: string | null;
   config: {
     agentProvider?: string;
     agentModel?: string;
@@ -120,6 +123,13 @@ interface QueuedFollowUp {
   createdAt: string;
 }
 
+const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 96;
+const DIFF_INLINE_BREAKPOINT = 1024;
+const DIFF_PANEL_WIDTH_KEY = 'agent_center_diff_panel_width';
+const DEFAULT_DIFF_PANEL_WIDTH = 520;
+const MIN_DIFF_PANEL_WIDTH = 360;
+const MAX_DIFF_PANEL_WIDTH = 820;
+
 // ── Status helpers ──────────────────────────────────────────────────────────
 
 function StatusDot({ status }: { status: string }) {
@@ -133,6 +143,38 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`w-2.5 h-2.5 rounded-full ${color} shrink-0`} />;
 }
 
+function useIsNarrowDiffLayout() {
+  const [isNarrow, setIsNarrow] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < DIFF_INLINE_BREAKPOINT,
+  );
+
+  useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${DIFF_INLINE_BREAKPOINT - 1}px)`);
+    const handler = (event: MediaQueryListEvent) => setIsNarrow(event.matches);
+
+    setIsNarrow(mql.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, []);
+
+  return isNarrow;
+}
+
+function getStoredDiffPanelWidth() {
+  try {
+    const stored = localStorage.getItem(DIFF_PANEL_WIDTH_KEY);
+    if (!stored) return DEFAULT_DIFF_PANEL_WIDTH;
+    const parsed = Number(stored);
+    if (Number.isFinite(parsed)) {
+      return Math.min(MAX_DIFF_PANEL_WIDTH, Math.max(MIN_DIFF_PANEL_WIDTH, parsed));
+    }
+  } catch {
+    // noop
+  }
+
+  return DEFAULT_DIFF_PANEL_WIDTH;
+}
+
 // ── Event helpers ───────────────────────────────────────────────────────────
 
 function getInnerType(event: RunEvent): string {
@@ -142,9 +184,25 @@ function getInnerType(event: RunEvent): string {
   return event.eventType;
 }
 
+function extractAssistantText(event: RunEvent): string | null {
+  if (
+    event.message &&
+    ['assistant_message', 'assistant.message', 'agent.message'].includes(getInnerType(event))
+  ) {
+    return event.message;
+  }
+
+  return null;
+}
+
 function isAssistantMessage(event: RunEvent): boolean {
   const inner = getInnerType(event);
-  return inner === 'assistant_message' || inner === 'assistant.message' || inner === 'agent.message';
+  return (
+    inner === 'assistant_message' ||
+    inner === 'assistant.message' ||
+    inner === 'agent.message' ||
+    extractAssistantText(event) !== null
+  );
 }
 
 // ── Tool call block ─────────────────────────────────────────────────────────
@@ -232,9 +290,12 @@ interface AttachmentPreview {
 
 interface PersistedUiSummaryStep {
   at?: string;
+  command?: string | null;
   id?: string;
   label?: string;
   message?: string;
+  output?: string | null;
+  status?: 'running' | 'completed' | 'failed';
 }
 
 interface PersistedUiSummary {
@@ -316,9 +377,41 @@ function extractUiSummaryItems(summary: PersistedUiSummary | null, mode: 'active
         label: typeof item.label === 'string' ? item.label : mode === 'active' ? 'Working' : 'Thought',
         message: item.message,
         timestamp: typeof item.at === 'string' ? item.at : new Date().toISOString(),
+        command: typeof item.command === 'string' ? item.command : undefined,
+        output: typeof item.output === 'string' ? item.output : null,
+        status:
+          item.status === 'running' || item.status === 'completed' || item.status === 'failed'
+            ? item.status
+            : undefined,
       };
     })
     .filter((item): item is ActivityItem => item !== null);
+}
+
+function isProgressUpdateItem(item: ActivityItem) {
+  return item.label === 'Update';
+}
+
+function getRunStateLabel(
+  run: Run,
+  summary: PersistedUiSummary | null,
+  items: ActivityItem[],
+) {
+  const hasCancellationRequest = items.some((item) => item.message.includes('Cancellation requested'));
+
+  if (run.status === 'cancelled' || summary?.phase === 'cancelled') {
+    return 'Cancelled';
+  }
+
+  if (hasCancellationRequest) {
+    return 'Cancelling...';
+  }
+
+  if (run.status === 'failed' || summary?.phase === 'failed') {
+    return 'Failed';
+  }
+
+  return null;
 }
 
 function groupEventsIntoBlocks(
@@ -326,6 +419,7 @@ function groupEventsIntoBlocks(
   events: RunEvent[],
   taskCreatedAt: string,
   attachments: AttachmentPreview[] = [],
+  options?: { includeAssistantMessages?: boolean },
 ): MessageBlock[] {
   const blocks: MessageBlock[] = [];
   blocks.push({ type: 'user', content: prompt, attachments, timestamp: taskCreatedAt });
@@ -345,8 +439,11 @@ function groupEventsIntoBlocks(
     const visibility = isVisibleEvent(event);
 
     if (visibility === 'agent') {
+      if (options?.includeAssistantMessages === false) {
+        continue;
+      }
       flushTools();
-      const text = event.message || '';
+      const text = extractAssistantText(event) ?? event.message ?? '';
       // Skip duplicate consecutive agent messages (e.g. from retried sessions)
       if (text.trim() && text !== lastAgentContent) {
         blocks.push({ type: 'agent', content: text, timestamp: event.createdAt });
@@ -370,48 +467,70 @@ function buildConversationBlocks(task: Task, runs: Run[], eventsByRunId: Map<str
   return [...runs]
     .sort((left, right) => left.attempt - right.attempt)
     .flatMap((run) => {
+      const isRunActive = ['queued', 'provisioning', 'cloning', 'running', 'in_progress', 'paused'].includes(run.status);
       const runEvents = eventsByRunId.get(run.id) ?? [];
       const runBlocks = groupEventsIntoBlocks(
         run.prompt || task.prompt,
         runEvents,
         String(run.createdAt),
         extractAttachments(run.metadata),
+        {
+          includeAssistantMessages: true,
+        },
       );
       const { setupItems, workItems } = splitActivityItems(runEvents);
       const firstAgentIndex = runBlocks.findIndex((block) => block.type === 'agent');
       const meaningfulWorkItems = workItems.filter((item) => !isLowSignalWorkItem(item));
       const persistedSummary = extractUiSummary(run.metadata);
-      const persistedReasoningItems = extractUiSummaryItems(persistedSummary, firstAgentIndex === -1 ? 'active' : 'completed');
-      const displayReasoningItems = persistedReasoningItems.length > 0 ? persistedReasoningItems : meaningfulWorkItems;
+      const reasoningMode = isRunActive || firstAgentIndex === -1 ? 'active' : 'completed';
+      const persistedReasoningItems = extractUiSummaryItems(persistedSummary, reasoningMode);
+      const hasActualWorkStarted = getAgentStartTimestamp(runEvents) !== null || workItems.length > 0;
+      const liveReasoningItems = isRunActive
+        ? (hasActualWorkStarted ? workItems : [])
+        : meaningfulWorkItems.filter((item) => !isProgressUpdateItem(item));
+      const displayReasoningItems =
+        liveReasoningItems.length > 0 ? liveReasoningItems : persistedReasoningItems;
+      const runStateLabel = getRunStateLabel(run, persistedSummary, displayReasoningItems);
+      const isReasoningStreaming = isRunActive && hasActualWorkStarted;
 
       const reasoningDuration = persistedSummary?.thinkingTimeSec ?? getReasoningDurationSeconds(run, runEvents);
 
-      if (firstAgentIndex >= 0 && (displayReasoningItems.length > 0 || reasoningDuration !== undefined)) {
+      if (
+        firstAgentIndex >= 0 &&
+        (displayReasoningItems.length > 0 || reasoningDuration !== undefined || isRunActive)
+      ) {
         const reasoningBlock: MessageBlock = {
           type: 'reasoning',
           activityItems: displayReasoningItems,
-          duration: reasoningDuration,
-          label: getCompletedRunLabel(reasoningDuration, displayReasoningItems),
-          isStreaming: false,
+          duration: isReasoningStreaming ? undefined : reasoningDuration,
+          label: runStateLabel ?? (
+            isRunActive
+              ? (
+                !hasActualWorkStarted
+                  ? 'Setting up...'
+                  : 'Working...'
+              )
+              : getCompletedRunLabel(reasoningDuration, displayReasoningItems)
+          ),
+          isStreaming: isReasoningStreaming,
           timestamp: String(run.createdAt),
         };
 
         runBlocks.splice(firstAgentIndex, 0, reasoningBlock);
       } else if (firstAgentIndex === -1) {
-        const activeItems = persistedReasoningItems.length > 0
-          ? persistedReasoningItems
-          : (workItems.length > 0 ? workItems : setupItems);
-        if (activeItems.length > 0) {
+        const activeItems = hasActualWorkStarted
+          ? (workItems.length > 0 ? workItems : persistedReasoningItems)
+          : [];
+        if (activeItems.length > 0 || isRunActive) {
           runBlocks.push({
             type: 'reasoning',
             activityItems: activeItems,
             label:
-              persistedSummary?.phase === 'thinking'
-                ? 'Thinking...'
-                : persistedSummary?.phase === 'setup'
-                  ? 'Setting up...'
-                  : (workItems.length > 0 ? 'Thinking...' : 'Setting up...'),
-            isStreaming: true,
+              getRunStateLabel(run, persistedSummary, activeItems) ??
+              (hasActualWorkStarted
+                ? 'Working...'
+                : 'Setting up...'),
+            isStreaming: isReasoningStreaming,
             timestamp: String(run.createdAt),
           });
         }
@@ -580,8 +699,7 @@ function compactCommandLabel(command: string | null | undefined) {
   const trimmed = command.trim();
   if (!trimmed) return null;
 
-  const shellWrapped = trimmed.match(/^\/bin\/zsh -lc ["']([\s\S]+)["']$/);
-  const unwrapped = shellWrapped?.[1]?.trim() ?? trimmed;
+  const unwrapped = unwrapCommand(command);
   const segments = unwrapped
     .split('&&')
     .map((segment) => segment.trim())
@@ -626,6 +744,17 @@ function compactCommandLabel(command: string | null | undefined) {
   return unwrapped.length > 72 ? `${unwrapped.slice(0, 69)}...` : unwrapped;
 }
 
+function unwrapCommand(command: string | null | undefined) {
+  if (!command) return '';
+
+  const trimmed = command.trim();
+  if (!trimmed) return '';
+
+  const shellWrapped = trimmed.match(/^\/bin\/zsh -lc\s+([\s\S]+)$/);
+  const shellBody = shellWrapped?.[1]?.trim();
+  return shellBody?.replace(/^["']([\s\S]*)["']$/, '$1').trim() ?? trimmed;
+}
+
 function buildActivityItems(events: RunEvent[]) {
   const items = new Map<string, ActivityItem>();
   const standalone: ActivityItem[] = [];
@@ -668,6 +797,21 @@ function buildActivityItems(events: RunEvent[]) {
         ? (event.payload.item as Record<string, unknown>)
         : null;
     const payloadType = typeof event.payload?.type === 'string' ? event.payload.type : null;
+
+    if (
+      payloadItem?.type === 'agent_message' &&
+      typeof payloadItem.text === 'string' &&
+      payloadItem.text.trim().length > 0
+    ) {
+      standalone.push({
+        id: typeof payloadItem.id === 'string' ? payloadItem.id : event.id,
+        kind: 'log',
+        label: 'Update',
+        message: payloadItem.text,
+        timestamp: event.createdAt,
+      });
+      continue;
+    }
 
     if (payloadItem?.type === 'command_execution') {
       const itemId = typeof payloadItem.id === 'string' ? payloadItem.id : event.id;
@@ -749,8 +893,7 @@ function buildActivityItems(events: RunEvent[]) {
   }
 
   return [...standalone, ...Array.from(items.values())]
-    .sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime())
-    .slice(-10);
+    .sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
 }
 
 function getRunDurationSeconds(run: Run | undefined) {
@@ -771,13 +914,19 @@ function getCompletedRunLabel(duration: number | undefined, items: ActivityItem[
   const seconds = duration ?? 0;
   const hasTrace = getDisplayActivityItems(items).length > 0;
   const hasModelReasoning = hasReasoningTrace(items);
+  const hasSetupOnly = hasTrace && getDisplayActivityItems(items).every((item) => isSetupOnlyItem(item));
 
   if (seconds <= 0) {
+    if (hasSetupOnly) return 'Setup complete';
     return hasTrace ? 'Worked briefly' : 'Responded directly';
   }
 
+  if (hasSetupOnly) {
+    return 'Setup complete';
+  }
+
   if (hasModelReasoning) {
-    return `Thought for ${seconds} seconds`;
+    return `Worked for ${seconds} seconds`;
   }
 
   if (hasTrace) {
@@ -858,51 +1007,73 @@ function ActivityDetailRow({ item }: { item: ActivityItem }) {
   const [open, setOpen] = useState(false);
   const hasDetails = Boolean(item.command || item.output);
   const Icon = item.kind === 'tool' ? Terminal : item.kind === 'status' ? GitBranch : FileText;
+  const displayCommand = unwrapCommand(item.command);
+
+  if (!hasDetails) {
+    return (
+      <div className="flex items-start gap-2 py-1.5">
+        <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm leading-relaxed text-foreground/90">{item.message}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-border/40 bg-background/40">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger
-          className={`flex w-full items-center gap-2 px-3 py-2 text-left ${hasDetails ? 'cursor-pointer' : 'cursor-default'}`}
-          disabled={!hasDetails}
+          className="flex w-full items-center gap-2 px-3 py-2 text-left cursor-pointer"
         >
           <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <p className="text-xs text-foreground/90">{item.message}</p>
-            {item.command && (
-              <p className="mt-0.5 truncate text-[11px] text-muted-foreground/65">
-                {item.command}
-              </p>
-            )}
           </div>
-          {hasDetails
-            ? (open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/60" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60" />)
-            : null}
+          {open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/60" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60" />}
         </CollapsibleTrigger>
-        {hasDetails && (
-          <CollapsibleContent className="px-3 pb-3">
-            {item.command && (
-              <div className="rounded-md border border-border/40 bg-card/60 p-2">
-                <p className="mb-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">Shell</p>
-                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] text-foreground/85">{item.command}</pre>
+        <CollapsibleContent className="px-3 pb-3">
+          {displayCommand && (
+            <div className="rounded-md border border-border/40 bg-card/60 p-2">
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">Shell</p>
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard.writeText(displayCommand)}
+                  className="rounded p-1 text-muted-foreground/60 transition-colors hover:text-foreground"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
               </div>
-            )}
-            {item.output && (
-              <div className={`rounded-md border border-border/40 bg-card/60 p-2 ${item.command ? 'mt-2' : ''}`}>
-                <p className="mb-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">Output</p>
-                <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-foreground/85">{item.output}</pre>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-foreground/85">{displayCommand}</pre>
+            </div>
+          )}
+          {item.output && (
+            <div className={`rounded-md border border-border/40 bg-card/60 p-2 ${displayCommand ? 'mt-2' : ''}`}>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">Output</p>
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard.writeText(item.output ?? '')}
+                  className="rounded p-1 text-muted-foreground/60 transition-colors hover:text-foreground"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
               </div>
-            )}
-          </CollapsibleContent>
-        )}
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-foreground/85">{item.output}</pre>
+            </div>
+          )}
+        </CollapsibleContent>
       </Collapsible>
     </div>
   );
 }
 
-function InlineReasoningDetails({ items }: { items: ActivityItem[] }) {
+function InlineReasoningDetails({ items, label }: { items: ActivityItem[]; label?: string }) {
   const { isOpen, isStreaming } = useReasoning();
   const displayItems = getDisplayActivityItems(items);
+  const setupOnly = displayItems.length > 0 && displayItems.every((item) => isSetupOnlyItem(item));
+  const isSetupLabel = label?.startsWith('Setting up') ?? false;
 
   if (!isOpen) {
     return null;
@@ -912,7 +1083,9 @@ function InlineReasoningDetails({ items }: { items: ActivityItem[] }) {
     return (
       <div className="mt-3 pl-6">
         <p className="text-xs text-muted-foreground/70">
-          {isStreaming
+          {isSetupLabel
+            ? 'Setting up the workspace and repository.'
+            : isStreaming
             ? 'Working details will appear here as the agent emits command or tool activity.'
             : 'No detailed reasoning trace was emitted for this reply. The model returned a short answer directly.'}
         </p>
@@ -920,11 +1093,21 @@ function InlineReasoningDetails({ items }: { items: ActivityItem[] }) {
     );
   }
 
+  if (setupOnly && (isStreaming || isSetupLabel)) {
+    return (
+      <div className="mt-3 pl-6">
+        <p className="text-xs text-muted-foreground/70">
+          Setting up the workspace and repository.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="mt-3 pl-6 space-y-2">
-      {summarizeActivityItems(displayItems) && (
-        <p className="pb-1 text-[11px] text-muted-foreground/70">
-          {summarizeActivityItems(displayItems)}
+    <div className="mt-3 max-h-[52vh] overflow-y-auto pl-6 pr-2 space-y-2" style={{ scrollbarWidth: 'thin' }}>
+      {setupOnly && !isStreaming && (
+        <p className="text-xs text-muted-foreground/75">
+          Environment, repository, and integrations ready.
         </p>
       )}
       {displayItems.map((item, index) => (
@@ -1048,14 +1231,22 @@ export function TaskDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const diffResizeStartXRef = useRef(0);
+  const diffResizeStartWidthRef = useRef(0);
+  const isNarrowDiffLayout = useIsNarrowDiffLayout();
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const [diffPanelWidth, setDiffPanelWidth] = useState(getStoredDiffPanelWidth);
+  const [isResizingDiff, setIsResizingDiff] = useState(false);
 
   const { task, runs, isLoading, error } = useTaskDetail(taskId ?? '');
   const latestRun = runs[0];
   const [followUpConfig, setFollowUpConfig] = useState<FollowUpConfig | null>(null);
+  const [diffOpen, setDiffOpen] = useState(false);
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>(() =>
     taskId ? readQueuedFollowUps(taskId) : [],
   );
   const [dispatchingQueuedId, setDispatchingQueuedId] = useState<string | null>(null);
+  const [queueOpen, setQueueOpen] = useState(true);
   const hasStartedRun = !!latestRun;
 
   const zeroEvents = useRunEvents(latestRun?.id ?? '');
@@ -1090,7 +1281,7 @@ export function TaskDetailPage() {
   const pendingLabel =
     effectiveStatus === 'queued' || effectiveStatus === 'provisioning' || effectiveStatus === 'cloning'
       ? 'Setting up...'
-      : 'Thinking...';
+      : 'Working...';
   const eventsByRunId = new Map<string, RunEvent[]>();
 
   for (const [index, run] of runs
@@ -1103,12 +1294,34 @@ export function TaskDetailPage() {
     eventsByRunId.set(latestRun.id, events);
   }
 
-  // Auto-scroll when streaming
   useEffect(() => {
-    if (scrollRef.current && isStreaming) {
+    setShouldAutoScroll(true);
+  }, [latestRun?.id, taskId]);
+
+  // Auto-scroll while the user is still pinned near the bottom.
+  useEffect(() => {
+    if (scrollRef.current && isStreaming && shouldAutoScroll) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [events, isStreaming]);
+  }, [events, isStreaming, shouldAutoScroll]);
+
+  const handleConversationScroll = React.useCallback(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+
+    const distanceFromBottom =
+      element.scrollHeight - element.scrollTop - element.clientHeight;
+
+    setShouldAutoScroll(distanceFromBottom <= AUTO_SCROLL_BOTTOM_THRESHOLD_PX);
+  }, []);
+
+  const jumpToLatest = React.useCallback(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+
+    element.scrollTop = element.scrollHeight;
+    setShouldAutoScroll(true);
+  }, []);
 
   useEffect(() => {
     if (!taskId) return;
@@ -1123,6 +1336,7 @@ export function TaskDetailPage() {
   const cancelMutation = useMutation({
     mutationFn: () => apiPost(`/api/tasks/${taskId}/cancel`, {}),
     onSuccess: () => {
+      broadcastTaskSync('task_cancelled');
       queryClient.invalidateQueries({ queryKey: ['task', taskId] });
       queryClient.invalidateQueries({ queryKey: ['task-runs', taskId] });
     },
@@ -1131,6 +1345,7 @@ export function TaskDetailPage() {
   const startMutation = useMutation({
     mutationFn: async () => apiPost<Run>(`/api/tasks/${taskId}/retry`, {}),
     onSuccess: () => {
+      broadcastTaskSync('task_retried');
       queryClient.invalidateQueries({ queryKey: ['task', taskId] });
       queryClient.invalidateQueries({ queryKey: ['task-runs', taskId] });
     },
@@ -1183,6 +1398,7 @@ export function TaskDetailPage() {
       return { run };
     },
     onSuccess: () => {
+      broadcastTaskSync('run_created');
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['task', taskId] });
       queryClient.invalidateQueries({ queryKey: ['task-runs', taskId] });
@@ -1249,6 +1465,45 @@ export function TaskDetailPage() {
       });
   }, [dispatchingQueuedId, followUpMutation, isActive, queuedFollowUps, task]);
 
+  const handleDiffResizeMove = React.useCallback((event: MouseEvent) => {
+    const delta = diffResizeStartXRef.current - event.clientX;
+    const nextWidth = Math.min(
+      MAX_DIFF_PANEL_WIDTH,
+      Math.max(MIN_DIFF_PANEL_WIDTH, diffResizeStartWidthRef.current + delta),
+    );
+    setDiffPanelWidth(nextWidth);
+  }, []);
+
+  const handleDiffResizeEnd = React.useCallback(() => {
+    setIsResizingDiff(false);
+    document.body.classList.remove('sidebar-resizing');
+    try {
+      localStorage.setItem(DIFF_PANEL_WIDTH_KEY, String(diffPanelWidth));
+    } catch {
+      // noop
+    }
+  }, [diffPanelWidth]);
+
+  useEffect(() => {
+    if (!isResizingDiff) return;
+
+    document.addEventListener('mousemove', handleDiffResizeMove);
+    document.addEventListener('mouseup', handleDiffResizeEnd);
+
+    return () => {
+      document.removeEventListener('mousemove', handleDiffResizeMove);
+      document.removeEventListener('mouseup', handleDiffResizeEnd);
+    };
+  }, [handleDiffResizeEnd, handleDiffResizeMove, isResizingDiff]);
+
+  const startDiffResize = React.useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    diffResizeStartXRef.current = event.clientX;
+    diffResizeStartWidthRef.current = diffPanelWidth;
+    setIsResizingDiff(true);
+    document.body.classList.add('sidebar-resizing');
+  }, [diffPanelWidth]);
+
   // Loading
   if (isLoading) {
     return (
@@ -1283,9 +1538,13 @@ export function TaskDetailPage() {
 
   const blocks = buildConversationBlocks(task, runs, eventsByRunId);
   const hasAssistantReply = blocks.some((block) => block.type === 'agent');
+  const canShowDiff = Boolean(latestRun?.workspacePath);
+  const showInlineDiff = diffOpen && canShowDiff && !isNarrowDiffLayout;
+  const showSheetDiff = diffOpen && canShowDiff && isNarrowDiffLayout;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-w-0">
+      <div className="flex min-w-0 flex-1 flex-col h-full">
       {/* Header */}
       <header className="shrink-0 flex items-center gap-3 h-12 px-4 border-b border-border bg-card/50">
         <button
@@ -1310,6 +1569,18 @@ export function TaskDetailPage() {
           />
           <span>{modelPresentation.modelLabel}</span>
         </div>
+
+        {canShowDiff ? (
+          <Button
+            variant={diffOpen ? 'secondary' : 'outline'}
+            size="sm"
+            className="h-7 text-xs gap-1.5"
+            onClick={() => setDiffOpen((current) => !current)}
+          >
+            <FileCode2 className="w-3 h-3" />
+            Diff
+          </Button>
+        ) : null}
 
         {isActive && (
           <Button
@@ -1352,6 +1623,7 @@ export function TaskDetailPage() {
         ref={scrollRef}
         className="flex-1 overflow-y-auto"
         style={{ scrollbarWidth: 'thin' }}
+        onScroll={handleConversationScroll}
       >
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-1">
           {blocks.map((block, i) => {
@@ -1431,15 +1703,11 @@ export function TaskDetailPage() {
                   >
                     <ReasoningTrigger
                       getThinkingMessage={() => (
-                        block.isStreaming ? (
-                          <Shimmer duration={1.1}>{block.label ?? 'Thinking...'}</Shimmer>
-                        ) : (
-                          <span>{block.label ?? getCompletedRunLabel(block.duration, block.activityItems ?? [])}</span>
-                        )
+                        <span>{block.label ?? getCompletedRunLabel(block.duration, block.activityItems ?? [])}</span>
                       )}
                     />
                     <ReasoningContent>
-                      <InlineReasoningDetails items={block.activityItems ?? []} />
+                      <InlineReasoningDetails items={block.activityItems ?? []} label={block.label} />
                     </ReasoningContent>
                   </Reasoning>
                 </div>
@@ -1474,11 +1742,11 @@ export function TaskDetailPage() {
               <Reasoning className="mb-0" defaultOpen={false} isStreaming>
                 <ReasoningTrigger
                   getThinkingMessage={() => (
-                    <Shimmer duration={1.1}>Setting up...</Shimmer>
+                    <span>Setting up...</span>
                   )}
                 />
                 <ReasoningContent>
-                  <InlineReasoningDetails items={currentActivityItems} />
+                  <InlineReasoningDetails items={[]} label="Setting up..." />
                 </ReasoningContent>
               </Reasoning>
             </div>
@@ -1505,70 +1773,86 @@ export function TaskDetailPage() {
       {/* Prompt — always visible */}
       <div className="shrink-0 border-t border-border px-4 py-3 bg-card/50">
         <div className="max-w-3xl mx-auto">
+          {isStreaming && !shouldAutoScroll && (
+            <div className="mb-2 flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 rounded-full px-3 text-xs"
+                onClick={jumpToLatest}
+              >
+                Jump To Latest
+              </Button>
+            </div>
+          )}
           {queuedFollowUps.length > 0 && (
-            <div className="mb-3 rounded-2xl border border-border/60 bg-background/80 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
-                  Queued follow-ups
-                </p>
-                <span className="text-[11px] text-muted-foreground/70">
-                  {queuedFollowUps.length} pending
-                </span>
-              </div>
-              {queuedFollowUps.map((item, index) => (
-                <div
-                  key={item.id}
-                  className={`flex items-start gap-3 rounded-xl px-3 py-2 ${index > 0 ? 'mt-2 border-t border-border/50 pt-3' : ''}`}
-                >
-                  <div className="mt-1 rounded-full bg-muted p-1.5">
-                    <Clock3 className="h-3.5 w-3.5 text-muted-foreground" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                        item.mode === 'steer'
-                          ? 'bg-primary/12 text-primary'
-                          : 'bg-muted text-muted-foreground'
-                      }`}>
-                        {item.mode === 'steer' ? 'Steer next' : 'Queued'}
-                      </span>
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {item.prompt}
-                      </p>
-                      {index === 0 && dispatchingQueuedId === item.id && (
-                        <span className="text-[11px] text-muted-foreground">Sending next…</span>
-                      )}
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {item.mode === 'steer'
-                        ? 'Steer requested. This message will interrupt the current run as soon as cancellation lands.'
-                        : 'Queued. This message will send automatically after the current run finishes.'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {index === 0 && (
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="secondary"
-                        onClick={() => steerQueuedFollowUp(item.id)}
-                        disabled={item.mode === 'steer'}
-                      >
-                        <CornerUpRight className="h-3 w-3" />
-                        Steer
-                      </Button>
-                    )}
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => setQueuedFollowUps((current) => current.filter((queued) => queued.id !== item.id))}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
+            <div className="mb-2 rounded-2xl border border-border/60 bg-background/80 px-3 py-2">
+              <button
+                type="button"
+                onClick={() => setQueueOpen((current) => !current)}
+                className="flex w-full items-center justify-between gap-2 rounded-xl px-1 py-1 text-left"
+              >
+                <div className="flex items-center gap-2 text-sm text-foreground">
+                  {queueOpen ? (
+                    <ChevronDown className="h-4 w-4 text-muted-foreground/70" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-muted-foreground/70" />
+                  )}
+                  <span className="font-medium">{queuedFollowUps.length} Queued</span>
                 </div>
-              ))}
+              </button>
+
+              {queueOpen && (
+                <div className="mt-1 space-y-1">
+                  {queuedFollowUps.map((item, index) => (
+                    <div
+                      key={item.id}
+                      className={`flex items-center gap-3 rounded-xl px-2 py-2 ${index > 0 ? 'border-t border-border/50 pt-2' : ''}`}
+                    >
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-lime-500/20 text-[13px] font-medium text-lime-200">
+                        L
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-medium text-foreground">{item.prompt}</p>
+                          {index === 0 && dispatchingQueuedId === item.id && (
+                            <span className="text-[11px] text-muted-foreground">Sending next…</span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+                          {item.mode === 'steer'
+                            ? 'Will interrupt and send next.'
+                            : 'Will send when the current run finishes.'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 rounded-full"
+                          onClick={() => steerQueuedFollowUp(item.id)}
+                          disabled={item.mode === 'steer'}
+                          title="Steer"
+                        >
+                          <CornerUpRight className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 rounded-full"
+                          onClick={() => setQueuedFollowUps((current) => current.filter((queued) => queued.id !== item.id))}
+                          title="Remove"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -1596,6 +1880,34 @@ export function TaskDetailPage() {
           />
         </div>
       </div>
+      </div>
+
+      {showInlineDiff ? (
+        <>
+          <div
+            className="hidden w-1 shrink-0 cursor-col-resize bg-border/50 transition-colors hover:bg-border lg:block"
+            onMouseDown={startDiffResize}
+          />
+          <RunDiffSheet
+            inlineWidth={diffPanelWidth}
+            isLive={isActive}
+            mode="inline"
+            open={diffOpen}
+            onOpenChange={setDiffOpen}
+            runId={latestRun?.id}
+          />
+        </>
+      ) : null}
+
+      {showSheetDiff ? (
+        <RunDiffSheet
+          isLive={isActive}
+          mode="sheet"
+          open={diffOpen}
+          onOpenChange={setDiffOpen}
+          runId={latestRun?.id}
+        />
+      ) : null}
     </div>
   );
 }

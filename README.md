@@ -1,26 +1,35 @@
 # Agent Center
 
-Agent Center is a Bun monorepo for a self-hosted control plane around background coding runs.
+Agent Center is a Bun monorepo for a self-hosted control plane around background coding runs, with a realtime web UI for starting, watching, steering, and reviewing agent work.
 
-This repository is no longer just a scaffold. The current phase is a backend vertical slice with real persistence, queueing, local execution, GitHub repository connections, automations, and realtime run events. It is still intentionally early: there is no product frontend, no auth layer, and no secure sandbox yet.
+This is no longer just a backend slice. The repo now includes:
 
-## What This Phase Includes
+- a product web surface in `apps/web`
+- task detail pages with live run activity, follow-up prompts, and multi-tab updates
+- a local runner that provisions workspaces, optionally clones repositories, and executes Codex or Claude-backed runs
+- persisted run events, command traces, and a docked diff viewer for workspace changes
+- queueing and automation infrastructure through the API, worker, and runner services
+
+It is still intentionally early, but it is now a working local product rather than a placeholder scaffold.
+
+## Current Product Surface
 
 - Postgres-backed CRUD APIs for workspaces, projects, repo connections, tasks, runs, and automations
+- A web UI for browsing tasks, opening task detail pages, sending follow-ups, cancelling runs, and reviewing diffs
 - A worker that polls Postgres for queued runs and due automations
-- A host-local runner that provisions a workspace, optionally clones a GitHub repository, and executes configured shell commands
-- Run events and logs persisted in Postgres and streamed over WebSockets
+- A host-local runner that provisions a workspace, optionally clones a GitHub repository, and executes configured shell commands or agent-backed runs
+- Realtime task and run updates over WebSockets, plus browser-local sync to keep open tabs in step
+- A docked desktop diff viewer for run workspace changes
 - A `@agent-center/github` package for GitHub repo access checks and clone URL construction
 - A `@agent-center/sdk-ts` package for HTTP + realtime access from TypeScript
 
-## What This Phase Does Not Include
+## Current Limitations
 
-- No frontend product surface beyond the placeholder `apps/web`
-- No user auth, API auth, RBAC, or tenant isolation
-- No secure sandbox or VM/container isolation
-- No LLM orchestration yet
-- No GitHub App, OAuth flow, webhook ingestion, or production-grade secret management
-- No commit, push, or PR execution in the runner yet
+- No secure sandbox or VM/container isolation yet
+- No tenant isolation or production-grade RBAC
+- GitHub support is still repository-access oriented, not full GitHub App automation
+- The local runner is powerful, but it still runs on the host machine
+- Final Codex assistant prose is not yet token-by-token streamed; run state and command activity are realtime, but the final assistant reply is still emitted at turn completion
 
 ## Current Architecture
 
