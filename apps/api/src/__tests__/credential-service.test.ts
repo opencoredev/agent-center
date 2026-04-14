@@ -139,4 +139,33 @@ describe("credential-service", () => {
       expect(result.value).toBe("sk-ant-db-key");
     });
   });
+
+  describe("resolveCodexCredential", () => {
+    test("returns reconstructed auth.json from stored oauth tokens", async () => {
+      const encKey = "test-encryption-key-for-unit-tests";
+      const encryptedAccessToken = encrypt("oauth-access-token", encKey);
+      const encryptedRefreshToken = encrypt("oauth-refresh-token", encKey);
+
+      mockSelectResult.push({
+        id: "cred-openai-1",
+        provider: "openai",
+        source: "oauth",
+        encryptedApiKey: null,
+        encryptedAccessToken,
+        encryptedRefreshToken,
+        tokenExpiresAt: null,
+        metadata: { idToken: "oauth-id-token" },
+      });
+
+      const result = await credentialService.resolveCodexCredential();
+      expect(result.type).toBe("auth_json");
+      expect(JSON.parse(result.value)).toEqual({
+        tokens: {
+          access_token: "oauth-access-token",
+          refresh_token: "oauth-refresh-token",
+          id_token: "oauth-id-token",
+        },
+      });
+    });
+  });
 });

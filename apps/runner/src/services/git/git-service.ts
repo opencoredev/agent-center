@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+
 import { Effect } from "effect";
 
 import { createGitHubProvider } from "../../../../../packages/github/src/index.ts";
@@ -33,10 +35,9 @@ function resolveGitBinary() {
   const preferred = [
     "/opt/homebrew/bin/git",
     process.env.HOME ? `${process.env.HOME}/.local/bin/git` : null,
-    "git",
   ].filter((value): value is string => Boolean(value));
 
-  return preferred[0] ?? "git";
+  return preferred.find((value) => existsSync(value)) ?? "git";
 }
 
 function buildGitLogPayload(phase: string, stream: "stderr" | "stdout") {
@@ -132,6 +133,18 @@ export class GitService {
     return Effect.gen(this, function* () {
       if (!target.repoConnection) {
         return;
+      }
+
+      const hasGitRepo = yield* this.#runGitCommandEffect(
+        `${shellQuote(this.#gitBinary)} rev-parse --is-inside-work-tree`,
+        context,
+        "git-check",
+        undefined,
+        false,
+      ).pipe(Effect.map((result) => result.exitCode === 0));
+
+      if (!hasGitRepo) {
+        yield* this.#cloneRepositoryEffect(target, context);
       }
 
       const baseBranch =

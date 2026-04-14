@@ -19,7 +19,8 @@ It is still intentionally early, but it is now a working local product rather th
 - A worker that polls Postgres for queued runs and due automations
 - A host-local runner that provisions a workspace, optionally clones a GitHub repository, and executes configured shell commands or agent-backed runs
 - Realtime task and run updates over WebSockets, plus browser-local sync to keep open tabs in step
-- A docked desktop diff viewer for run workspace changes
+- A docked desktop diff viewer for run workspace changes, including newly created files
+- Credential support for provider API keys and Codex-style OAuth-backed auth material
 - A `@agent-center/github` package for GitHub repo access checks and clone URL construction
 - A `@agent-center/sdk-ts` package for HTTP + realtime access from TypeScript
 

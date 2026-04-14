@@ -81,6 +81,7 @@ authCodexRoutes.post("/codex/save-auth", async (context) => {
     refreshData.access_token,
     refreshData.refresh_token ?? tokens.refresh_token,
     refreshData.expires_in,
+    refreshData.id_token ?? tokens.id_token ?? null,
   );
 
   const status = await credentialService.getOpenAICredentials();

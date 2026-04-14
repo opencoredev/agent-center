@@ -39,9 +39,9 @@ async function getCredentials(provider: Provider): Promise<CredentialStatus> {
 
   return {
     connected: true,
-    source: row.source as "api_key",
+    source: row.source as "api_key" | "oauth",
     email: row.profileEmail,
-    expiresAt: null,
+    expiresAt: row.tokenExpiresAt ? row.tokenExpiresAt.toISOString() : null,
     subscriptionType: row.subscriptionType,
   };
 }
@@ -168,6 +168,7 @@ async function storeOpenAITokens(
   accessToken: string,
   refreshToken: string,
   expiresIn?: number,
+  idToken?: string | null,
 ): Promise<void> {
   const key = getEncryptionKey();
 
@@ -182,6 +183,7 @@ async function storeOpenAITokens(
     encryptedAccessToken: encrypt(accessToken, key),
     encryptedRefreshToken: encrypt(refreshToken, key),
     encryptedApiKey: null,
+    metadata: idToken ? { idToken } : {},
     tokenExpiresAt: expiresIn
       ? new Date(Date.now() + expiresIn * 1000)
       : null,
@@ -202,9 +204,48 @@ async function storeOpenAITokens(
 }
 
 async function resolveOpenAICredential(): Promise<ResolvedCredential> {
-  return resolveProviderCredential(
-    "openai",
-    "OPENAI_API_KEY",
+  const rows = await db
+    .select()
+    .from(credentials)
+    .where(eq(credentials.provider, "openai"))
+    .limit(1);
+
+  const row = rows[0];
+
+  if (row?.source === "api_key" && row.encryptedApiKey) {
+    const key = getEncryptionKey();
+    return {
+      type: "api_key",
+      value: decrypt(row.encryptedApiKey, key),
+    };
+  }
+
+  if (row?.source === "oauth" && row.encryptedAccessToken && row.encryptedRefreshToken) {
+    const key = getEncryptionKey();
+    const accessToken = decrypt(row.encryptedAccessToken, key);
+    const refreshToken = decrypt(row.encryptedRefreshToken, key);
+    const metadata = row.metadata as { idToken?: unknown } | null;
+    const idToken = typeof metadata?.idToken === "string" ? metadata.idToken : undefined;
+
+    return {
+      type: "auth_json",
+      value: JSON.stringify({
+        tokens: {
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          ...(idToken ? { id_token: idToken } : {}),
+        },
+      }),
+    };
+  }
+
+  const envApiKey = process.env.OPENAI_API_KEY;
+  if (envApiKey) {
+    return { type: "api_key", value: envApiKey };
+  }
+
+  throw new ApiError(
+    422,
     "no_openai_credentials",
     "No OpenAI credentials configured. Connect your Codex account or set an API key.",
   );

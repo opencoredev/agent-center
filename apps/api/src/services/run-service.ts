@@ -79,6 +79,38 @@ async function runGitCommand(workspacePath: string, args: string[]) {
   };
 }
 
+async function getUntrackedFiles(workspacePath: string) {
+  const status = await runGitCommand(workspacePath, ["status", "--short", "--untracked-files=all"]);
+
+  return status.stdout
+    .split("\n")
+    .filter((line) => line.startsWith("?? "))
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean);
+}
+
+async function buildUntrackedDiff(workspacePath: string, files: string[]) {
+  const patches: string[] = [];
+  const stats: string[] = [];
+
+  for (const file of files) {
+    const patch = await runGitCommand(workspacePath, ["diff", "--patch", "--no-index", "--", "/dev/null", file]);
+    if (patch.stdout) {
+      patches.push(patch.stdout);
+    }
+
+    const stat = await runGitCommand(workspacePath, ["diff", "--stat", "--no-index", "--", "/dev/null", file]);
+    if (stat.stdout) {
+      stats.push(stat.stdout);
+    }
+  }
+
+  return {
+    patch: patches.join("\n"),
+    stats: stats.join("\n"),
+  };
+}
+
 function resolveWorkspacePath(workspacePath: string) {
   const candidates = isAbsolute(workspacePath)
     ? [workspacePath]
@@ -107,6 +139,8 @@ async function readWorkspaceDiff(workspacePath: string): Promise<RunDiffResponse
     };
   }
 
+  const untrackedFiles = await getUntrackedFiles(resolvedWorkspacePath);
+
   let patch = await runGitCommand(resolvedWorkspacePath, ["diff", "--patch", "--minimal", "HEAD", "--"]);
   let stats = await runGitCommand(resolvedWorkspacePath, ["diff", "--stat", "--minimal", "HEAD", "--"]);
 
@@ -119,15 +153,19 @@ async function readWorkspaceDiff(workspacePath: string): Promise<RunDiffResponse
     stats = await runGitCommand(resolvedWorkspacePath, ["diff", "--stat", "--minimal", "--"]);
   }
 
+  const untrackedDiff = await buildUntrackedDiff(resolvedWorkspacePath, untrackedFiles);
+  const combinedPatch = [patch.stdout, untrackedDiff.patch].filter(Boolean).join("\n");
+  const combinedStats = [stats.stdout, untrackedDiff.stats].filter(Boolean).join("\n");
+
   return {
     available: true,
     error:
       patch.exitCode !== 0 && !missingHead
         ? (patch.stderr || "Git diff failed for this run workspace.")
         : null,
-    hasChanges: status.stdout.length > 0 || patch.stdout.length > 0,
-    patch: patch.stdout || null,
-    stats: stats.stdout || null,
+    hasChanges: status.stdout.length > 0 || combinedPatch.length > 0,
+    patch: combinedPatch || null,
+    stats: combinedStats || null,
     statusLines: status.stdout.length > 0 ? status.stdout.split("\n").filter(Boolean) : [],
     workspacePath: resolvedWorkspacePath,
   };

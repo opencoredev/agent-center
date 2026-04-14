@@ -682,13 +682,26 @@ export class RunSession implements CommandExecutionController {
 
   async #resolveCodexAuthJson() {
     const authPath = process.env.CODEX_AUTH_PATH ?? `${process.env.HOME ?? ""}/.codex/auth.json`;
-    if (!authPath) {
-      return null;
+    if (authPath) {
+      try {
+        const raw = await readFile(authPath, "utf8");
+        if (raw.trim().length > 0) {
+          return raw;
+        }
+      } catch {
+        // Fall through to API-backed credential resolution.
+      }
     }
 
     try {
-      const raw = await readFile(authPath, "utf8");
-      return raw.trim().length > 0 ? raw : null;
+      const apiUrl = process.env.RUNNER_API_URL ?? "http://api.agent-center.localhost:1355";
+      const res = await fetch(`${apiUrl}/internal/credentials/openai/resolve`);
+      if (!res.ok) {
+        return null;
+      }
+
+      const data = (await res.json()) as { data: { type: string; value: string } };
+      return data.data.type === "auth_json" ? data.data.value : null;
     } catch {
       return null;
     }
@@ -708,7 +721,7 @@ export class RunSession implements CommandExecutionController {
       }
 
       const data = (await res.json()) as { data: { type: string; value: string } };
-      return data.data.value;
+      return data.data.type === "api_key" ? data.data.value : null;
     } catch {
       return null;
     }

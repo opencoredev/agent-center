@@ -24,9 +24,16 @@ export interface CredentialStatus {
   subscriptionType: string | null;
 }
 
-export interface ResolvedCredential {
-  /** Type of credential */
-  type: "api_key";
-  /** The actual API key value */
-  value: string;
-}
+export type ResolvedCredential =
+  | {
+      /** Type of credential */
+      type: "api_key";
+      /** The actual API key value */
+      value: string;
+    }
+  | {
+      /** Serialized auth.json content for Codex OAuth auth */
+      type: "auth_json";
+      /** The auth.json payload */
+      value: string;
+    };

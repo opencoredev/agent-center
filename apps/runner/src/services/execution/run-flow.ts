@@ -50,6 +50,13 @@ export function runFlow(deps: RunFlowDeps) {
 
     if (reusableWorkspace) {
       yield* fromPromise(() => deps.onWorkspaceReused(reusableWorkspace));
+      if (deps.hasRepository) {
+        yield* fromPromise(() =>
+          deps.transitionStatus("cloning", "Refreshing repository workspace"),
+        );
+        yield* fromPromise(deps.waitUntilRunnable);
+        yield* fromPromise(deps.prepareBranch);
+      }
     } else {
       yield* fromPromise(() =>
         deps.transitionStatus("provisioning", "Provisioning host-local workspace", "running"),

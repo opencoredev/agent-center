@@ -73,4 +73,36 @@ describe("runFlow", () => {
     expect(appendFailedEvent).toHaveBeenCalledWith("Run has no commands configured");
     expect(cleanupWorkspace).toHaveBeenCalledWith("failed");
   });
+
+  test("re-prepares the repository when reusing an existing workspace", async () => {
+    const transitionStatus = mock(async () => undefined);
+    const prepareBranch = mock(async () => undefined);
+
+    await Effect.runPromise(
+      runFlow({
+        agentProvider: "none",
+        commands: [{ command: "echo ok" } as any],
+        getReusableWorkspace: async () => ({ id: "run-3", path: "/tmp/run-3", backend: "local" }),
+        createWorkspace: async () => ({ id: "run-3", path: "/tmp/run-3", backend: "local" }),
+        appendCompletedEvent: async () => undefined,
+        appendFailedEvent: async () => undefined,
+        cleanupWorkspace: async () => undefined,
+        executeClaudeAgent: async () => undefined,
+        executeCodexAgent: async () => undefined,
+        executeCommand: async () => undefined,
+        getFailureMessage: (error) => error instanceof Error ? error.message : "Run failed",
+        hasRepository: true,
+        markRunStarted: () => undefined,
+        onWorkspaceCreated: async () => undefined,
+        onWorkspaceReused: async () => undefined,
+        prepareBranch,
+        cloneRepository: async () => undefined,
+        transitionStatus,
+        waitUntilRunnable: async () => undefined,
+      }),
+    );
+
+    expect(transitionStatus).toHaveBeenCalledWith("cloning", "Refreshing repository workspace");
+    expect(prepareBranch).toHaveBeenCalledTimes(1);
+  });
 });
