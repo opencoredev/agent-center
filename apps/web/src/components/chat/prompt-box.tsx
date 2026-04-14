@@ -1289,6 +1289,11 @@ export function PromptBox({
     (compact
       ? 'Send a message...'
       : 'Describe what you want to build...');
+  const streamingHint = canComposeWhileStreaming
+    ? value.trim().length > 0 || files.length > 0
+      ? 'Enter queues this follow-up. Cmd/Ctrl+Enter steers the current run.'
+      : 'Enter stops the current run. Type a message to queue or steer.'
+    : null;
 
   const providerNotice =
     !isCredentialLoading && !hasProviderCredentials
@@ -1471,6 +1476,19 @@ export function PromptBox({
               </PopoverContent>
             </Popover>
 
+            {canComposeWhileStreaming && hasContent ? (
+              <Button
+                onClick={() => handleSubmit('steer')}
+                disabled={isSubmitting || !hasProviderCredentials || hasPendingUploads}
+                size="sm"
+                variant="outline"
+                className="h-7 rounded-full px-2.5 text-[11px]"
+                title="Steer current run (Cmd/Ctrl+Enter)"
+              >
+                Steer
+              </Button>
+            ) : null}
+
             {isStreaming && !canComposeWhileStreaming ? (
               <Button
                 onClick={onStop}
@@ -1513,6 +1531,11 @@ export function PromptBox({
         {providerNotice && (
           <div className="px-4 pb-3 text-[11px] text-amber-600">
             {providerNotice}
+          </div>
+        )}
+        {streamingHint && (
+          <div className="px-4 pb-3 text-[11px] text-muted-foreground/80">
+            {streamingHint}
           </div>
         )}
       </div>

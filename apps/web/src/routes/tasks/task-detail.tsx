@@ -26,6 +26,7 @@ import 'streamdown/styles.css';
 import type { ExecutionRuntime } from '@agent-center/shared';
 import { apiGet, apiPost } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 import { ChainOfThoughtStep } from '@/components/ai-elements/chain-of-thought';
 import {
@@ -217,6 +218,9 @@ interface ActivityItem {
   label: string;
   message: string;
   timestamp: string;
+  command?: string;
+  output?: string | null;
+  status?: 'running' | 'completed' | 'failed';
 }
 
 interface AttachmentPreview {
@@ -570,90 +574,183 @@ function formatStructuredLogMessage(message: string | null) {
   return message;
 }
 
+function compactCommandLabel(command: string | null | undefined) {
+  if (!command) return null;
+
+  const trimmed = command.trim();
+  if (!trimmed) return null;
+
+  const shellWrapped = trimmed.match(/^\/bin\/zsh -lc ["']([\s\S]+)["']$/);
+  const unwrapped = shellWrapped?.[1]?.trim() ?? trimmed;
+  const segments = unwrapped
+    .split('&&')
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length === 0) {
+    return null;
+  }
+
+  if (segments.length === 1 && segments[0] === 'pwd') {
+    return 'Checked working directory';
+  }
+
+  if (segments.length === 1 && /^ls(\s|$)/.test(segments[0]!)) {
+    return 'Listed files';
+  }
+
+  if (segments.some((segment) => segment.startsWith('git status --short'))) {
+    return 'Checked git status';
+  }
+
+  if (segments.some((segment) => segment.startsWith('git diff'))) {
+    return 'Inspected git diff';
+  }
+
+  if (segments.some((segment) => segment.startsWith('rg --files'))) {
+    return 'Listed files';
+  }
+
+  if (segments.some((segment) => segment.startsWith('rg '))) {
+    return 'Searched the codebase';
+  }
+
+  if (segments.some((segment) => segment.startsWith('find '))) {
+    return 'Searched the codebase';
+  }
+
+  if (segments.some((segment) => segment.startsWith('sed -n '))) {
+    return 'Read files';
+  }
+
+  return unwrapped.length > 72 ? `${unwrapped.slice(0, 69)}...` : unwrapped;
+}
+
 function buildActivityItems(events: RunEvent[]) {
-  return events
-    .filter((event) =>
-      event.eventType === 'run.status_changed' ||
-      event.eventType === 'run.command.started' ||
-      event.eventType === 'run.command.finished' ||
-      event.eventType === 'run.log' ||
-      getInnerType(event) === 'tool_use'
-    )
-    .map((event): ActivityItem | null => {
-      if (event.eventType === 'run.status_changed') {
-        const nextStatus = typeof event.payload?.status === 'string' ? event.payload.status : null;
-        if (nextStatus === 'completed' || nextStatus === 'cancelled') {
-          return null;
-        }
+  const items = new Map<string, ActivityItem>();
+  const standalone: ActivityItem[] = [];
 
-        return {
-          id: event.id,
-          kind: 'status',
-          label: 'Status',
-          message: formatStructuredLogMessage(event.message) ?? 'Status updated',
-          timestamp: event.createdAt,
-        };
+  for (const event of events) {
+    if (event.eventType === 'run.status_changed') {
+      const nextStatus = typeof event.payload?.status === 'string' ? event.payload.status : null;
+      if (nextStatus === 'completed' || nextStatus === 'cancelled') {
+        continue;
       }
 
-      if (getInnerType(event) === 'tool_use') {
-        return {
-          id: event.id,
-          kind: 'tool',
-          label: 'Tool',
-          message:
-            formatStructuredLogMessage(event.message) ??
-            (typeof event.payload?.toolName === 'string'
-              ? event.payload.toolName
-              : 'Tool activity'),
-          timestamp: event.createdAt,
-        };
-      }
+      const formatted = formatStructuredLogMessage(event.message);
+      if (!formatted) continue;
 
-      const formattedMessage = formatStructuredLogMessage(event.message);
-      if (!formattedMessage) {
-        return null;
-      }
-
-      const ignoredFragments = [
-        'Workspace retained: cleanup mode is retain',
-        'Codex session completed',
-        'Codex agent session completed',
-        'Run completed successfully',
-        'Updating files:',
-      ];
-
-      if (ignoredFragments.some((fragment) => formattedMessage.includes(fragment))) {
-        return null;
-      }
-
-      const isUsefulLog =
-        event.eventType === 'run.command.started' ||
-        event.eventType === 'run.command.finished' ||
-        formattedMessage.includes('Workspace created') ||
-        formattedMessage.includes('Cloning') ||
-        formattedMessage.includes('Reset branch') ||
-        formattedMessage.includes('branch') ||
-        formattedMessage.includes('started') ||
-        formattedMessage.includes('Reading additional input');
-
-      if (!isUsefulLog) {
-        return null;
-      }
-
-      return {
+      standalone.push({
         id: event.id,
-        kind: 'log',
-        label: event.eventType === 'run.command.started'
-          ? 'Command'
-          : event.eventType === 'run.command.finished'
-            ? 'Command'
-            : 'Log',
-        message: formattedMessage,
+        kind: 'status',
+        label: 'Status',
+        message: formatted,
         timestamp: event.createdAt,
-      };
-    })
-    .filter((item): item is ActivityItem => item !== null)
-    .slice(-8);
+      });
+      continue;
+    }
+
+    if (getInnerType(event) === 'tool_use') {
+      standalone.push({
+        id: event.id,
+        kind: 'tool',
+        label: 'Tool',
+        message:
+          formatStructuredLogMessage(event.message) ??
+          (typeof event.payload?.toolName === 'string' ? event.payload.toolName : 'Tool activity'),
+        timestamp: event.createdAt,
+      });
+      continue;
+    }
+
+    const payloadItem =
+      event.payload && typeof event.payload.item === 'object' && event.payload.item !== null
+        ? (event.payload.item as Record<string, unknown>)
+        : null;
+    const payloadType = typeof event.payload?.type === 'string' ? event.payload.type : null;
+
+    if (payloadItem?.type === 'command_execution') {
+      const itemId = typeof payloadItem.id === 'string' ? payloadItem.id : event.id;
+      const rawCommand = typeof payloadItem.command === 'string' ? payloadItem.command : null;
+      const summary = compactCommandLabel(rawCommand) ?? 'Ran a command';
+      const existing = items.get(itemId);
+
+      if (payloadType === 'item.started') {
+        items.set(itemId, {
+          id: itemId,
+          kind: 'tool',
+          label: 'Command',
+          message: summary,
+          timestamp: event.createdAt,
+          command: rawCommand ?? undefined,
+          status: 'running',
+        });
+        continue;
+      }
+
+      if (payloadType === 'item.completed') {
+        const output =
+          typeof payloadItem.aggregated_output === 'string' && payloadItem.aggregated_output.trim().length > 0
+            ? payloadItem.aggregated_output
+            : null;
+        const status = payloadItem.status === 'failed' ? 'failed' : 'completed';
+
+        items.set(itemId, {
+          id: itemId,
+          kind: 'tool',
+          label: 'Command',
+          message: summary,
+          timestamp: existing?.timestamp ?? event.createdAt,
+          command: rawCommand ?? existing?.command,
+          output,
+          status,
+        });
+        continue;
+      }
+    }
+
+    const formattedMessage = formatStructuredLogMessage(event.message);
+    if (!formattedMessage) {
+      continue;
+    }
+
+    const ignoredFragments = [
+      'Workspace retained: cleanup mode is retain',
+      'Codex session completed',
+      'Codex agent session completed',
+      'Run completed successfully',
+      'Updating files:',
+      'command execution completed.',
+    ];
+
+    if (ignoredFragments.some((fragment) => formattedMessage.includes(fragment))) {
+      continue;
+    }
+
+    const isUsefulLog =
+      formattedMessage.includes('Workspace created') ||
+      formattedMessage.includes('Cloned repository') ||
+      formattedMessage.includes('Prepared branch') ||
+      formattedMessage.includes('Branch is up to date') ||
+      formattedMessage.includes('Downloading repository files') ||
+      formattedMessage.includes('Cancellation requested');
+
+    if (!isUsefulLog) {
+      continue;
+    }
+
+    standalone.push({
+      id: event.id,
+      kind: 'log',
+      label: 'Work',
+      message: formattedMessage,
+      timestamp: event.createdAt,
+    });
+  }
+
+  return [...standalone, ...Array.from(items.values())]
+    .sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime())
+    .slice(-10);
 }
 
 function getRunDurationSeconds(run: Run | undefined) {
@@ -672,14 +769,19 @@ function getRunDurationSeconds(run: Run | undefined) {
 
 function getCompletedRunLabel(duration: number | undefined, items: ActivityItem[]) {
   const seconds = duration ?? 0;
-  const hasReasoningTrace = getDisplayActivityItems(items).length > 0;
+  const hasTrace = getDisplayActivityItems(items).length > 0;
+  const hasModelReasoning = hasReasoningTrace(items);
 
   if (seconds <= 0) {
-    return hasReasoningTrace ? 'Thought briefly' : 'Responded directly';
+    return hasTrace ? 'Worked briefly' : 'Responded directly';
   }
 
-  if (hasReasoningTrace) {
+  if (hasModelReasoning) {
     return `Thought for ${seconds} seconds`;
+  }
+
+  if (hasTrace) {
+    return `Worked for ${seconds} seconds`;
   }
 
   return `Responded in ${seconds} seconds`;
@@ -694,13 +796,112 @@ function isLowSignalWorkItem(item: ActivityItem) {
   ].some((fragment) => item.message.includes(fragment));
 }
 
+function isSetupOnlyItem(item: ActivityItem) {
+  return [
+    'Claimed by the worker.',
+    'Prepared the local workspace.',
+    'Workspace created.',
+    'Cloned repository.',
+    'Downloading repository files.',
+    'Prepared branch main.',
+    'Branch is up to date.',
+    'Started the Codex agent.',
+    'Started the Claude agent.',
+    'Codex session started.',
+    'Sent the message to the agent.',
+  ].some((fragment) => item.message.includes(fragment));
+}
+
 function getDisplayActivityItems(items: ActivityItem[]) {
   const filtered = items.filter((item) => !isLowSignalWorkItem(item));
   return filtered.length > 0 ? filtered : [];
 }
 
+function hasReasoningTrace(items: ActivityItem[]) {
+  const displayItems = getDisplayActivityItems(items);
+  return displayItems.some((item) => item.kind !== 'tool' && !isSetupOnlyItem(item));
+}
+
+function summarizeActivityItems(items: ActivityItem[]) {
+  const displayItems = getDisplayActivityItems(items);
+  const commandCount = displayItems.filter((item) => item.kind === 'tool').length;
+  const setupCount = displayItems.filter((item) => item.kind === 'status' || isSetupOnlyItem(item)).length;
+  const searchCount = displayItems.filter((item) => item.message === 'Searched the codebase').length;
+  const listCount = displayItems.filter((item) => item.message === 'Listed files').length;
+
+  const parts: string[] = [];
+
+  if (searchCount > 0) {
+    parts.push(`searched ${searchCount} time${searchCount === 1 ? '' : 's'}`);
+  }
+
+  if (listCount > 0) {
+    parts.push(`listed files ${listCount} time${listCount === 1 ? '' : 's'}`);
+  }
+
+  if (commandCount > 0) {
+    parts.push(`ran ${commandCount} command${commandCount === 1 ? '' : 's'}`);
+  }
+
+  if (setupCount > 0 && commandCount === 0) {
+    parts.push(`completed ${setupCount} setup step${setupCount === 1 ? '' : 's'}`);
+  }
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return `${parts[0]!.charAt(0).toUpperCase()}${parts[0]!.slice(1)}${parts.length > 1 ? `, ${parts.slice(1).join(', ')}` : ''}.`;
+}
+
+function ActivityDetailRow({ item }: { item: ActivityItem }) {
+  const [open, setOpen] = useState(false);
+  const hasDetails = Boolean(item.command || item.output);
+  const Icon = item.kind === 'tool' ? Terminal : item.kind === 'status' ? GitBranch : FileText;
+
+  return (
+    <div className="rounded-lg border border-border/40 bg-background/40">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger
+          className={`flex w-full items-center gap-2 px-3 py-2 text-left ${hasDetails ? 'cursor-pointer' : 'cursor-default'}`}
+          disabled={!hasDetails}
+        >
+          <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-foreground/90">{item.message}</p>
+            {item.command && (
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground/65">
+                {item.command}
+              </p>
+            )}
+          </div>
+          {hasDetails
+            ? (open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/60" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60" />)
+            : null}
+        </CollapsibleTrigger>
+        {hasDetails && (
+          <CollapsibleContent className="px-3 pb-3">
+            {item.command && (
+              <div className="rounded-md border border-border/40 bg-card/60 p-2">
+                <p className="mb-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">Shell</p>
+                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] text-foreground/85">{item.command}</pre>
+              </div>
+            )}
+            {item.output && (
+              <div className={`rounded-md border border-border/40 bg-card/60 p-2 ${item.command ? 'mt-2' : ''}`}>
+                <p className="mb-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">Output</p>
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-foreground/85">{item.output}</pre>
+              </div>
+            )}
+          </CollapsibleContent>
+        )}
+      </Collapsible>
+    </div>
+  );
+}
+
 function InlineReasoningDetails({ items }: { items: ActivityItem[] }) {
-  const { isOpen } = useReasoning();
+  const { isOpen, isStreaming } = useReasoning();
   const displayItems = getDisplayActivityItems(items);
 
   if (!isOpen) {
@@ -711,7 +912,9 @@ function InlineReasoningDetails({ items }: { items: ActivityItem[] }) {
     return (
       <div className="mt-3 pl-6">
         <p className="text-xs text-muted-foreground/70">
-          No detailed reasoning trace was emitted for this reply. The model returned a short answer directly.
+          {isStreaming
+            ? 'Working details will appear here as the agent emits command or tool activity.'
+            : 'No detailed reasoning trace was emitted for this reply. The model returned a short answer directly.'}
         </p>
       </div>
     );
@@ -719,13 +922,15 @@ function InlineReasoningDetails({ items }: { items: ActivityItem[] }) {
 
   return (
     <div className="mt-3 pl-6 space-y-2">
+      {summarizeActivityItems(displayItems) && (
+        <p className="pb-1 text-[11px] text-muted-foreground/70">
+          {summarizeActivityItems(displayItems)}
+        </p>
+      )}
       {displayItems.map((item, index) => (
-        <ChainOfThoughtStep
+        <ActivityDetailRow
           key={`${item.id}-${index}`}
-          className="text-xs"
-          label={item.message}
-          icon={item.kind === 'tool' ? Terminal : FileText}
-          status={index === displayItems.length - 1 ? 'active' : 'complete'}
+          item={item}
         />
       ))}
     </div>
@@ -1302,6 +1507,14 @@ export function TaskDetailPage() {
         <div className="max-w-3xl mx-auto">
           {queuedFollowUps.length > 0 && (
             <div className="mb-3 rounded-2xl border border-border/60 bg-background/80 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+                  Queued follow-ups
+                </p>
+                <span className="text-[11px] text-muted-foreground/70">
+                  {queuedFollowUps.length} pending
+                </span>
+              </div>
               {queuedFollowUps.map((item, index) => (
                 <div
                   key={item.id}
@@ -1312,6 +1525,13 @@ export function TaskDetailPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        item.mode === 'steer'
+                          ? 'bg-primary/12 text-primary'
+                          : 'bg-muted text-muted-foreground'
+                      }`}>
+                        {item.mode === 'steer' ? 'Steer next' : 'Queued'}
+                      </span>
                       <p className="text-sm font-medium text-foreground truncate">
                         {item.prompt}
                       </p>
