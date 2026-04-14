@@ -1,12 +1,25 @@
-node_modules
-.turbo
-.DS_Store
+# Dependencies and build output
+node_modules/
+.turbo/
+dist/
+coverage/
+
+# Environment and local config
 .env
 .env.local
-dist
-coverage
+
+# Local runtime / workspace state
 .agent-center/
 .agent-browser/
 .expect/
 .sisyphus/
+tmp/
+
+# Local AI agent config
+.agents/
+.codex/
+
+# OS files
+.DS_Store
+
 # Railway deploy trigger
