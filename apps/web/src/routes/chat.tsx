@@ -37,6 +37,8 @@ interface RepoConnection {
 interface PromptConfig {
   agentProvider: string;
   agentModel: string;
+  agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+  agentThinkingEnabled?: boolean;
   branch: string;
   runtime: ExecutionRuntime;
   workspaceId?: string;
@@ -198,6 +200,8 @@ export function ChatPage() {
         config: {
           agentProvider: promptConfig.agentProvider as 'claude' | 'codex',
           agentModel: promptConfig.agentModel,
+          agentReasoningEffort: promptConfig.agentReasoningEffort,
+          agentThinkingEnabled: promptConfig.agentThinkingEnabled,
           runtime: promptConfig.runtime,
         },
         permissionMode: 'safe',

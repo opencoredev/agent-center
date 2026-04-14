@@ -61,6 +61,12 @@ export interface ModelEntry {
   description: string;
   context: string;
   speed: 'Fast' | 'Moderate' | 'Slow';
+  reasoningEffortLevels?: ReadonlyArray<{
+    value: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+    label: string;
+    isDefault?: boolean;
+  }>;
+  supportsThinkingToggle?: boolean;
   isDefault?: boolean;
 }
 
@@ -70,6 +76,14 @@ export interface AgentEntry {
   logoId: string;
   credentialPath: string;
 }
+
+export type AgentReasoningEffort =
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max'
+  | 'ultrathink';
 
 export const AGENTS: AgentEntry[] = [
   {
@@ -91,6 +105,11 @@ const DEFAULT_MODEL_BY_AGENT: Record<string, string> = {
   codex: 'gpt-5.4',
 };
 
+const DEFAULT_REASONING_EFFORT_BY_AGENT: Partial<Record<AgentEntry['id'], AgentReasoningEffort>> = {
+  claude: 'high',
+  codex: 'high',
+};
+
 export const MODELS: ModelEntry[] = [
   // ── Claude Code ──
   {
@@ -100,6 +119,13 @@ export const MODELS: ModelEntry[] = [
     description: 'Most capable model for complex reasoning',
     context: '1M',
     speed: 'Moderate',
+    reasoningEffortLevels: [
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High', isDefault: true },
+      { value: 'max', label: 'Max' },
+      { value: 'ultrathink', label: 'Ultrathink' },
+    ],
     isDefault: true,
   },
   {
@@ -109,6 +135,12 @@ export const MODELS: ModelEntry[] = [
     description: 'Balanced speed and intelligence',
     context: '200K',
     speed: 'Fast',
+    reasoningEffortLevels: [
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High', isDefault: true },
+      { value: 'ultrathink', label: 'Ultrathink' },
+    ],
   },
   {
     id: 'claude-opus-4-5',
@@ -117,6 +149,12 @@ export const MODELS: ModelEntry[] = [
     description: 'Previous-gen flagship reasoning',
     context: '200K',
     speed: 'Moderate',
+    reasoningEffortLevels: [
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High', isDefault: true },
+      { value: 'max', label: 'Max' },
+    ],
   },
   {
     id: 'claude-haiku-4-5',
@@ -125,6 +163,7 @@ export const MODELS: ModelEntry[] = [
     description: 'Fastest Claude for simple tasks',
     context: '200K',
     speed: 'Fast',
+    supportsThinkingToggle: true,
   },
   // ── Codex ──
   {
@@ -134,6 +173,12 @@ export const MODELS: ModelEntry[] = [
     description: 'Latest frontier model',
     context: '1M',
     speed: 'Moderate',
+    reasoningEffortLevels: [
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High', isDefault: true },
+      { value: 'xhigh', label: 'Extra High' },
+    ],
     isDefault: true,
   },
   {
@@ -143,6 +188,11 @@ export const MODELS: ModelEntry[] = [
     description: 'Compact and cost-efficient',
     context: '128K',
     speed: 'Fast',
+    reasoningEffortLevels: [
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium', isDefault: true },
+      { value: 'high', label: 'High' },
+    ],
   },
   {
     id: 'gpt-5.3-codex',
@@ -151,6 +201,11 @@ export const MODELS: ModelEntry[] = [
     description: 'Optimized for code generation',
     context: '192K',
     speed: 'Fast',
+    reasoningEffortLevels: [
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium', isDefault: true },
+      { value: 'high', label: 'High' },
+    ],
   },
   {
     id: 'o3',
@@ -159,6 +214,11 @@ export const MODELS: ModelEntry[] = [
     description: 'Advanced reasoning model',
     context: '200K',
     speed: 'Slow',
+    reasoningEffortLevels: [
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High', isDefault: true },
+      { value: 'xhigh', label: 'Extra High' },
+    ],
   },
 ];
 
@@ -188,11 +248,16 @@ interface AttachedFile {
 
 interface PromptBoxProps {
   onSubmit: (prompt: string, files: AttachedFile[]) => void;
+  onQueueSubmit?: (prompt: string, files: AttachedFile[]) => void;
+  onSteerSubmit?: (prompt: string, files: AttachedFile[]) => void;
   isStreaming?: boolean;
   isSubmitting?: boolean;
   onStop?: () => void;
+  allowInputWhileStreaming?: boolean;
   defaultConfig?: {
     agentModel?: string;
+    agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+    agentThinkingEnabled?: boolean;
     branch?: string;
     repoConnectionId?: string | null;
     sandboxMode?: SandboxMode;
@@ -200,6 +265,8 @@ interface PromptBoxProps {
   onConfigChange?: (config: {
     agentProvider: string;
     agentModel: string;
+    agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+    agentThinkingEnabled?: boolean;
     branch: string;
     runtime: ExecutionRuntime;
     workspaceId?: string;
@@ -365,68 +432,81 @@ function ModelSelector({
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
 
   const selectedModel = MODELS.find((m) => m.id === selectedModelId) ?? MODELS[0]!;
   const selectedAgent = AGENTS.find((agent) => agent.id === selectedModel.agentId) ?? AGENTS[0]!;
+  const activeAgentId = hoveredAgent ?? selectedAgent.id;
+  const activeModels = MODELS.filter((model) => model.agentId === activeAgentId);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          setHoveredAgent(null);
+        }
+      }}
+    >
       <PopoverTrigger asChild>
         <button className="flex items-center gap-1.5 px-2.5 h-7 rounded-md text-xs transition-colors hover:bg-muted/80 cursor-pointer text-muted-foreground hover:text-foreground">
           <ProviderLogo provider={selectedAgent.logoId} className="w-3.5 h-3.5 dark:invert" />
-          <span className="hidden sm:inline">
-            {selectedModel.label}
-          </span>
+          <span className="hidden sm:inline">{selectedModel.label}</span>
           <ChevronDown className="w-3 h-3 opacity-50" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[360px] max-sm:w-[calc(100vw-2rem)] p-1.5" sideOffset={8}>
-        <div className="max-h-[340px] overflow-y-auto space-y-3 pr-1" style={{ scrollbarWidth: 'thin' }}>
-          {AGENTS.map((agent) => {
-            const models = MODELS.filter((model) => model.agentId === agent.id);
-
-            return (
-              <div key={agent.id}>
-                <div className="flex items-center gap-2 px-2 py-1">
+      <PopoverContent align="start" className="w-[420px] max-sm:w-[calc(100vw-2rem)] p-0 overflow-hidden" sideOffset={8}>
+        <div className="flex">
+          <div className="w-[150px] shrink-0 border-r border-border/40 py-1 px-1">
+            {AGENTS.map((agent) => {
+              const isActive = activeAgentId === agent.id;
+              return (
+                <button
+                  key={agent.id}
+                  onMouseEnter={() => setHoveredAgent(agent.id)}
+                  className={`flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-sm transition-colors cursor-pointer ${
+                    isActive ? 'bg-accent' : 'hover:bg-muted/50'
+                  }`}
+                >
                   <ProviderLogo provider={agent.logoId} className="w-4 h-4 dark:invert" />
-                  <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                    {agent.label}
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  {models.map((model) => {
-                    const isSelected = model.id === selectedModelId;
-
-                    return (
-                      <button
-                        key={model.id}
-                        onClick={() => {
-                          onSelect(model);
-                          setOpen(false);
-                        }}
-                        className={`flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg transition-colors cursor-pointer ${
-                          isSelected ? 'bg-accent' : 'hover:bg-muted/50'
-                        }`}
-                      >
-                        <div className="flex-1 min-w-0 text-left">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[13px] font-medium text-foreground">{model.label}</span>
-                            <span className="text-[10px] text-muted-foreground/50 font-mono">{model.context}</span>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground/60 mt-0.5 truncate">{model.description}</p>
-                        </div>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-          <div className="border-t border-border/40 pt-2 px-0.5">
+                  <span className="font-medium text-foreground flex-1 text-left truncate">{agent.label}</span>
+                  <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex-1 min-w-0 overflow-y-auto max-h-[320px] py-1 px-1" style={{ scrollbarWidth: 'thin' }}>
+            {activeModels.map((model) => {
+              const isSelected = model.id === selectedModelId;
+              return (
+                <button
+                  key={model.id}
+                  onClick={() => {
+                    onSelect(model);
+                    setOpen(false);
+                    setHoveredAgent(null);
+                  }}
+                  className={`flex items-center gap-2 w-full px-2.5 py-2 rounded-md transition-colors cursor-pointer ${
+                    isSelected ? 'bg-accent' : 'hover:bg-muted/50'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0 text-left">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-foreground">{model.label}</span>
+                      <span className="text-[10px] text-muted-foreground/50 font-mono">{model.context}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground/60 mt-0.5 truncate">{model.description}</p>
+                  </div>
+                  {isSelected && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+                </button>
+              );
+            })}
+            <div className="border-t border-border/40 pt-2 px-0.5 mt-1">
               <button
                 onClick={() => {
                   setOpen(false);
+                  setHoveredAgent(null);
                   navigate({ to: '/settings/models' });
                 }}
                 className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-md text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
@@ -434,8 +514,111 @@ function ModelSelector({
                 <Settings className="w-3 h-3" />
                 <span>Manage models</span>
               </button>
+            </div>
           </div>
         </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function getDefaultReasoningEffort(model: ModelEntry) {
+  if (!model.reasoningEffortLevels || model.reasoningEffortLevels.length === 0) {
+    return undefined;
+  }
+
+  return (
+    model.reasoningEffortLevels.find((option) => option.isDefault)?.value ??
+    DEFAULT_REASONING_EFFORT_BY_AGENT[model.agentId] ??
+    model.reasoningEffortLevels[0]?.value
+  );
+}
+
+function TraitsSelector({
+  model,
+  reasoningEffort,
+  thinkingEnabled,
+  onReasoningEffortChange,
+  onThinkingEnabledChange,
+}: {
+  model: ModelEntry;
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+  thinkingEnabled?: boolean;
+  onReasoningEffortChange: (value: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink') => void;
+  onThinkingEnabledChange: (value: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedEffort = reasoningEffort ?? getDefaultReasoningEffort(model);
+
+  if ((!model.reasoningEffortLevels || model.reasoningEffortLevels.length === 0) && !model.supportsThinkingToggle) {
+    return null;
+  }
+
+  const triggerLabel = model.reasoningEffortLevels?.length
+    ? model.reasoningEffortLevels.find((option) => option.value === selectedEffort)?.label ?? 'Reasoning'
+    : thinkingEnabled === false
+      ? 'Thinking off'
+      : 'Thinking on';
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button className="flex items-center gap-1.5 px-2.5 h-7 rounded-md text-xs transition-colors hover:bg-muted/80 cursor-pointer text-muted-foreground hover:text-foreground">
+          <span className="hidden sm:inline">{triggerLabel}</span>
+          <ChevronDown className="w-3 h-3 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-52 p-1" sideOffset={8}>
+        {model.reasoningEffortLevels && model.reasoningEffortLevels.length > 0 ? (
+          <>
+            <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Reasoning</div>
+            {model.reasoningEffortLevels.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => {
+                  onReasoningEffortChange(option.value);
+                  setOpen(false);
+                }}
+                className={`flex items-center justify-between gap-2.5 w-full px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer ${
+                  selectedEffort === option.value ? 'bg-accent' : 'hover:bg-muted/50'
+                }`}
+              >
+                <span>
+                  {option.label}
+                  {option.isDefault ? ' (default)' : ''}
+                </span>
+                {selectedEffort === option.value && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+              </button>
+            ))}
+          </>
+        ) : null}
+
+        {model.supportsThinkingToggle ? (
+          <>
+            {model.reasoningEffortLevels && model.reasoningEffortLevels.length > 0 ? (
+              <div className="my-1 h-px bg-border/60" />
+            ) : null}
+            <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Thinking</div>
+            {[
+              { label: 'On (default)', value: true },
+              { label: 'Off', value: false },
+            ].map((option) => (
+              <button
+                key={String(option.value)}
+                onClick={() => {
+                  onThinkingEnabledChange(option.value);
+                  setOpen(false);
+                }}
+                className={`flex items-center justify-between gap-2.5 w-full px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer ${
+                  (thinkingEnabled ?? true) === option.value ? 'bg-accent' : 'hover:bg-muted/50'
+                }`}
+              >
+                <span>{option.label}</span>
+                {(thinkingEnabled ?? true) === option.value && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+              </button>
+            ))}
+          </>
+        ) : null}
       </PopoverContent>
     </Popover>
   );
@@ -710,9 +893,12 @@ function FileTypeIcon({ type }: { type: AttachedFile['type'] }) {
 
 export function PromptBox({
   onSubmit,
+  onQueueSubmit,
+  onSteerSubmit,
   isStreaming = false,
   isSubmitting = false,
   onStop,
+  allowInputWhileStreaming = false,
   defaultConfig,
   onConfigChange,
   placeholder,
@@ -726,6 +912,12 @@ export function PromptBox({
   const [files, setFiles] = useState<AttachedFile[]>([]);
   const [selectedModelId, setSelectedModelId] = useState(() =>
     defaultConfig?.agentModel ?? localStorage.getItem('ac_default_model') ?? 'claude-opus-4-6'
+  );
+  const [reasoningEffort, setReasoningEffort] = useState<
+    'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink' | undefined
+  >(() => defaultConfig?.agentReasoningEffort);
+  const [thinkingEnabled, setThinkingEnabled] = useState<boolean | undefined>(
+    () => defaultConfig?.agentThinkingEnabled,
   );
   const [branch, setBranch] = useState(defaultConfig?.branch ?? 'main');
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(() =>
@@ -747,6 +939,7 @@ export function PromptBox({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const controlPlaneEnabled = useControlPlaneEnabled();
+  const canComposeWhileStreaming = allowInputWhileStreaming && isStreaming;
   const generateUploadUrl = useConvexMutation(controlPlaneApi.files.generateUploadUrl);
   const saveAttachment = useConvexMutation(controlPlaneApi.files.saveAttachment);
   const createControlPlaneWorkspace = useConvexMutation(controlPlaneApi.workspaces.create);
@@ -803,7 +996,10 @@ export function PromptBox({
 
     if (!fallbackModelId) return;
 
+    const fallbackModel = MODELS.find((model) => model.id === fallbackModelId);
     setSelectedModelId(fallbackModelId);
+    setReasoningEffort(fallbackModel ? getDefaultReasoningEffort(fallbackModel) : undefined);
+    setThinkingEnabled(fallbackModel?.supportsThinkingToggle ? true : undefined);
     localStorage.setItem('ac_default_model', fallbackModelId);
   }, [credentialStatuses, isCredentialLoading, selectedAgent.id, selectedCredential?.connected]);
 
@@ -820,10 +1016,20 @@ export function PromptBox({
       repo: RepoConnection | null,
       mode: SandboxMode,
       repoId = repo?.id ?? selectedRepoId,
+      overrides?: {
+        agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+        agentThinkingEnabled?: boolean;
+      },
     ) => {
       onConfigChange?.({
         agentProvider: model.agentId,
         agentModel: model.id,
+        agentReasoningEffort:
+          overrides?.agentReasoningEffort ?? reasoningEffort ?? getDefaultReasoningEffort(model),
+        agentThinkingEnabled:
+          model.supportsThinkingToggle
+            ? (overrides?.agentThinkingEnabled ?? thinkingEnabled ?? true)
+            : undefined,
         branch: b,
         runtime: runtimeForSandboxMode(mode),
         workspaceId: repo?.workspaceId ?? undefined,
@@ -831,28 +1037,57 @@ export function PromptBox({
         projectId: repo?.projectId ?? undefined,
       });
     },
-    [onConfigChange, selectedRepoId],
+    [onConfigChange, reasoningEffort, selectedRepoId, thinkingEnabled],
   );
 
   useEffect(() => {
     emitConfig(selectedModel, branch, selectedRepo, sandboxMode);
   }, [branch, emitConfig, sandboxMode, selectedModel, selectedRepo]);
 
-  const handleSubmit = useCallback(() => {
-    if (isSubmitting || isStreaming) return;
+  const clearComposer = useCallback(() => {
+    setValue('');
+    setFiles([]);
+  }, []);
+
+  const handleSubmit = useCallback((mode: 'send' | 'queue' | 'steer' = 'send') => {
+    if (isSubmitting) return;
     if (!isCredentialLoading && selectedCredential?.connected === false) return;
     if (files.some((file) => file.status === 'uploading')) return;
     const trimmed = value.trim();
-    if (!trimmed && files.length === 0) return;
-    onSubmit(trimmed, files.filter((file) => file.status === 'uploaded'));
-    setValue('');
-    setFiles([]);
-  }, [files, isCredentialLoading, isStreaming, isSubmitting, onSubmit, selectedCredential?.connected, value]);
+    const uploadedFiles = files.filter((file) => file.status === 'uploaded');
+
+    if (!trimmed && uploadedFiles.length === 0) {
+      if (isStreaming) {
+        onStop?.();
+      }
+      return;
+    }
+
+    if (canComposeWhileStreaming) {
+      if (mode === 'steer') {
+        onSteerSubmit?.(trimmed, uploadedFiles);
+      } else {
+        onQueueSubmit?.(trimmed, uploadedFiles);
+      }
+      clearComposer();
+      return;
+    }
+
+    if (isStreaming) return;
+
+    onSubmit(trimmed, uploadedFiles);
+    clearComposer();
+  }, [canComposeWhileStreaming, clearComposer, files, isCredentialLoading, isStreaming, isSubmitting, onQueueSubmit, onSteerSubmit, onStop, onSubmit, selectedCredential?.connected, value]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit();
+      if (canComposeWhileStreaming && (e.metaKey || e.ctrlKey) && (value.trim().length > 0 || files.length > 0)) {
+        handleSubmit('steer');
+        return;
+      }
+
+      handleSubmit(canComposeWhileStreaming ? 'queue' : 'send');
     }
   };
 
@@ -990,9 +1225,32 @@ export function PromptBox({
   };
 
   const handleModelPick = (model: ModelEntry) => {
+    const nextReasoningEffort = getDefaultReasoningEffort(model);
+    const nextThinkingEnabled = model.supportsThinkingToggle ? true : undefined;
     setSelectedModelId(model.id);
+    setReasoningEffort(nextReasoningEffort);
+    setThinkingEnabled(nextThinkingEnabled);
     localStorage.setItem('ac_default_model', model.id);
-    emitConfig(model, branch, selectedRepo, sandboxMode);
+    emitConfig(model, branch, selectedRepo, sandboxMode, undefined, {
+      agentReasoningEffort: nextReasoningEffort,
+      agentThinkingEnabled: nextThinkingEnabled,
+    });
+  };
+
+  const handleReasoningEffortChange = (
+    nextValue: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink',
+  ) => {
+    setReasoningEffort(nextValue);
+    emitConfig(selectedModel, branch, selectedRepo, sandboxMode, undefined, {
+      agentReasoningEffort: nextValue,
+    });
+  };
+
+  const handleThinkingEnabledChange = (nextValue: boolean) => {
+    setThinkingEnabled(nextValue);
+    emitConfig(selectedModel, branch, selectedRepo, sandboxMode, undefined, {
+      agentThinkingEnabled: nextValue,
+    });
   };
 
   const handleBranchSelect = (b: string) => {
@@ -1115,7 +1373,7 @@ export function PromptBox({
             event.preventDefault();
             await uploadFiles(pastedFiles);
           }}
-          disabled={isStreaming}
+          disabled={isStreaming && !allowInputWhileStreaming}
           placeholder={resolvedPlaceholder}
           className={`
             w-full bg-transparent text-sm text-card-foreground
@@ -1130,7 +1388,7 @@ export function PromptBox({
 
         {/* Bottom toolbar */}
         <div className="flex items-center justify-between px-2 pb-2 pt-0">
-          {/* Left: inline selectors — repo | branch | model */}
+          {/* Left: inline selectors — repo | branch | model | traits | runtime */}
           <div className="flex items-center gap-0.5">
             <RepoSelector
               selectedRepoId={selectedRepoId}
@@ -1151,6 +1409,14 @@ export function PromptBox({
             <ModelSelector
               selectedModelId={selectedModelId}
               onSelect={handleModelPick}
+            />
+
+            <TraitsSelector
+              model={selectedModel}
+              reasoningEffort={reasoningEffort}
+              thinkingEnabled={thinkingEnabled}
+              onReasoningEffortChange={handleReasoningEffortChange}
+              onThinkingEnabledChange={handleThinkingEnabledChange}
             />
 
             <div className="w-px h-4 bg-border/50" />
@@ -1205,7 +1471,7 @@ export function PromptBox({
               </PopoverContent>
             </Popover>
 
-            {isStreaming ? (
+            {isStreaming && !canComposeWhileStreaming ? (
               <Button
                 onClick={onStop}
                 size="icon"
@@ -1217,13 +1483,25 @@ export function PromptBox({
               </Button>
             ) : (
               <Button
-                onClick={handleSubmit}
-                disabled={!hasContent || isSubmitting || !hasProviderCredentials || hasPendingUploads}
+                onClick={() => handleSubmit(canComposeWhileStreaming ? 'queue' : 'send')}
+                disabled={
+                  (isStreaming && !canComposeWhileStreaming)
+                    ? true
+                    : (!hasContent && !isStreaming) || isSubmitting || !hasProviderCredentials || hasPendingUploads
+                }
                 size="icon"
                 className="h-7 w-7 rounded-full ml-1"
-                title="Send (Enter)"
+                title={
+                  canComposeWhileStreaming
+                    ? (hasContent ? 'Queue follow-up (Enter)' : 'Stop current run (Enter)')
+                    : isStreaming
+                      ? 'Stop'
+                      : 'Send (Enter)'
+                }
               >
-                {isSubmitting ? (
+                {isStreaming && canComposeWhileStreaming && !hasContent ? (
+                  <Square className="w-3 h-3" fill="currentColor" />
+                ) : isSubmitting ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <CornerDownLeft className="w-3.5 h-3.5" strokeWidth={2.5} />

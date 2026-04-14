@@ -38,6 +38,8 @@ export interface ExecutionConfig {
   commands: ExecutionCommand[];
   agentProvider?: AgentProvider;
   agentModel?: string;
+  agentReasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink";
+  agentThinkingEnabled?: boolean;
   agentPrompt?: string;
   runtime?: ExecutionRuntime;
   workingDirectory?: string;

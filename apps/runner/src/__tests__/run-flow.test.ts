@@ -13,6 +13,7 @@ describe("runFlow", () => {
       runFlow({
         agentProvider: "codex",
         commands: [],
+        getReusableWorkspace: async () => null,
         createWorkspace: async () => ({ id: "run-1", path: "/tmp/run-1", backend: "local" }),
         appendCompletedEvent,
         appendFailedEvent: async () => undefined,
@@ -24,6 +25,7 @@ describe("runFlow", () => {
         hasRepository: false,
         markRunStarted: () => undefined,
         onWorkspaceCreated: async () => undefined,
+        onWorkspaceReused: async () => undefined,
         prepareBranch: async () => undefined,
         cloneRepository: async () => undefined,
         transitionStatus,
@@ -47,6 +49,7 @@ describe("runFlow", () => {
       runFlow({
         agentProvider: "none",
         commands: [],
+        getReusableWorkspace: async () => null,
         createWorkspace: async () => ({ id: "run-2", path: "/tmp/run-2", backend: "local" }),
         appendCompletedEvent: async () => undefined,
         appendFailedEvent,
@@ -58,6 +61,7 @@ describe("runFlow", () => {
         hasRepository: false,
         markRunStarted: () => undefined,
         onWorkspaceCreated: async () => undefined,
+        onWorkspaceReused: async () => undefined,
         prepareBranch: async () => undefined,
         cloneRepository: async () => undefined,
         transitionStatus,

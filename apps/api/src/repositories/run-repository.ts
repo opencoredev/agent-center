@@ -20,6 +20,7 @@ export interface CreateRunRecordInput {
   policy: ExecutionPolicy;
   config: ExecutionConfig;
   metadata: DomainMetadata;
+  workspacePath?: string | null;
   source: "api" | "retry";
 }
 
@@ -84,6 +85,7 @@ export async function createRunRecord(input: CreateRunRecordInput) {
         policy: input.policy,
         config: input.config,
         metadata: input.metadata,
+        workspacePath: input.workspacePath ?? null,
       })
       .returning();
 

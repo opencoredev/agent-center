@@ -11,6 +11,7 @@ type CleanupStatus = "cancelled" | "completed" | "failed";
 interface RunFlowDeps {
   agentProvider: string;
   commands: ExecutionCommand[];
+  getReusableWorkspace: () => Promise<WorkspaceHandle | null>;
   createWorkspace: () => Promise<WorkspaceHandle>;
   appendCompletedEvent: () => Promise<void>;
   cleanupWorkspace: (status: CleanupStatus) => Promise<void>;
@@ -22,6 +23,7 @@ interface RunFlowDeps {
   hasRepository: boolean;
   markRunStarted: () => void;
   onWorkspaceCreated: (workspace: WorkspaceHandle) => Promise<void>;
+  onWorkspaceReused: (workspace: WorkspaceHandle) => Promise<void>;
   prepareBranch: () => Promise<void>;
   cloneRepository: () => Promise<void>;
   transitionStatus: (
@@ -44,21 +46,27 @@ export function runFlow(deps: RunFlowDeps) {
   const runBody = Effect.gen(function* () {
     deps.markRunStarted();
 
-    yield* fromPromise(() =>
-      deps.transitionStatus("provisioning", "Provisioning host-local workspace", "running"),
-    );
-    yield* fromPromise(deps.waitUntilRunnable);
+    const reusableWorkspace = yield* fromPromise(deps.getReusableWorkspace);
 
-    const workspaceHandle = yield* fromPromise(deps.createWorkspace);
-    yield* fromPromise(() => deps.onWorkspaceCreated(workspaceHandle));
-
-    if (deps.hasRepository) {
+    if (reusableWorkspace) {
+      yield* fromPromise(() => deps.onWorkspaceReused(reusableWorkspace));
+    } else {
       yield* fromPromise(() =>
-        deps.transitionStatus("cloning", "Cloning repository into local workspace"),
+        deps.transitionStatus("provisioning", "Provisioning host-local workspace", "running"),
       );
       yield* fromPromise(deps.waitUntilRunnable);
-      yield* fromPromise(deps.cloneRepository);
-      yield* fromPromise(deps.prepareBranch);
+
+      const workspaceHandle = yield* fromPromise(deps.createWorkspace);
+      yield* fromPromise(() => deps.onWorkspaceCreated(workspaceHandle));
+
+      if (deps.hasRepository) {
+        yield* fromPromise(() =>
+          deps.transitionStatus("cloning", "Cloning repository into local workspace"),
+        );
+        yield* fromPromise(deps.waitUntilRunnable);
+        yield* fromPromise(deps.cloneRepository);
+        yield* fromPromise(deps.prepareBranch);
+      }
     }
 
     if (deps.agentProvider === "claude") {

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 
 import type { ExecutionCommand, RunStatus } from "@agent-center/shared";
 import { Effect } from "effect";
@@ -188,6 +188,7 @@ export class RunSession implements CommandExecutionController {
         runFlow({
           agentProvider,
           commands,
+          getReusableWorkspace: () => this.#getReusableWorkspace(),
           createWorkspace: () => this.#backend.createWorkspace(this.runId),
           appendCompletedEvent: async () => {
             await this.#persistence.appendEvent({
@@ -224,6 +225,16 @@ export class RunSession implements CommandExecutionController {
             await this.#persistence.recordWorkspacePath(this.#workspacePath);
             await this.#persistence.appendLog("Workspace created", {
               phase: "provisioning",
+              source: "runner",
+              workspacePath: this.#workspacePath,
+            });
+          },
+          onWorkspaceReused: async (workspaceHandle) => {
+            this.#workspaceHandle = workspaceHandle;
+            this.#workspacePath = workspaceHandle.path;
+            await this.#persistence.recordWorkspacePath(this.#workspacePath);
+            await this.#persistence.appendLog("Reusing existing workspace", {
+              phase: "running",
               source: "runner",
               workspacePath: this.#workspacePath,
             });
@@ -337,6 +348,27 @@ export class RunSession implements CommandExecutionController {
 
     if (result.exitCode !== 0) {
       throw new Error(`Command failed with exit code ${result.exitCode}: ${command.command}`);
+    }
+  }
+
+  async #getReusableWorkspace(): Promise<WorkspaceHandle | null> {
+    if (!this.#workspacePath) {
+      return null;
+    }
+
+    try {
+      const info = await stat(this.#workspacePath);
+      if (!info.isDirectory()) {
+        return null;
+      }
+
+      return {
+        id: this.runId,
+        path: this.#workspacePath,
+        backend: this.#backend.name,
+      };
+    } catch {
+      return null;
     }
   }
 

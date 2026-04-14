@@ -16,6 +16,9 @@ import {
   Copy,
   Check,
   AlertTriangle,
+  Clock3,
+  CornerUpRight,
+  Trash2,
 } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import { code } from '@streamdown/code';
@@ -23,9 +26,11 @@ import 'streamdown/styles.css';
 import type { ExecutionRuntime } from '@agent-center/shared';
 import { apiGet, apiPost } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 import { ChainOfThoughtStep } from '@/components/ai-elements/chain-of-thought';
 import {
   Reasoning,
+  ReasoningContent,
   ReasoningTrigger,
   useReasoning,
 } from '@/components/ai-elements/reasoning';
@@ -46,7 +51,14 @@ interface Task {
   prompt: string;
   status: string;
   metadata: Record<string, unknown>;
-  config: { agentProvider?: string; agentModel?: string; agentPrompt?: string; runtime?: ExecutionRuntime };
+  config: {
+    agentProvider?: string;
+    agentModel?: string;
+    agentPrompt?: string;
+    agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+    agentThinkingEnabled?: boolean;
+    runtime?: ExecutionRuntime;
+  };
   sandboxSize: string;
   permissionMode: string;
   baseBranch: string | null;
@@ -66,7 +78,13 @@ interface Run {
   completedAt: string | number | null;
   errorMessage: string | null;
   metadata: Record<string, unknown>;
-  config: { agentProvider?: string; agentModel?: string; runtime?: ExecutionRuntime };
+  config: {
+    agentProvider?: string;
+    agentModel?: string;
+    agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+    agentThinkingEnabled?: boolean;
+    runtime?: ExecutionRuntime;
+  };
   baseBranch: string | null;
   branchName: string | null;
   sandboxSize: string;
@@ -77,6 +95,8 @@ interface Run {
 interface FollowUpConfig {
   agentProvider: string;
   agentModel: string;
+  agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+  agentThinkingEnabled?: boolean;
   branch: string;
   runtime: ExecutionRuntime;
   repoConnectionId?: string;
@@ -89,6 +109,14 @@ interface UploadedAttachment {
   name: string;
   type: 'pdf' | 'image' | 'file';
   url?: string | null;
+}
+
+interface QueuedFollowUp {
+  id: string;
+  prompt: string;
+  files: UploadedAttachment[];
+  mode: 'queue' | 'steer';
+  createdAt: string;
 }
 
 // ── Status helpers ──────────────────────────────────────────────────────────
@@ -198,6 +226,22 @@ interface AttachmentPreview {
   url: string;
 }
 
+interface PersistedUiSummaryStep {
+  at?: string;
+  id?: string;
+  label?: string;
+  message?: string;
+}
+
+interface PersistedUiSummary {
+  phase?: 'setup' | 'thinking' | 'completed' | 'failed' | 'cancelled';
+  thinkingCompletedAt?: string;
+  thinkingStartedAt?: string;
+  thinkingTimeSec?: number;
+  setupSteps?: PersistedUiSummaryStep[];
+  workSteps?: PersistedUiSummaryStep[];
+}
+
 /** Only these event types are shown in the conversation. Everything else is hidden. */
 function isVisibleEvent(event: RunEvent): 'agent' | 'tool' | false {
   // Assistant text messages — always visible
@@ -233,6 +277,44 @@ function extractAttachments(metadata: Record<string, unknown> | undefined): Atta
       return null;
     })
     .filter((item): item is AttachmentPreview => item !== null);
+}
+
+function extractUiSummary(metadata: Record<string, unknown> | undefined): PersistedUiSummary | null {
+  const raw = metadata?.uiSummary;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+
+  return raw as PersistedUiSummary;
+}
+
+function extractUiSummaryItems(summary: PersistedUiSummary | null, mode: 'active' | 'completed'): ActivityItem[] {
+  if (!summary) {
+    return [];
+  }
+
+  const rawItems =
+    mode === 'active'
+      ? summary.phase === 'thinking'
+        ? summary.workSteps ?? []
+        : summary.setupSteps ?? []
+      : summary.workSteps ?? [];
+
+  return rawItems
+    .map((item, index): ActivityItem | null => {
+      if (typeof item.message !== 'string') {
+        return null;
+      }
+
+      return {
+        id: typeof item.id === 'string' ? item.id : `persisted-${index}`,
+        kind: 'log' as const,
+        label: typeof item.label === 'string' ? item.label : mode === 'active' ? 'Working' : 'Thought',
+        message: item.message,
+        timestamp: typeof item.at === 'string' ? item.at : new Date().toISOString(),
+      };
+    })
+    .filter((item): item is ActivityItem => item !== null);
 }
 
 function groupEventsIntoBlocks(
@@ -294,25 +376,37 @@ function buildConversationBlocks(task: Task, runs: Run[], eventsByRunId: Map<str
       const { setupItems, workItems } = splitActivityItems(runEvents);
       const firstAgentIndex = runBlocks.findIndex((block) => block.type === 'agent');
       const meaningfulWorkItems = workItems.filter((item) => !isLowSignalWorkItem(item));
+      const persistedSummary = extractUiSummary(run.metadata);
+      const persistedReasoningItems = extractUiSummaryItems(persistedSummary, firstAgentIndex === -1 ? 'active' : 'completed');
+      const displayReasoningItems = persistedReasoningItems.length > 0 ? persistedReasoningItems : meaningfulWorkItems;
 
-      if (firstAgentIndex >= 0 && meaningfulWorkItems.length > 0) {
+      const reasoningDuration = persistedSummary?.thinkingTimeSec ?? getReasoningDurationSeconds(run, runEvents);
+
+      if (firstAgentIndex >= 0 && (displayReasoningItems.length > 0 || reasoningDuration !== undefined)) {
         const reasoningBlock: MessageBlock = {
           type: 'reasoning',
-          activityItems: meaningfulWorkItems,
-          duration: getReasoningDurationSeconds(run, runEvents),
-          label: getCompletedRunLabel(getReasoningDurationSeconds(run, runEvents), meaningfulWorkItems),
+          activityItems: displayReasoningItems,
+          duration: reasoningDuration,
+          label: getCompletedRunLabel(reasoningDuration, displayReasoningItems),
           isStreaming: false,
           timestamp: String(run.createdAt),
         };
 
         runBlocks.splice(firstAgentIndex, 0, reasoningBlock);
       } else if (firstAgentIndex === -1) {
-        const activeItems = workItems.length > 0 ? workItems : setupItems;
+        const activeItems = persistedReasoningItems.length > 0
+          ? persistedReasoningItems
+          : (workItems.length > 0 ? workItems : setupItems);
         if (activeItems.length > 0) {
           runBlocks.push({
             type: 'reasoning',
             activityItems: activeItems,
-            label: workItems.length > 0 ? 'Thinking...' : 'Setting up...',
+            label:
+              persistedSummary?.phase === 'thinking'
+                ? 'Thinking...'
+                : persistedSummary?.phase === 'setup'
+                  ? 'Setting up...'
+                  : (workItems.length > 0 ? 'Thinking...' : 'Setting up...'),
             isStreaming: true,
             timestamp: String(run.createdAt),
           });
@@ -425,6 +519,10 @@ function formatStructuredLogMessage(message: string | null) {
       return 'Downloading repository files.';
     }
 
+    if (message?.includes('Updating files:')) {
+      return null;
+    }
+
     if (message?.includes('Starting Codex agent session')) {
       return 'Started the Codex agent.';
     }
@@ -521,6 +619,7 @@ function buildActivityItems(events: RunEvent[]) {
         'Codex session completed',
         'Codex agent session completed',
         'Run completed successfully',
+        'Updating files:',
       ];
 
       if (ignoredFragments.some((fragment) => formattedMessage.includes(fragment))) {
@@ -573,17 +672,17 @@ function getRunDurationSeconds(run: Run | undefined) {
 
 function getCompletedRunLabel(duration: number | undefined, items: ActivityItem[]) {
   const seconds = duration ?? 0;
-  const hasTooling = items.some((item) => item.kind === 'tool' || item.label === 'Command');
+  const hasReasoningTrace = getDisplayActivityItems(items).length > 0;
 
   if (seconds <= 0) {
-    return hasTooling ? 'Worked briefly' : 'Completed quickly';
+    return hasReasoningTrace ? 'Thought briefly' : 'Responded directly';
   }
 
-  if (hasTooling) {
-    return `Worked for ${seconds} seconds`;
+  if (hasReasoningTrace) {
+    return `Thought for ${seconds} seconds`;
   }
 
-  return `Completed in ${seconds} seconds`;
+  return `Responded in ${seconds} seconds`;
 }
 
 function isLowSignalWorkItem(item: ActivityItem) {
@@ -604,8 +703,18 @@ function InlineReasoningDetails({ items }: { items: ActivityItem[] }) {
   const { isOpen } = useReasoning();
   const displayItems = getDisplayActivityItems(items);
 
-  if (!isOpen || displayItems.length === 0) {
+  if (!isOpen) {
     return null;
+  }
+
+  if (displayItems.length === 0) {
+    return (
+      <div className="mt-3 pl-6">
+        <p className="text-xs text-muted-foreground/70">
+          No detailed reasoning trace was emitted for this reply. The model returned a short answer directly.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -701,6 +810,32 @@ function CopyButton({ content }: { content: string }) {
   );
 }
 
+function queueStorageKey(taskId: string) {
+  return `ac_task_queue:${taskId}`;
+}
+
+function readQueuedFollowUps(taskId: string): QueuedFollowUp[] {
+  try {
+    const raw = localStorage.getItem(queueStorageKey(taskId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is QueuedFollowUp => {
+      return (
+        item &&
+        typeof item === 'object' &&
+        typeof item.id === 'string' &&
+        typeof item.prompt === 'string' &&
+        Array.isArray(item.files) &&
+        (item.mode === 'queue' || item.mode === 'steer') &&
+        typeof item.createdAt === 'string'
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export function TaskDetailPage() {
@@ -712,6 +847,10 @@ export function TaskDetailPage() {
   const { task, runs, isLoading, error } = useTaskDetail(taskId ?? '');
   const latestRun = runs[0];
   const [followUpConfig, setFollowUpConfig] = useState<FollowUpConfig | null>(null);
+  const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>(() =>
+    taskId ? readQueuedFollowUps(taskId) : [],
+  );
+  const [dispatchingQueuedId, setDispatchingQueuedId] = useState<string | null>(null);
   const hasStartedRun = !!latestRun;
 
   const zeroEvents = useRunEvents(latestRun?.id ?? '');
@@ -766,6 +905,16 @@ export function TaskDetailPage() {
     }
   }, [events, isStreaming]);
 
+  useEffect(() => {
+    if (!taskId) return;
+    setQueuedFollowUps(readQueuedFollowUps(taskId));
+  }, [taskId]);
+
+  useEffect(() => {
+    if (!taskId) return;
+    localStorage.setItem(queueStorageKey(taskId), JSON.stringify(queuedFollowUps));
+  }, [queuedFollowUps, taskId]);
+
   const cancelMutation = useMutation({
     mutationFn: () => apiPost(`/api/tasks/${taskId}/cancel`, {}),
     onSuccess: () => {
@@ -804,6 +953,10 @@ export function TaskDetailPage() {
           ...task.config,
           agentProvider: followUpConfig?.agentProvider ?? task.config.agentProvider,
           agentModel: followUpConfig?.agentModel ?? task.config.agentModel,
+          agentReasoningEffort:
+            followUpConfig?.agentReasoningEffort ?? task.config.agentReasoningEffort,
+          agentThinkingEnabled:
+            followUpConfig?.agentThinkingEnabled ?? task.config.agentThinkingEnabled,
           runtime: followUpConfig?.runtime ?? task.config.runtime,
           agentPrompt: prompt,
         },
@@ -829,7 +982,67 @@ export function TaskDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['task', taskId] });
       queryClient.invalidateQueries({ queryKey: ['task-runs', taskId] });
     },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
   });
+
+  const enqueueFollowUp = React.useCallback(
+    (prompt: string, files: UploadedAttachment[], mode: 'queue' | 'steer' = 'queue') => {
+      const nextItem: QueuedFollowUp = {
+        id: crypto.randomUUID(),
+        prompt,
+        files,
+        mode,
+        createdAt: new Date().toISOString(),
+      };
+
+      setQueuedFollowUps((current) => (mode === 'steer' ? [nextItem, ...current] : [...current, nextItem]));
+
+      if (mode === 'steer' && isActive && !cancelMutation.isPending) {
+        cancelMutation.mutate();
+      }
+    },
+    [cancelMutation, isActive],
+  );
+
+  const steerQueuedFollowUp = React.useCallback(
+    (queuedId: string) => {
+      setQueuedFollowUps((current) => {
+        const target = current.find((item) => item.id === queuedId);
+        if (!target) return current;
+        const remainder = current.filter((item) => item.id !== queuedId);
+        return [{ ...target, mode: 'steer' }, ...remainder];
+      });
+
+      if (isActive && !cancelMutation.isPending) {
+        cancelMutation.mutate();
+      }
+    },
+    [cancelMutation, isActive],
+  );
+
+  useEffect(() => {
+    if (!task || isActive || followUpMutation.isPending || dispatchingQueuedId) {
+      return;
+    }
+
+    const nextQueued = queuedFollowUps[0];
+    if (!nextQueued) {
+      return;
+    }
+
+    setDispatchingQueuedId(nextQueued.id);
+
+    void followUpMutation
+      .mutateAsync({ prompt: nextQueued.prompt, files: nextQueued.files })
+      .then(() => {
+        setQueuedFollowUps((current) => current.filter((item) => item.id !== nextQueued.id));
+      })
+      .finally(() => {
+        setDispatchingQueuedId(null);
+      });
+  }, [dispatchingQueuedId, followUpMutation, isActive, queuedFollowUps, task]);
 
   // Loading
   if (isLoading) {
@@ -1020,7 +1233,9 @@ export function TaskDetailPage() {
                         )
                       )}
                     />
-                    <InlineReasoningDetails items={block.activityItems ?? []} />
+                    <ReasoningContent>
+                      <InlineReasoningDetails items={block.activityItems ?? []} />
+                    </ReasoningContent>
                   </Reasoning>
                 </div>
               );
@@ -1057,7 +1272,9 @@ export function TaskDetailPage() {
                     <Shimmer duration={1.1}>Setting up...</Shimmer>
                   )}
                 />
-                <InlineReasoningDetails items={currentActivityItems} />
+                <ReasoningContent>
+                  <InlineReasoningDetails items={currentActivityItems} />
+                </ReasoningContent>
               </Reasoning>
             </div>
           )}
@@ -1083,10 +1300,68 @@ export function TaskDetailPage() {
       {/* Prompt — always visible */}
       <div className="shrink-0 border-t border-border px-4 py-3 bg-card/50">
         <div className="max-w-3xl mx-auto">
+          {queuedFollowUps.length > 0 && (
+            <div className="mb-3 rounded-2xl border border-border/60 bg-background/80 p-3">
+              {queuedFollowUps.map((item, index) => (
+                <div
+                  key={item.id}
+                  className={`flex items-start gap-3 rounded-xl px-3 py-2 ${index > 0 ? 'mt-2 border-t border-border/50 pt-3' : ''}`}
+                >
+                  <div className="mt-1 rounded-full bg-muted p-1.5">
+                    <Clock3 className="h-3.5 w-3.5 text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {item.prompt}
+                      </p>
+                      {index === 0 && dispatchingQueuedId === item.id && (
+                        <span className="text-[11px] text-muted-foreground">Sending next…</span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {item.mode === 'steer'
+                        ? 'Steer requested. This message will interrupt the current run as soon as cancellation lands.'
+                        : 'Queued. This message will send automatically after the current run finishes.'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {index === 0 && (
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="secondary"
+                        onClick={() => steerQueuedFollowUp(item.id)}
+                        disabled={item.mode === 'steer'}
+                      >
+                        <CornerUpRight className="h-3 w-3" />
+                        Steer
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => setQueuedFollowUps((current) => current.filter((queued) => queued.id !== item.id))}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <PromptBox
             onSubmit={(prompt, files) => followUpMutation.mutate({ prompt, files })}
+            onQueueSubmit={(prompt, files) => enqueueFollowUp(prompt, files, 'queue')}
+            onSteerSubmit={(prompt, files) => enqueueFollowUp(prompt, files, 'steer')}
             defaultConfig={{
               agentModel: latestRun?.config.agentModel ?? task.config.agentModel,
+              agentReasoningEffort:
+                latestRun?.config.agentReasoningEffort ?? task.config.agentReasoningEffort,
+              agentThinkingEnabled:
+                latestRun?.config.agentThinkingEnabled ?? task.config.agentThinkingEnabled,
               branch: defaultBranch,
               repoConnectionId: task.repoConnectionId,
               sandboxMode: defaultSandboxMode,
@@ -1095,7 +1370,8 @@ export function TaskDetailPage() {
             isSubmitting={followUpMutation.isPending}
             isStreaming={isStreaming}
             onStop={() => cancelMutation.mutate()}
-            placeholder={isActive ? 'Waiting for agent...' : 'Send a follow-up...'}
+            allowInputWhileStreaming
+            placeholder={isActive ? 'Ask for follow-up changes' : 'Send a follow-up...'}
             compact
           />
         </div>

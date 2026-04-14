@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import type { ExecutionRuntime } from '@agent-center/shared';
+import type { AgentReasoningEffort } from '@/components/chat/prompt-box';
 import { ZERO_ENABLED, useZeroQuery } from './use-zero';
 import { apiGet } from '@/lib/api-client';
 import type { RunEvent } from './use-run-stream';
@@ -25,6 +26,8 @@ interface TaskRow {
     agentProvider?: string;
     agentModel?: string;
     agentPrompt?: string;
+    agentReasoningEffort?: AgentReasoningEffort;
+    agentThinkingEnabled?: boolean;
     runtime?: ExecutionRuntime;
   };
   sandboxSize: string;
@@ -50,6 +53,8 @@ interface RunRow {
     agentProvider?: string;
     agentModel?: string;
     agentPrompt?: string;
+    agentReasoningEffort?: AgentReasoningEffort;
+    agentThinkingEnabled?: boolean;
     runtime?: ExecutionRuntime;
   };
   baseBranch: string | null;

@@ -73,6 +73,7 @@ export const runService = {
 
     const nextConfig = input.config ?? task.config;
     assertLaunchReadyExecutionConfig(nextConfig);
+    const reusableWorkspacePath = latestRun?.workspacePath ?? null;
 
     const run = await createRunRecord({
       taskId: task.id,
@@ -85,6 +86,7 @@ export const runService = {
       policy: input.policy ?? task.policy,
       config: nextConfig,
       metadata: mergeMetadata(task.metadata, input.metadata),
+      workspacePath: reusableWorkspacePath,
       source,
     });
 

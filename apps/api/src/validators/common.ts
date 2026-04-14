@@ -62,6 +62,10 @@ export const executionConfigSchema = z
     commands: z.array(executionCommandSchema).default([]),
     agentProvider: z.enum(AGENT_PROVIDERS).default("none"),
     agentModel: requiredTextSchema.optional(),
+    agentReasoningEffort: z
+      .enum(["low", "medium", "high", "xhigh", "max", "ultrathink"])
+      .optional(),
+    agentThinkingEnabled: z.boolean().optional(),
     agentPrompt: requiredTextSchema.optional(),
     runtime: executionRuntimeSchema.optional(),
     workingDirectory: requiredTextSchema.optional(),
