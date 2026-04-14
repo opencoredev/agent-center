@@ -20,6 +20,7 @@ export interface CreateRunRecordInput {
   policy: ExecutionPolicy;
   config: ExecutionConfig;
   metadata: DomainMetadata;
+  workspacePath?: string | null;
   source: "api" | "retry";
 }
 
@@ -31,6 +32,13 @@ export async function findRunById(runId: string) {
 
 export async function findLatestRunForTask(taskId: string) {
   return db.query.runs.findFirst({
+    where: eq(runs.taskId, taskId),
+    orderBy: [desc(runs.attempt)],
+  });
+}
+
+export async function listRunsForTask(taskId: string) {
+  return db.query.runs.findMany({
     where: eq(runs.taskId, taskId),
     orderBy: [desc(runs.attempt)],
   });
@@ -77,6 +85,7 @@ export async function createRunRecord(input: CreateRunRecordInput) {
         policy: input.policy,
         config: input.config,
         metadata: input.metadata,
+        workspacePath: input.workspacePath ?? null,
       })
       .returning();
 

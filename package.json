@@ -7,10 +7,12 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev --parallel --filter=@agent-center/api --filter=@agent-center/worker --filter=@agent-center/runner",
+    "dev": "turbo run dev --ui tui --filter=@agent-center/control-plane --filter=@agent-center/api --filter=@agent-center/web --filter=@agent-center/worker --filter=@agent-center/runner",
+    "dev:legacy": "turbo run dev --ui tui --filter=@agent-center/api --filter=@agent-center/web --filter=@agent-center/worker --filter=@agent-center/runner",
     "dev:api": "turbo run dev --filter=@agent-center/api",
     "dev:worker": "turbo run dev --filter=@agent-center/worker",
     "dev:runner": "turbo run dev --filter=@agent-center/runner",
+    "dev:control-plane": "turbo run dev --filter=@agent-center/control-plane",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
@@ -24,10 +26,11 @@
   },
   "devDependencies": {
     "bun-types": "^1.3.11",
+    "convex": "^1.26.2",
     "oxfmt": "^0.42.0",
     "oxlint": "^1.57.0",
+    "portless": "^0.9.4",
     "turbo": "^2.8.20",
     "typescript": "^6.0.2"
   }
 }
-

@@ -12,7 +12,7 @@ import type {
 
 interface RequestConfig extends RequestOptions {
   body?: unknown;
-  method: "GET" | "POST" | "PATCH";
+  method: "DELETE" | "GET" | "POST" | "PATCH";
   path: string;
   query?: Record<string, boolean | number | string | undefined>;
 }

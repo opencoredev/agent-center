@@ -2,6 +2,8 @@ import { Hono } from "hono";
 
 import type { ApiEnv } from "../../http/types";
 import { apiKeyRoutes } from "./api-keys";
+import { authClaudeOAuthRoutes } from "./auth/claude-oauth";
+import { authCodexRoutes } from "./auth/codex-auth";
 import { authGoogleRoutes } from "./auth/google";
 import { authLoginRoutes } from "./auth/login";
 import { automationRoutes } from "./automations";
@@ -16,6 +18,8 @@ export const apiRoutes = new Hono<ApiEnv>();
 
 apiRoutes.route("/auth", authLoginRoutes);
 apiRoutes.route("/auth", authGoogleRoutes);
+apiRoutes.route("/auth", authClaudeOAuthRoutes);
+apiRoutes.route("/auth", authCodexRoutes);
 apiRoutes.route("/api-keys", apiKeyRoutes);
 apiRoutes.route("/workspaces", workspaceRoutes);
 apiRoutes.route("/projects", projectRoutes);

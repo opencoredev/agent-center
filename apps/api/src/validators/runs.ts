@@ -16,6 +16,7 @@ export { runIdParamsSchema };
 export const createRunSchema = z
   .object({
     taskId: uuidSchema,
+    prompt: optionalNullableTextSchema,
     baseBranch: optionalNullableTextSchema,
     branchName: optionalNullableTextSchema,
     sandboxSize: sandboxSizeSchema.optional(),

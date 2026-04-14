@@ -20,6 +20,20 @@ export const RUN_STATUSES = [
 
 export const SANDBOX_SIZES = ["small", "medium", "large"] as const;
 
+export const RUNTIME_TARGETS = ["local", "cloud", "self_hosted"] as const;
+
+export const RUNTIME_PROVIDERS = [
+  "legacy_local",
+  "convex_bash",
+  "agent_os",
+  "e2b",
+  "self_hosted_runner",
+] as const;
+
+export const SANDBOX_PROFILES = ["none", "lightweight", "full"] as const;
+
+export const SANDBOX_IDLE_POLICIES = ["retain", "sleep", "terminate"] as const;
+
 export const PERMISSION_MODES = ["yolo", "safe", "custom"] as const;
 
 export const REPO_PROVIDERS = ["github"] as const;
@@ -47,6 +61,10 @@ export const EVENT_TYPES = [
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export type RunStatus = (typeof RUN_STATUSES)[number];
 export type SandboxSize = (typeof SANDBOX_SIZES)[number];
+export type RuntimeTarget = (typeof RUNTIME_TARGETS)[number];
+export type RuntimeProvider = (typeof RUNTIME_PROVIDERS)[number];
+export type SandboxProfile = (typeof SANDBOX_PROFILES)[number];
+export type SandboxIdlePolicy = (typeof SANDBOX_IDLE_POLICIES)[number];
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export type RepoProvider = (typeof REPO_PROVIDERS)[number];
 export type RepoAuthType = (typeof REPO_AUTH_TYPES)[number] | (string & {});
@@ -66,8 +84,21 @@ export interface ExecutionPolicy {
   blockedCommands?: string[];
 }
 
+export interface ExecutionRuntime {
+  target: RuntimeTarget;
+  provider: RuntimeProvider;
+  sandboxProfile: SandboxProfile;
+  idlePolicy?: SandboxIdlePolicy;
+  resumeOnActivity?: boolean;
+  ttlSeconds?: number;
+}
+
 export interface ExecutionConfig {
   commands: ExecutionCommand[];
+  agentProvider?: "none" | "claude" | "codex";
+  agentModel?: string;
+  agentPrompt?: string;
+  runtime?: ExecutionRuntime;
   workingDirectory?: string;
   commitMessage?: string;
   prTitle?: string;
@@ -236,6 +267,22 @@ export interface RunControl {
 export interface RunControlResult {
   run: Run;
   control: RunControl;
+}
+
+export interface CredentialStatus {
+  connected: boolean;
+  source: "api_key" | "oauth" | null;
+  email: string | null;
+  expiresAt: string | null;
+  subscriptionType: string | null;
+}
+
+export interface SaveApiKeyInput {
+  apiKey: string;
+}
+
+export interface SaveCodexAuthInput {
+  authJson: string;
 }
 
 export interface CreateWorkspaceInput {

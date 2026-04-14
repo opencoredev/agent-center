@@ -2,7 +2,11 @@ import {
   AGENT_PROVIDERS,
   PERMISSION_MODES,
   REPO_PROVIDERS,
+  RUNTIME_PROVIDERS,
+  RUNTIME_TARGETS,
   RUN_STATUSES,
+  SANDBOX_IDLE_POLICIES,
+  SANDBOX_PROFILES,
   SANDBOX_SIZES,
   TASK_STATUSES,
 } from "@agent-center/shared";
@@ -42,12 +46,28 @@ export const executionPolicySchema = z
   })
   .strict();
 
+export const executionRuntimeSchema = z
+  .object({
+    target: z.enum(RUNTIME_TARGETS),
+    provider: z.enum(RUNTIME_PROVIDERS),
+    sandboxProfile: z.enum(SANDBOX_PROFILES),
+    idlePolicy: z.enum(SANDBOX_IDLE_POLICIES).optional(),
+    resumeOnActivity: z.boolean().optional(),
+    ttlSeconds: z.coerce.number().int().positive().optional(),
+  })
+  .strict();
+
 export const executionConfigSchema = z
   .object({
     commands: z.array(executionCommandSchema).default([]),
     agentProvider: z.enum(AGENT_PROVIDERS).default("none"),
     agentModel: requiredTextSchema.optional(),
+    agentReasoningEffort: z
+      .enum(["low", "medium", "high", "xhigh", "max", "ultrathink"])
+      .optional(),
+    agentThinkingEnabled: z.boolean().optional(),
     agentPrompt: requiredTextSchema.optional(),
+    runtime: executionRuntimeSchema.optional(),
     workingDirectory: requiredTextSchema.optional(),
     commitMessage: requiredTextSchema.optional(),
     prTitle: requiredTextSchema.optional(),

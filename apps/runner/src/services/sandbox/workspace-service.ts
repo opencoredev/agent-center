@@ -1,6 +1,11 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
+import { Effect } from "effect";
+
+import { WorkspaceOperationError } from "../../effect/errors";
+import { runEffectOrThrow } from "../../effect/runtime";
+
 interface WorkspaceServiceOptions {
   cleanupMode: "delete_on_completion" | "retain";
   workspaceRoot: string;
@@ -16,41 +21,94 @@ export class WorkspaceService {
   }
 
   async createWorkspace(runId: string) {
-    await mkdir(this.workspaceRoot, {
-      recursive: true,
-    });
+    const workspaceRoot = this.workspaceRoot;
+    const workspacePath = join(workspaceRoot, runId);
 
-    const workspacePath = join(this.workspaceRoot, runId);
-    await mkdir(workspacePath, {
-      recursive: true,
-    });
+    return runEffectOrThrow(
+      Effect.gen(function* () {
+        yield* Effect.tryPromise({
+          try: () =>
+            mkdir(workspaceRoot, {
+              recursive: true,
+            }),
+          catch: (error) =>
+            new WorkspaceOperationError({
+              message: `Runner could not prepare the workspace root before starting run ${runId}.`,
+              operation: "create-root",
+              workspacePath: workspaceRoot,
+              hint:
+                error instanceof Error
+                  ? `Filesystem error: ${error.message}. Check that the runner process can write to this directory.`
+                  : "Check that the runner process can write to this directory.",
+            }),
+        });
 
-    return workspacePath;
+        yield* Effect.tryPromise({
+          try: () =>
+            mkdir(workspacePath, {
+              recursive: true,
+            }),
+          catch: (error) =>
+            new WorkspaceOperationError({
+              message: `Runner could not create the workspace for run ${runId}.`,
+              operation: "create",
+              workspacePath,
+              hint:
+                error instanceof Error
+                  ? `Filesystem error: ${error.message}. Free the directory or fix permissions, then retry.`
+                  : "Free the directory or fix permissions, then retry.",
+            }),
+        });
+
+        return workspacePath;
+      }),
+      "Workspace creation",
+    );
   }
 
   async cleanupWorkspace(workspacePath: string, status: "cancelled" | "completed" | "failed") {
-    if (this.cleanupMode !== "delete_on_completion") {
-      return {
-        attempted: false,
-        reason: "cleanup mode is retain",
-      };
-    }
+    const cleanupMode = this.cleanupMode;
 
-    if (status === "failed") {
-      return {
-        attempted: false,
-        reason: "failed workspaces are retained for debugging",
-      };
-    }
+    return runEffectOrThrow(
+      Effect.gen(function* () {
+        if (cleanupMode !== "delete_on_completion") {
+          return {
+            attempted: false,
+            reason: "cleanup mode is retain",
+          };
+        }
 
-    await rm(workspacePath, {
-      force: true,
-      recursive: true,
-    });
+        if (status === "failed") {
+          return {
+            attempted: false,
+            reason: "failed workspaces are retained for debugging",
+          };
+        }
 
-    return {
-      attempted: true,
-      reason: null,
-    };
+        yield* Effect.tryPromise({
+          try: () =>
+            rm(workspacePath, {
+              force: true,
+              recursive: true,
+            }),
+          catch: (error) =>
+            new WorkspaceOperationError({
+              message: `Runner could not clean up workspace ${workspacePath}.`,
+              operation: "cleanup",
+              workspacePath,
+              hint:
+                error instanceof Error
+                  ? `Filesystem error: ${error.message}. Remove the workspace manually or stop the process holding it open.`
+                  : "Remove the workspace manually or stop the process holding it open.",
+            }),
+        });
+
+        return {
+          attempted: true,
+          reason: null,
+        };
+      }),
+      "Workspace cleanup",
+    );
   }
 }

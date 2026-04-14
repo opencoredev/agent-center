@@ -8,11 +8,11 @@ import type {
 } from "@agent-center/shared";
 
 import { ApiError, conflictError, notFoundError } from "../http/errors";
-import { createTask, findTaskById, listTasks, updateTask } from "../repositories/task-repository";
+import { createTask, deleteTask, findTaskById, listTasks, updateTask } from "../repositories/task-repository";
 import { findWorkspaceById } from "../repositories/workspace-repository";
 import { findAutomationByWorkspaceAndId } from "../repositories/automation-repository";
 import { findLatestRunForTask, updateRun, appendRunEvent } from "../repositories/run-repository";
-import { isActiveRunStatus, withControlIntent } from "./helpers";
+import { assertLaunchReadyExecutionConfig, isActiveRunStatus, withControlIntent } from "./helpers";
 import { projectService } from "./project-service";
 import { repoConnectionService } from "./repo-connection-service";
 import { runService } from "./run-service";
@@ -20,10 +20,36 @@ import { serializeTask } from "./serializers";
 import type { RunCreateRequest } from "./run-service";
 
 export const taskService = {
-  async list(filters: { workspaceId?: string; projectId?: string; status?: TaskStatus }) {
-    const tasks = await listTasks(filters);
+  async list(filters: { workspaceId?: string; projectId?: string; status?: TaskStatus; archived?: "exclude" | "include" | "only" }) {
+    const rawTasks = await listTasks(filters);
+    const now = Date.now();
+    const retainedTasks = [];
 
-    return tasks.map(serializeTask);
+    for (const task of rawTasks) {
+      const archivedAt = typeof task.metadata?.archivedAt === "string"
+        ? new Date(task.metadata.archivedAt).getTime()
+        : null;
+
+      if (archivedAt && now - archivedAt >= 30 * 24 * 60 * 60 * 1000) {
+        await deleteTask(task.id).catch((error) => {
+          console.warn("[task-service] failed to auto-delete archived task", {
+            error,
+            taskId: task.id,
+          });
+          return undefined;
+        });
+        continue;
+      }
+
+      const isArchived = archivedAt !== null;
+      const archivedFilter = filters.archived ?? "exclude";
+      if (archivedFilter === "exclude" && isArchived) continue;
+      if (archivedFilter === "only" && !isArchived) continue;
+
+      retainedTasks.push(task);
+    }
+
+    return retainedTasks.map(serializeTask);
   },
 
   async create(input: {
@@ -41,6 +67,8 @@ export const taskService = {
     config: ExecutionConfig;
     metadata: DomainMetadata;
   }) {
+    assertLaunchReadyExecutionConfig(input.config);
+
     const workspace = await findWorkspaceById(input.workspaceId);
 
     if (workspace === undefined) {
@@ -127,6 +155,22 @@ export const taskService = {
     return serializeTask(task);
   },
 
+  async update(taskId: string, input: { title?: string; metadata?: DomainMetadata }) {
+    const task = await findTaskById(taskId);
+
+    if (task === undefined) {
+      throw notFoundError("task", taskId);
+    }
+
+    const updatedTask = await updateTask(taskId, {
+      title: input.title ?? task.title,
+      metadata: input.metadata ?? task.metadata,
+      updatedAt: new Date(),
+    });
+
+    return serializeTask(updatedTask);
+  },
+
   async cancel(taskId: string, input: { reason?: string | null }) {
     const task = await findTaskById(taskId);
 
@@ -198,11 +242,13 @@ export const taskService = {
         requestedStatus: "cancelled",
         source: "api",
       }),
+      status: "cancelled",
       updatedAt: new Date(),
     });
 
     if (latestRun !== undefined) {
       await updateRun(latestRun.id, {
+        status: "cancelled",
         metadata: withControlIntent(latestRun.metadata, "cancel", {
           applied: false,
           reason: input.reason ?? null,
@@ -216,7 +262,7 @@ export const taskService = {
       await appendRunEvent(latestRun.id, {
         eventType: "run.status_changed",
         level: "warn",
-        message: "Cancellation requested via API",
+        message: "Cancellation requested. Stopping the run and keeping current progress visible.",
         payload: {
           applied: false,
           reason: input.reason ?? null,

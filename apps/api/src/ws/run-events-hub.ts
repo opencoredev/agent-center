@@ -11,7 +11,7 @@ import type { WSContext } from "hono/ws";
 
 import { listRunEventsAfter } from "./run-events-repository";
 
-const POLL_INTERVAL_MS = 1_000;
+const POLL_INTERVAL_MS = Number(process.env.RUN_EVENTS_POLL_INTERVAL_MS ?? 1_000);
 const POLL_BATCH_SIZE = 100;
 
 type ConnectionSocket = WSContext;

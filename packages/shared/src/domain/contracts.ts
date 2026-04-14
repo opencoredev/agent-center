@@ -1,6 +1,16 @@
 import type { EventType } from "../events";
 import type { RepoAuthType, RepoProvider } from "../providers";
-import type { AgentProvider, PermissionMode, RunStatus, SandboxSize, TaskStatus } from "./enums";
+import type {
+  AgentProvider,
+  PermissionMode,
+  RunStatus,
+  RuntimeProvider,
+  RuntimeTarget,
+  SandboxIdlePolicy,
+  SandboxProfile,
+  SandboxSize,
+  TaskStatus,
+} from "./enums";
 
 export interface ExecutionCommand {
   command: string;
@@ -15,11 +25,23 @@ export interface ExecutionPolicy {
   blockedCommands?: string[];
 }
 
+export interface ExecutionRuntime {
+  target: RuntimeTarget;
+  provider: RuntimeProvider;
+  sandboxProfile: SandboxProfile;
+  idlePolicy?: SandboxIdlePolicy;
+  resumeOnActivity?: boolean;
+  ttlSeconds?: number;
+}
+
 export interface ExecutionConfig {
   commands: ExecutionCommand[];
   agentProvider?: AgentProvider;
   agentModel?: string;
+  agentReasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink";
+  agentThinkingEnabled?: boolean;
   agentPrompt?: string;
+  runtime?: ExecutionRuntime;
   workingDirectory?: string;
   commitMessage?: string;
   prTitle?: string;

@@ -20,6 +20,7 @@ export const taskListQuerySchema = z
     workspaceId: uuidSchema.optional(),
     projectId: uuidSchema.optional(),
     status: taskStatusSchema.optional(),
+    archived: z.enum(["exclude", "include", "only"]).optional(),
   })
   .strict();
 
@@ -66,3 +67,13 @@ export const taskControlSchema = z
     reason: optionalNullableTextSchema,
   })
   .strict();
+
+export const updateTaskSchema = z
+  .object({
+    title: requiredTextSchema.optional(),
+    metadata: metadataSchema.optional(),
+  })
+  .strict()
+  .refine((value) => value.title !== undefined || value.metadata !== undefined, {
+    message: "At least one task field must be updated",
+  });

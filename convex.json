@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/get-convex/convex-js/main/npm-packages/convex/schemas/convex.schema.json",
+  "functions": "apps/control-plane/convex",
+  "codegen": {
+    "fileType": "ts"
+  },
+  "aiFiles": {
+    "enabled": false
+  }
+}

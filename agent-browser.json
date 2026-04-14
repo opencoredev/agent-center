@@ -1,0 +1,6 @@
+{
+  "headed": false,
+  "contentBoundaries": true,
+  "screenshotDir": "./.agent-browser/screenshots",
+  "downloadPath": "./.agent-browser/downloads"
+}

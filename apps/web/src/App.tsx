@@ -8,12 +8,19 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import { ChatLayout } from './components/chat/chat-layout';
+import { SettingsLayout } from './components/settings/settings-layout';
 import { ErrorBoundary } from './components/error-boundary';
 import { LoginPage } from './routes/login';
 import { ChatPage } from './routes/chat';
+import { AutomationsPage } from './routes/automations';
+import { ArchivedTasksPage } from './routes/archived';
 import { TaskDetailPage } from './routes/tasks/task-detail';
 import { RunDetailPage } from './routes/runs/run-detail';
-import { SettingsPage } from './routes/settings/index';
+import { ModelsPage } from './routes/settings/models';
+import { RepositoriesPage } from './routes/settings/repositories';
+import { ApiKeysPage } from './routes/settings/api-keys';
+import { WorkspacePage } from './routes/settings/workspace';
+import { ProfilePage } from './routes/settings/profile';
 import { getToken, isAuthEnabled } from './lib/auth';
 
 const rootRoute = createRootRoute({
@@ -31,7 +38,9 @@ const loginRoute = createRoute({
   component: LoginPage,
 });
 
-const layoutRoute = createRoute({
+// ── Chat layout (main app) ─────────────────────────────────────────────────
+
+const chatLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: '_auth',
   beforeLoad: () => {
@@ -43,36 +52,104 @@ const layoutRoute = createRoute({
 });
 
 const indexRoute = createRoute({
-  getParentRoute: () => layoutRoute,
+  getParentRoute: () => chatLayoutRoute,
   path: '/',
   component: ChatPage,
 });
 
+const automationsRoute = createRoute({
+  getParentRoute: () => chatLayoutRoute,
+  path: '/automations',
+  component: AutomationsPage,
+});
+
+const archivedRoute = createRoute({
+  getParentRoute: () => chatLayoutRoute,
+  path: '/archived',
+  component: ArchivedTasksPage,
+});
+
 const taskDetailRoute = createRoute({
-  getParentRoute: () => layoutRoute,
+  getParentRoute: () => chatLayoutRoute,
   path: '/tasks/$taskId',
   component: TaskDetailPage,
 });
 
 const runDetailRoute = createRoute({
-  getParentRoute: () => layoutRoute,
+  getParentRoute: () => chatLayoutRoute,
   path: '/runs/$runId',
   component: RunDetailPage,
 });
 
-const settingsRoute = createRoute({
-  getParentRoute: () => layoutRoute,
-  path: '/settings',
-  component: SettingsPage,
+// ── Settings layout (full-page, separate from chat) ─────────────────────────
+
+const settingsLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: '_settings',
+  beforeLoad: () => {
+    if (isAuthEnabled() && !getToken()) {
+      throw redirect({ to: '/login' });
+    }
+  },
+  component: SettingsLayout,
 });
+
+const settingsIndexRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/settings',
+  beforeLoad: () => {
+    throw redirect({ to: '/settings/models' });
+  },
+});
+
+const settingsModelsRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/settings/models',
+  component: ModelsPage,
+});
+
+const settingsRepositoriesRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/settings/repositories',
+  component: RepositoriesPage,
+});
+
+const settingsApiKeysRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/settings/api-keys',
+  component: ApiKeysPage,
+});
+
+const settingsWorkspaceRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/settings/workspace',
+  component: WorkspacePage,
+});
+
+const settingsProfileRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/settings/profile',
+  component: ProfilePage,
+});
+
+// ── Route tree ──────────────────────────────────────────────────────────────
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
-  layoutRoute.addChildren([
+  chatLayoutRoute.addChildren([
     indexRoute,
+    automationsRoute,
+    archivedRoute,
     taskDetailRoute,
     runDetailRoute,
-    settingsRoute,
+  ]),
+  settingsLayoutRoute.addChildren([
+    settingsIndexRoute,
+    settingsModelsRoute,
+    settingsRepositoriesRoute,
+    settingsApiKeysRoute,
+    settingsWorkspaceRoute,
+    settingsProfileRoute,
   ]),
 ]);
 

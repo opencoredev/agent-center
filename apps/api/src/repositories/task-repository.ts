@@ -63,3 +63,13 @@ export async function updateTask(
 
   return task;
 }
+
+export async function deleteTask(taskId: string) {
+  const [task] = await db.delete(tasks).where(eq(tasks.id, taskId)).returning();
+
+  if (task === undefined) {
+    throw new Error(`Failed to delete task ${taskId}`);
+  }
+
+  return task;
+}
