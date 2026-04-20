@@ -278,6 +278,28 @@ export class GitHubAppClient {
     return mapIssueComment(response);
   }
 
+  async updateIssueComment(input: {
+    owner: string;
+    repo: string;
+    commentId: number;
+    body: string;
+    token: string;
+  }): Promise<GitHubIssueCommentSummary> {
+    const response = await this.#requestJson<GitHubIssueCommentResponse>({
+      path: `/repos/${encodeURIComponent(normalizeRequiredValue(input.owner, "repository owner"))}/${encodeURIComponent(normalizeRequiredValue(input.repo, "repository name"))}/issues/comments/${input.commentId}`,
+      method: "PATCH",
+      auth: {
+        type: "installation",
+        token: normalizeRequiredValue(input.token, "installation token"),
+      },
+      body: JSON.stringify({
+        body: normalizeRequiredValue(input.body, "issue comment body"),
+      }),
+    });
+
+    return mapIssueComment(response);
+  }
+
   async createIssueReaction(input: {
     owner: string;
     repo: string;
@@ -324,7 +346,7 @@ export class GitHubAppClient {
 
   async #requestJson<T>(input: {
     path: string;
-    method?: "GET" | "POST";
+    method?: "GET" | "POST" | "PATCH";
     auth: { type: "app" } | { type: "installation"; token: string };
     body?: string;
   }): Promise<T> {

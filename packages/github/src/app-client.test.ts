@@ -228,4 +228,52 @@ describe("github app client", () => {
       content: "eyes",
     });
   });
+
+  test("updates an issue comment with an installation token", async () => {
+    const fetchMock = mock(async (url: string, init?: RequestInit) => {
+      if (url === "https://api.github.com/repos/opencoded/agent.center/issues/comments/999") {
+        expect(init?.method).toBe("PATCH");
+        expect(init?.headers).toMatchObject({
+          Authorization: "Bearer ghs_installation_token",
+        });
+        expect(init?.body).toBe(JSON.stringify({ body: "updated body" }));
+
+        return new Response(
+          JSON.stringify({
+            id: 999,
+            body: "updated body",
+            html_url: "https://github.com/opencoded/agent.center/issues/1#issuecomment-999",
+          }),
+          {
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      }
+
+      throw new Error(`unexpected fetch url: ${url}`);
+    });
+
+    const client = new GitHubAppClient({
+      appId: "3332050",
+      slug: "agent-center-dev",
+      privateKey: createPrivateKeyPem(),
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(
+      client.updateIssueComment({
+        owner: "opencoded",
+        repo: "agent.center",
+        commentId: 999,
+        body: "updated body",
+        token: "ghs_installation_token",
+      }),
+    ).resolves.toEqual({
+      id: 999,
+      body: "updated body",
+      htmlUrl: "https://github.com/opencoded/agent.center/issues/1#issuecomment-999",
+    });
+  });
 });

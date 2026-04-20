@@ -66,6 +66,11 @@ const mockCreateIssueComment = mock(async () => ({
   body: "hello",
   htmlUrl: "https://github.com/opencoded/agent.center/issues/1#issuecomment-77",
 }));
+const mockUpdateIssueComment = mock(async () => ({
+  id: 77,
+  body: "updated body",
+  htmlUrl: "https://github.com/opencoded/agent.center/issues/1#issuecomment-77",
+}));
 const mockCreateIssueReaction = mock(async () => ({
   id: 88,
   content: "eyes",
@@ -119,6 +124,7 @@ mock.module("@agent-center/github", () => ({
     createInstallationAccessToken = mockCreateInstallationAccessToken;
     getUser = mockGetUser;
     createIssueComment = mockCreateIssueComment;
+    updateIssueComment = mockUpdateIssueComment;
     createIssueReaction = mockCreateIssueReaction;
     createIssueCommentReaction = mockCreateIssueCommentReaction;
   },
@@ -171,6 +177,7 @@ describe("github-app-service", () => {
     mockCreateInstallationAccessToken.mockClear();
     mockGetUser.mockClear();
     mockCreateIssueComment.mockClear();
+    mockUpdateIssueComment.mockClear();
     mockCreateIssueReaction.mockClear();
     mockCreateIssueCommentReaction.mockClear();
     mockFindWorkspaceById.mockClear();
@@ -314,6 +321,31 @@ describe("github-app-service", () => {
       repo: "agent.center",
       issueNumber: 123,
       body: "hello",
+      token: "ghs_installation_token",
+    });
+  });
+
+  test("updates an issue comment with an installation token", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
+    await githubAppService.updateIssueComment({
+      installationId: 42,
+      owner: "opencoded",
+      repo: "agent.center",
+      commentId: 77,
+      body: "updated body",
+    });
+
+    expect(mockCreateInstallationAccessToken).toHaveBeenCalledWith(42);
+    expect(mockUpdateIssueComment).toHaveBeenCalledWith({
+      owner: "opencoded",
+      repo: "agent.center",
+      commentId: 77,
+      body: "updated body",
       token: "ghs_installation_token",
     });
   });

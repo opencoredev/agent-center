@@ -158,7 +158,28 @@ function deriveWebOrigin(input: { requestOrigin?: string | null }) {
 }
 
 function buildAckComment(taskUrl: string) {
-  return `Started a task for this mention: ${taskUrl}`;
+  return [
+    "👀 Agent Center picked this up.",
+    "",
+    `- Status: Started task`,
+    `- Task: ${taskUrl}`,
+    `- Draft PR: Not opened yet`,
+  ].join("\n");
+}
+
+function withProgressCommentMetadata(
+  metadata: Record<string, unknown>,
+  progressComment: { id: number; htmlUrl: string; taskUrl: string },
+) {
+  const github = (metadata.github ?? {}) as Record<string, unknown>;
+
+  return {
+    ...metadata,
+    github: {
+      ...github,
+      progressComment,
+    },
+  };
 }
 
 function parseSupportedWebhook(input: { event: SupportedGitHubEvent; rawBody: string; deliveryId: string }) {
@@ -403,12 +424,19 @@ export const githubWebhookService = {
 
     if (taskUrl) {
       try {
-        await githubAppService.createIssueComment({
+        const progressComment = await githubAppService.createIssueComment({
           installationId: parsed.installationId,
           owner: parsed.owner,
           repo: parsed.repo,
           issueNumber: parsed.issue.number,
           body: buildAckComment(taskUrl),
+        });
+        await taskService.update(task.id, {
+          metadata: withProgressCommentMetadata(metadata, {
+            id: progressComment.id,
+            htmlUrl: progressComment.htmlUrl,
+            taskUrl,
+          }),
         });
       } catch (error) {
         console.warn("[github-webhook-service] failed to post acknowledgement comment", {

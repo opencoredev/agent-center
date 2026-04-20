@@ -306,6 +306,24 @@ export const githubAppService = {
     });
   },
 
+  async updateIssueComment(input: {
+    installationId: number;
+    owner: string;
+    repo: string;
+    commentId: number;
+    body: string;
+  }) {
+    const client = createGitHubAppClient();
+    const token = await client.createInstallationAccessToken(input.installationId);
+    return client.updateIssueComment({
+      owner: input.owner,
+      repo: input.repo,
+      commentId: input.commentId,
+      body: input.body,
+      token: token.token,
+    });
+  },
+
   async createMentionReaction(input: {
     installationId: number;
     owner: string;

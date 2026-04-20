@@ -28,6 +28,7 @@ const mockFindGitHubAppRepoConnectionByRepository = mock(async () => repoConnect
 const mockAssertWithinWorkspace = mock(async () => project);
 const mockFindOrCreateRepositoryProject = mock(async () => project);
 const mockCreateTask = mock(async () => createdTask);
+const mockUpdateTask = mock(async () => createdTask);
 const mockCreateRun = mock(async () => createdRun);
 const mockCreateIssueComment = mock(async () => ({ id: 1 }));
 const mockCreateMentionReaction = mock(async () => ({ id: 99, content: "eyes" }));
@@ -50,6 +51,7 @@ mock.module("../services/project-service", () => ({
 mock.module("../services/task-service", () => ({
   taskService: {
     create: mockCreateTask,
+    update: mockUpdateTask,
   },
 }));
 
@@ -160,6 +162,8 @@ describe("github-webhook-service", () => {
     mockFindOrCreateRepositoryProject.mockResolvedValue(project);
     mockCreateTask.mockReset();
     mockCreateTask.mockResolvedValue(createdTask);
+    mockUpdateTask.mockReset();
+    mockUpdateTask.mockResolvedValue(createdTask);
     mockCreateRun.mockReset();
     mockCreateRun.mockResolvedValue(createdRun);
     mockCreateIssueComment.mockReset();
@@ -227,8 +231,21 @@ describe("github-webhook-service", () => {
       owner: "opencodedev",
       repo: "agent-center",
       issueNumber: 123,
-      body: "Started a task for this mention: https://app.agent-center.test/tasks/33333333-3333-3333-3333-333333333333",
+      body: "👀 Agent Center picked this up.\n\n- Status: Started task\n- Task: https://app.agent-center.test/tasks/33333333-3333-3333-3333-333333333333\n- Draft PR: Not opened yet",
     });
+    expect(mockUpdateTask).toHaveBeenCalledWith(
+      createdTask.id,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          github: expect.objectContaining({
+            progressComment: expect.objectContaining({
+              id: 1,
+              taskUrl: "https://app.agent-center.test/tasks/33333333-3333-3333-3333-333333333333",
+            }),
+          }),
+        }),
+      }),
+    );
     expect(mockCreateMentionReaction).toHaveBeenCalledWith({
       installationId: 42,
       owner: "opencodedev",

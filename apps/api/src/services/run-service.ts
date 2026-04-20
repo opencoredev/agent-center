@@ -219,6 +219,39 @@ function buildPrOpenedComment(prUrl: string) {
   return `Draft pull request opened: ${prUrl}`;
 }
 
+function buildProgressCommentUpdate(input: {
+  prUrl: string;
+  taskUrl: string | null;
+}) {
+  return [
+    "👀 Agent Center picked this up.",
+    "",
+    `- Status: Draft PR opened`,
+    input.taskUrl ? `- Task: ${input.taskUrl}` : null,
+    `- Draft PR: ${input.prUrl}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
+function getGitHubProgressComment(metadata: DomainMetadata | null | undefined) {
+  const github = asRecord(asRecord(metadata)?.github);
+  const progressComment = asRecord(github?.progressComment);
+  const id = Number(progressComment?.id);
+  const htmlUrl = getString(progressComment?.htmlUrl);
+  const taskUrl = getString(progressComment?.taskUrl);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return null;
+  }
+
+  return {
+    id,
+    htmlUrl,
+    taskUrl,
+  };
+}
+
 function resolveCommitMessage(input: {
   generatedCommitMessage: string;
   runConfig: ExecutionConfig;
@@ -1157,14 +1190,28 @@ export const runService = {
       });
 
       if (issueOrigin && repoConnection.authType === "github_app_installation" && Number.isInteger(installationId) && installationId > 0) {
+        const progressComment = getGitHubProgressComment(task.metadata);
         try {
-          await githubAppService.createIssueComment({
-            installationId,
-            owner: issueOrigin.owner,
-            repo: issueOrigin.repo,
-            issueNumber: issueOrigin.issueNumber,
-            body: buildPrOpenedComment(pullRequest.htmlUrl),
-          });
+          if (progressComment) {
+            await githubAppService.updateIssueComment({
+              installationId,
+              owner: issueOrigin.owner,
+              repo: issueOrigin.repo,
+              commentId: progressComment.id,
+              body: buildProgressCommentUpdate({
+                prUrl: pullRequest.htmlUrl,
+                taskUrl: progressComment.taskUrl,
+              }),
+            });
+          } else {
+            await githubAppService.createIssueComment({
+              installationId,
+              owner: issueOrigin.owner,
+              repo: issueOrigin.repo,
+              issueNumber: issueOrigin.issueNumber,
+              body: buildPrOpenedComment(pullRequest.htmlUrl),
+            });
+          }
         } catch (error) {
           console.warn("[run-service] failed to post PR URL back to GitHub issue", {
             runId,
