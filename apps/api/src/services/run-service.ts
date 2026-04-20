@@ -81,6 +81,18 @@ function getString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function normalizeText(value: string | null | undefined) {
+  return value?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
+}
+
+function truncateText(value: string, maxLength: number) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
+}
+
 function normalizeBranchName(value: string | null | undefined) {
   const branch = getString(value);
 
@@ -99,6 +111,28 @@ function buildPublicationMetadata(
     ...(asRecord(currentMetadata) ?? {}),
     publication,
   };
+}
+
+interface PublicationChange {
+  code: string;
+  label: string;
+  path: string;
+  previousPath: string | null;
+}
+
+interface PublicationCommitAuthor {
+  email: string;
+  id: number | null;
+  login: string | null;
+  name: string;
+  source: "fallback" | "github_app_bot";
+}
+
+interface PublicationContent {
+  body: string;
+  commitMessage: string;
+  summary: string;
+  title: string;
 }
 
 async function assertWorkspaceAccess(workspaceId: string, userId?: string) {
@@ -120,32 +154,260 @@ async function assertWorkspaceAccess(workspaceId: string, userId?: string) {
 }
 
 function resolvePublicationTitle(input: {
+  generatedTitle: string;
   runConfig: ExecutionConfig;
   taskConfig: ExecutionConfig;
-  taskTitle: string;
-  owner: string;
-  repo: string;
+  prompts: string[];
 }) {
-  return (
-    getString(input.runConfig.prTitle) ??
-    getString(input.taskConfig.prTitle) ??
-    getString(input.taskTitle) ??
-    `Update ${input.owner}/${input.repo}`
-  );
+  const configuredTitle = getString(input.runConfig.prTitle) ?? getString(input.taskConfig.prTitle);
+
+  if (configuredTitle && !input.prompts.some((prompt) => normalizeText(prompt) === normalizeText(configuredTitle))) {
+    return configuredTitle;
+  }
+
+  return input.generatedTitle;
 }
 
 function resolvePublicationBody(input: {
+  generatedBody: string;
   runConfig: ExecutionConfig;
   taskConfig: ExecutionConfig;
-  runPrompt: string;
-  taskPrompt: string;
+  prompts: string[];
 }) {
+  const configuredBody = getString(input.runConfig.prBody) ?? getString(input.taskConfig.prBody);
+
+  if (configuredBody && !input.prompts.some((prompt) => normalizeText(prompt) === normalizeText(configuredBody))) {
+    return configuredBody;
+  }
+
+  return input.generatedBody;
+}
+
+function resolveCommitMessage(input: {
+  generatedCommitMessage: string;
+  runConfig: ExecutionConfig;
+  taskConfig: ExecutionConfig;
+  prompts: string[];
+}) {
+  const configuredCommitMessage =
+    getString(input.runConfig.commitMessage) ?? getString(input.taskConfig.commitMessage);
+  const normalizedCommitMessage = normalizeText(configuredCommitMessage);
+
+  if (
+    configuredCommitMessage &&
+    !/^chore:\s+publish\b/.test(normalizedCommitMessage) &&
+    !input.prompts.some((prompt) => normalizeText(prompt) === normalizedCommitMessage)
+  ) {
+    return configuredCommitMessage;
+  }
+
   return (
-    getString(input.runConfig.prBody) ??
-    getString(input.taskConfig.prBody) ??
-    getString(input.runPrompt) ??
-    getString(input.taskPrompt)
+    input.generatedCommitMessage
   );
+}
+
+function unquoteGitPath(value: string) {
+  const trimmed = value.trim();
+
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    try {
+      return JSON.parse(trimmed) as string;
+    } catch {
+      return trimmed.slice(1, -1);
+    }
+  }
+
+  return trimmed;
+}
+
+function parsePublicationChanges(statusLines: string[]) {
+  return statusLines
+    .map((line) => {
+      if (line.startsWith("?? ")) {
+        return {
+          code: "??",
+          label: "added",
+          path: unquoteGitPath(line.slice(3)),
+          previousPath: null,
+        } satisfies PublicationChange;
+      }
+
+      const match = line.match(/^(.{1,2})\s+(.*)$/);
+      const statusCode = match?.[1] ?? line.slice(0, 2);
+      const rawPath = match?.[2]?.trim() ?? line.slice(2).trim();
+
+      if (!rawPath) {
+        return null;
+      }
+
+      const [previousPath, currentPath] = rawPath.includes(" -> ")
+        ? rawPath.split(/\s+->\s+/, 2)
+        : [null, rawPath];
+      const normalizedCode = statusCode.trim();
+      const label = normalizedCode.includes("R")
+        ? "renamed"
+        : normalizedCode.includes("D")
+          ? "deleted"
+          : normalizedCode.includes("A")
+            ? "added"
+            : "modified";
+
+      return {
+        code: statusCode,
+        label,
+        path: unquoteGitPath(currentPath ?? rawPath),
+        previousPath: previousPath ? unquoteGitPath(previousPath) : null,
+      } satisfies PublicationChange;
+    })
+    .filter((change): change is PublicationChange => Boolean(change));
+}
+
+function describeChangedFiles(changes: PublicationChange[]) {
+  const firstChange = changes[0];
+
+  if (!firstChange) {
+    return "repository updates";
+  }
+
+  const secondChange = changes[1];
+  const firstFile = firstChange.path.split("/").at(-1) ?? firstChange.path;
+
+  if (changes.length === 1) {
+    return `\`${firstFile}\``;
+  }
+
+  if (changes.length === 2 && secondChange) {
+    const secondFile = secondChange.path.split("/").at(-1) ?? secondChange.path;
+    return `\`${firstFile}\` and \`${secondFile}\``;
+  }
+
+  return `\`${firstFile}\` and ${changes.length - 1} other file${changes.length - 1 === 1 ? "" : "s"}`;
+}
+
+function inferChangeVerb(changes: PublicationChange[]) {
+  if (changes.length === 0) {
+    return "update";
+  }
+
+  const labels = new Set(changes.map((change) => change.label));
+
+  if (labels.size === 1) {
+    if (labels.has("added")) {
+      return "add";
+    }
+
+    if (labels.has("deleted")) {
+      return "remove";
+    }
+
+    if (labels.has("renamed")) {
+      return "rename";
+    }
+  }
+
+  return "update";
+}
+
+function capitalize(value: string) {
+  return value.length > 0 ? `${value.slice(0, 1).toUpperCase()}${value.slice(1)}` : value;
+}
+
+function extractAssistantSummary(values: unknown[]) {
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    const candidate = getString(value);
+
+    if (!candidate) {
+      continue;
+    }
+
+    const normalized = normalizeText(candidate);
+
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+
+    if (candidate.length <= 240 && !candidate.includes("\n")) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function inferCommitType(summary: string | null, changes: PublicationChange[]) {
+  const normalizedSummary = normalizeText(summary);
+
+  if (/\b(fix|bug|regression|correct|repair)\b/.test(normalizedSummary)) {
+    return "fix";
+  }
+
+  if (/\b(add|introduce|support|create|implement)\b/.test(normalizedSummary)) {
+    return "feat";
+  }
+
+  if (changes.every((change) => change.label === "added")) {
+    return "feat";
+  }
+
+  return "chore";
+}
+
+function buildPublicationContent(input: {
+  statusLines: string[];
+  assistantSummary: string | null;
+  originalTask: string;
+}) {
+  const changes = parsePublicationChanges(input.statusLines);
+  const filesDescription = describeChangedFiles(changes);
+  const verb = inferChangeVerb(changes);
+  const fallbackSummary = `${capitalize(verb)} ${filesDescription}`;
+  const summary = truncateText(input.assistantSummary ?? fallbackSummary, 120);
+  const title = truncateText(input.assistantSummary ?? fallbackSummary, 72);
+  const commitSubject = truncateText(
+    input.assistantSummary ? normalizeText(input.assistantSummary) : `${verb} ${filesDescription}`,
+    64,
+  );
+  const commitMessage = `${inferCommitType(input.assistantSummary, changes)}: ${commitSubject}`;
+  const changedFilesSection =
+    changes.length > 0
+      ? changes
+          .map((change) =>
+            `- \`${change.code}\` \`${change.path}\`${change.previousPath ? ` (from \`${change.previousPath}\`)` : ""}`,
+          )
+          .join("\n")
+      : "- No file-level status details were available.";
+  const summaryLines = [input.assistantSummary ? `- ${truncateText(input.assistantSummary, 240)}` : null]
+    .filter((line): line is string => Boolean(line));
+
+  if (!input.assistantSummary) {
+    summaryLines.push(`- ${capitalize(verb)} ${filesDescription}.`);
+  }
+
+  summaryLines.push(`- Changed ${changes.length || input.statusLines.length || 0} file${changes.length === 1 ? "" : "s"}.`);
+
+  return {
+    title,
+    summary,
+    commitMessage,
+    body: [
+      "## Summary",
+      ...summaryLines,
+      "",
+      "## Files Changed",
+      changedFilesSection,
+      "",
+      "<details>",
+      "<summary>Original task</summary>",
+      "",
+      input.originalTask,
+      "",
+      "</details>",
+    ].join("\n"),
+  } satisfies PublicationContent;
 }
 
 async function runGitCommand(workspacePath: string, args: string[]) {
@@ -195,17 +457,7 @@ async function getUntrackedFiles(workspacePath: string) {
     .split("\n")
     .filter((line) => line.startsWith("?? "))
     .map((line) => line.slice(3).trim())
-    .map((line) => {
-      if (line.startsWith('"') && line.endsWith('"')) {
-        try {
-          return JSON.parse(line) as string;
-        } catch {
-          return line.slice(1, -1);
-        }
-      }
-
-      return line;
-    })
+    .map(unquoteGitPath)
     .filter(Boolean);
 }
 
@@ -336,18 +588,29 @@ function resolvePublishBranchName(input: {
   return `agent-center/${slugifyBranchSegment(input.taskTitle)}-${input.taskId.slice(0, 8)}-${input.runId.slice(0, 8)}`;
 }
 
-function resolveCommitMessage(input: {
-  runConfig: ExecutionConfig;
-  taskConfig: ExecutionConfig;
-  taskTitle: string;
-  owner: string;
-  repo: string;
+async function resolvePublicationCommitAuthor(input: {
+  authType: string;
+  installationId: number | null;
+  token?: string;
 }) {
-  return (
-    getString(input.runConfig.commitMessage) ??
-    getString(input.taskConfig.commitMessage) ??
-    `chore: publish ${input.taskTitle || `${input.owner}/${input.repo}`}`
-  );
+  const fallbackAuthor = {
+    email: "automation@agent.center",
+    id: null,
+    login: null,
+    name: "Agent Center",
+    source: "fallback",
+  } satisfies PublicationCommitAuthor;
+
+  if (input.authType !== "github_app_installation" || !input.installationId || !input.token) {
+    return fallbackAuthor;
+  }
+
+  const botAuthor = await githubAppService.resolveBotCommitAuthor({
+    installationId: input.installationId,
+    token: input.token,
+  });
+
+  return botAuthor ?? fallbackAuthor;
 }
 
 async function getCurrentBranchName(workspacePath: string) {
@@ -373,7 +636,11 @@ async function checkoutPublishBranch(workspacePath: string, branchName: string) 
   );
 }
 
-async function stageAndCommitChanges(workspacePath: string, commitMessage: string) {
+async function stageAndCommitChanges(
+  workspacePath: string,
+  commitMessage: string,
+  commitAuthor: PublicationCommitAuthor,
+) {
   await runGitCommandChecked(workspacePath, ["add", "-A"], "Failed to stage workspace changes for publication");
 
   const cachedDiff = await runGitCommand(workspacePath, ["diff", "--cached", "--quiet"]);
@@ -397,9 +664,9 @@ async function stageAndCommitChanges(workspacePath: string, commitMessage: strin
     workspacePath,
     [
       "-c",
-      "user.name=Agent Center",
+      `user.name=${commitAuthor.name}`,
       "-c",
-      "user.email=automation@agent.center",
+      `user.email=${commitAuthor.email}`,
       "commit",
       "-m",
       commitMessage,
@@ -695,25 +962,39 @@ export const runService = {
       taskTitle: task.title,
     });
     const attemptedAt = new Date().toISOString();
+    const prompts = [run.prompt, task.prompt].filter((prompt): prompt is string => Boolean(getString(prompt)));
+    const assistantSummary = extractAssistantSummary([
+      asRecord(run.metadata)?.assistantSummary,
+      asRecord(run.metadata)?.finalAssistantMessage,
+      asRecord(run.metadata)?.summary,
+      asRecord(asRecord(run.metadata)?.result)?.summary,
+      asRecord(task.metadata)?.assistantSummary,
+      asRecord(task.metadata)?.finalAssistantMessage,
+      asRecord(task.metadata)?.summary,
+      asRecord(asRecord(task.metadata)?.result)?.summary,
+    ]);
+    const generatedPublicationContent = buildPublicationContent({
+      statusLines: diff.statusLines,
+      assistantSummary,
+      originalTask: getString(run.prompt) ?? getString(task.prompt) ?? task.title,
+    });
     const title = resolvePublicationTitle({
+      generatedTitle: generatedPublicationContent.title,
       runConfig: run.config,
       taskConfig: task.config,
-      taskTitle: task.title,
-      owner: repoConnection.owner,
-      repo: repoConnection.repo,
+      prompts,
     });
     const body = resolvePublicationBody({
+      generatedBody: generatedPublicationContent.body,
       runConfig: run.config,
       taskConfig: task.config,
-      runPrompt: run.prompt,
-      taskPrompt: task.prompt,
+      prompts,
     });
     const commitMessage = resolveCommitMessage({
+      generatedCommitMessage: generatedPublicationContent.commitMessage,
       runConfig: run.config,
       taskConfig: task.config,
-      taskTitle: task.title,
-      owner: repoConnection.owner,
-      repo: repoConnection.repo,
+      prompts,
     });
 
     try {
@@ -726,10 +1007,15 @@ export const runService = {
         installationId > 0
           ? (await githubAppService.getInstallationAccessToken(installationId)).token
           : undefined;
+      const commitAuthor = await resolvePublicationCommitAuthor({
+        authType: repoConnection.authType,
+        installationId: Number.isInteger(installationId) && installationId > 0 ? installationId : null,
+        token,
+      });
 
       await checkoutPublishBranch(diff.workspacePath, publishBranch);
 
-      const commitResult = await stageAndCommitChanges(diff.workspacePath, commitMessage);
+      const commitResult = await stageAndCommitChanges(diff.workspacePath, commitMessage, commitAuthor);
       const aheadCommits = await countAheadCommits(diff.workspacePath, baseBranch);
 
       if (!commitResult.committed && aheadCommits === 0) {
@@ -763,6 +1049,7 @@ export const runService = {
             branchName: publishBranch,
             commitMessage,
             commitSha: commitResult.commitSha,
+            commitAuthor,
             taskId: task.id,
           },
         });
@@ -799,8 +1086,10 @@ export const runService = {
         attemptedAt,
         publishedAt,
         error: null,
+        summary: generatedPublicationContent.summary,
         commitMessage,
         commitSha: commitResult.commitSha,
+        commitAuthor,
         headBranch: publishBranch,
         baseBranch,
         pullRequest,

@@ -42,4 +42,5 @@ export type {
   GitHubAppSummary,
   GitHubInstallationRepository,
   GitHubInstallationRepositoryPage,
+  GitHubUserSummary,
 } from "./app-client";

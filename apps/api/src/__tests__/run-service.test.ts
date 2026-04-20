@@ -54,8 +54,8 @@ const runRecord = {
   policy: {},
   config: {
     commands: [],
-    commitMessage: "fix: publish backend changes",
-    prTitle: "Generated PR title",
+    commitMessage: "chore: publish Implement the requested backend fix",
+    prTitle: "Implement the requested backend fix",
   },
   metadata: {},
   startedAt: null,
@@ -83,7 +83,7 @@ const taskRecord = {
   policy: {},
   config: {
     commands: [],
-    prBody: "Generated PR body",
+    prBody: "Task prompt body",
   },
   metadata: {},
   createdAt: new Date("2026-04-20T10:00:00.000Z"),
@@ -132,6 +132,19 @@ const mockGetInstallationAccessToken = mock(async () => ({
   token: "ghs_installation_token",
   expires_at: "2026-04-20T13:00:00.000Z",
 }));
+const mockResolveBotCommitAuthor = mock(async (): Promise<{
+  email: string;
+  id: number | null;
+  login: string | null;
+  name: string;
+  source: "fallback" | "github_app_bot";
+}> => ({
+  email: "123456+agent-center-dev[bot]@users.noreply.github.com",
+  id: 123456,
+  login: "agent-center-dev[bot]",
+  name: "agent-center-dev[bot]",
+  source: "github_app_bot",
+}));
 
 mock.module("../repositories/run-repository", () => ({
   appendRunEvent: mockAppendRunEvent,
@@ -164,6 +177,7 @@ mock.module("../services/repo-connection-service", () => ({
 mock.module("../services/github-app-service", () => ({
   githubAppService: {
     getInstallationAccessToken: mockGetInstallationAccessToken,
+    resolveBotCommitAuthor: mockResolveBotCommitAuthor,
   },
 }));
 
@@ -236,6 +250,7 @@ describe("run-service publish", () => {
     mockFindWorkspaceById.mockClear();
     mockAssertWithinWorkspace.mockClear();
     mockGetInstallationAccessToken.mockClear();
+    mockResolveBotCommitAuthor.mockClear();
   });
 
   afterEach(() => {
@@ -255,20 +270,36 @@ describe("run-service publish", () => {
         head: expect.stringContaining("agent-center/fix-publish-flow"),
         base: "main",
         draft: true,
-        title: "Generated PR title",
-        body: "Generated PR body",
+        title: "Update `README.md`",
+        body: expect.stringContaining("## Summary"),
       }),
     );
     expect(mockGetInstallationAccessToken).toHaveBeenCalledWith(42);
+    expect(mockResolveBotCommitAuthor).toHaveBeenCalledWith({
+      installationId: 42,
+      token: "ghs_installation_token",
+    });
     expect(result.publication.status).toBe("published");
     expect(result.publication.pullRequest).toMatchObject({
       number: 17,
       htmlUrl: "https://github.com/opencodedev/agent-center/pull/17",
     });
+    expect((result.publication as Record<string, unknown>).commitMessage).toBe("chore: update `README.md`");
+    expect((result.publication as Record<string, unknown>).commitAuthor).toMatchObject({
+      email: "123456+agent-center-dev[bot]@users.noreply.github.com",
+      login: "agent-center-dev[bot]",
+      source: "github_app_bot",
+    });
     expect(result.run.branchName).toContain("agent-center/fix-publish-flow");
     expect(
       runGit(["--git-dir", originPath, "rev-parse", `refs/heads/${result.run.branchName as string}`], sandboxRoot),
     ).toBeTruthy();
+    expect(runGit(["log", "-1", "--pretty=%an <%ae>%n%s", result.run.branchName as string], workspacePath)).toBe(
+      "agent-center-dev[bot] <123456+agent-center-dev[bot]@users.noreply.github.com>\nchore: update `README.md`",
+    );
+    expect((mockCreatePullRequest.mock.calls[0]?.[0] as Record<string, unknown>).body).toContain(
+      "<summary>Original task</summary>",
+    );
   });
 
   test("persists failed publication state after the branch has been pushed", async () => {
@@ -287,5 +318,26 @@ describe("run-service publish", () => {
     expect(
       runGit(["--git-dir", originPath, "rev-parse", `refs/heads/${runUpdate.branchName as string}`], sandboxRoot),
     ).toBeTruthy();
+  });
+
+  test("falls back to the automation identity when the app bot cannot be resolved", async () => {
+    mockResolveBotCommitAuthor.mockImplementationOnce(async () => ({
+      email: "automation@agent.center",
+      id: null,
+      login: null,
+      name: "Agent Center",
+      source: "fallback" as const,
+    }));
+
+    const result = await runService.publish(runRecord.id, "user-1");
+
+    expect((result.publication as Record<string, unknown>).commitAuthor).toMatchObject({
+      email: "automation@agent.center",
+      name: "Agent Center",
+      source: "fallback",
+    });
+    expect(runGit(["log", "-1", "--pretty=%an <%ae>", result.run.branchName as string], workspacePath)).toBe(
+      "Agent Center <automation@agent.center>",
+    );
   });
 });

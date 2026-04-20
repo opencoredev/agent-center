@@ -49,6 +49,7 @@ function asNumber(value: unknown) {
 export function serializePublicationState(metadata: unknown) {
   const publication = asRecord(asRecord(metadata)?.publication);
   const pullRequest = asRecord(publication?.pullRequest);
+  const commitAuthor = asRecord(publication?.commitAuthor);
 
   return {
     status: asString(publication?.status) ?? "unpublished",
@@ -56,6 +57,18 @@ export function serializePublicationState(metadata: unknown) {
     attemptedAt: asString(publication?.attemptedAt),
     publishedAt: asString(publication?.publishedAt),
     error: asString(publication?.error),
+    summary: asString(publication?.summary),
+    commitMessage: asString(publication?.commitMessage),
+    commitSha: asString(publication?.commitSha),
+    commitAuthor: commitAuthor
+      ? {
+          email: asString(commitAuthor.email),
+          id: asNumber(commitAuthor.id),
+          login: asString(commitAuthor.login),
+          name: asString(commitAuthor.name),
+          source: asString(commitAuthor.source),
+        }
+      : null,
     headBranch: asString(publication?.headBranch),
     baseBranch: asString(publication?.baseBranch),
     pullRequest: pullRequest

@@ -25,6 +25,14 @@ export interface GitHubAppSummary {
   ownerLogin: string | null;
 }
 
+export interface GitHubUserSummary {
+  id: number;
+  login: string;
+  type: string;
+  htmlUrl: string;
+  avatarUrl: string | null;
+}
+
 export interface GitHubAppInstallation {
   id: number;
   accountLogin: string;
@@ -96,6 +104,14 @@ interface GitHubInstallationRepositoriesResponse {
       login: string;
     };
   }>;
+}
+
+interface GitHubUserResponse {
+  id: number;
+  login: string;
+  type: string;
+  html_url: string;
+  avatar_url?: string | null;
 }
 
 interface GitHubErrorBody {
@@ -204,6 +220,18 @@ export class GitHubAppClient {
       auth: { type: "app" },
       body: JSON.stringify({}),
     });
+  }
+
+  async getUser(username: string, token: string): Promise<GitHubUserSummary> {
+    const response = await this.#requestJson<GitHubUserResponse>({
+      path: `/users/${encodeURIComponent(normalizeRequiredValue(username, "GitHub username"))}`,
+      auth: {
+        type: "installation",
+        token,
+      },
+    });
+
+    return mapUser(response);
   }
 
   async #requestJson<T>(input: {
@@ -360,6 +388,16 @@ function mapInstallationRepository(
     visibility: repository.visibility ?? null,
     htmlUrl: repository.html_url,
     permissions: repository.permissions ?? {},
+  };
+}
+
+function mapUser(user: GitHubUserResponse): GitHubUserSummary {
+  return {
+    id: user.id,
+    login: user.login,
+    type: user.type,
+    htmlUrl: user.html_url,
+    avatarUrl: user.avatar_url ?? null,
   };
 }
 

@@ -12,6 +12,7 @@ import { findWorkspaceById } from "../repositories/workspace-repository";
 import { listWorkspaces } from "../repositories/workspace-repository";
 
 const REQUIRED_GITHUB_APP_FIELDS = ["GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"] as const;
+const GITHUB_API_VERSION = "2022-11-28";
 
 function getMissingFields() {
   return REQUIRED_GITHUB_APP_FIELDS.filter((field) => {
@@ -224,7 +225,100 @@ export const githubAppService = {
     return createGitHubAppClient().listInstallationRepositories(input.installationId);
   },
 
+  async getCommitAuthorIdentity() {
+    const slug = apiEnv.GITHUB_APP_SLUG?.trim();
+
+    if (!slug) {
+      return null;
+    }
+
+    const login = `${slug}[bot]`;
+
+    try {
+      const response = await fetch(
+        `https://api.github.com/users/${encodeURIComponent(login)}`,
+        {
+          headers: {
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            "User-Agent": "@agent-center/github-app",
+          },
+        },
+      );
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = (await response.json()) as {
+        id?: unknown;
+        login?: unknown;
+      };
+      const userId = typeof payload.id === "number" && Number.isFinite(payload.id) ? payload.id : null;
+      const resolvedLogin = typeof payload.login === "string" && payload.login.trim().length > 0
+        ? payload.login.trim()
+        : login;
+
+      if (!userId) {
+        return null;
+      }
+
+      return {
+        login: resolvedLogin,
+        name: resolvedLogin,
+        email: `${userId}+${resolvedLogin}@users.noreply.github.com`,
+        userId,
+      };
+    } catch {
+      return null;
+    }
+  },
+
   async getInstallationAccessToken(installationId: number) {
     return createGitHubAppClient().createInstallationAccessToken(installationId);
+  },
+
+  async resolveBotCommitAuthor(input: { installationId: number; token?: string }) {
+    if (!apiEnv.GITHUB_APP_SLUG) {
+      return {
+        email: "automation@agent.center",
+        id: null,
+        login: null,
+        name: "Agent Center",
+        source: "fallback" as const,
+      };
+    }
+
+    const botLogin = `${apiEnv.GITHUB_APP_SLUG}[bot]`;
+
+    try {
+      const client = createGitHubAppClient();
+      const token =
+        input.token ?? (await client.createInstallationAccessToken(input.installationId)).token;
+      const botUser = await client.getUser(botLogin, token);
+
+      return {
+        email: `${botUser.id}+${botUser.login}@users.noreply.github.com`,
+        id: botUser.id,
+        login: botUser.login,
+        name: botUser.login,
+        source: "github_app_bot" as const,
+      };
+    } catch (error) {
+      if (
+        error instanceof GitHubAppConfigurationError ||
+        error instanceof GitHubAppApiError
+      ) {
+        return {
+          email: "automation@agent.center",
+          id: null,
+          login: null,
+          name: "Agent Center",
+          source: "fallback" as const,
+        };
+      }
+
+      throw error;
+    }
   },
 };

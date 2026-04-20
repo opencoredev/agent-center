@@ -54,6 +54,13 @@ const mockListInstallationRepositories = mock(async () => ({
 const mockCreateInstallationAccessToken = mock(async () => ({
   token: "ghs_installation_token",
 }));
+const mockGetUser = mock(async (login: string) => ({
+  id: 123456,
+  login,
+  type: "Bot",
+  htmlUrl: `https://github.com/${login}`,
+  avatarUrl: "https://avatars.githubusercontent.com/u/123456?v=4",
+}));
 
 const mockFindWorkspaceById = mock(async (workspaceId: string) => {
   if (workspaceId === ownedWorkspace.id) {
@@ -97,6 +104,7 @@ mock.module("@agent-center/github", () => ({
     listInstallations = mockListInstallations;
     listInstallationRepositories = mockListInstallationRepositories;
     createInstallationAccessToken = mockCreateInstallationAccessToken;
+    getUser = mockGetUser;
   },
   GitHubProviderError: class GitHubProviderError extends Error {
     status = 500;
@@ -145,6 +153,7 @@ describe("github-app-service", () => {
     mockListInstallations.mockClear();
     mockListInstallationRepositories.mockClear();
     mockCreateInstallationAccessToken.mockClear();
+    mockGetUser.mockClear();
     mockFindWorkspaceById.mockClear();
     mockListWorkspaces.mockClear();
     mockListRepoConnections.mockClear();
@@ -241,5 +250,27 @@ describe("github-app-service", () => {
       }),
     ]);
     expect(result).toHaveLength(1);
+  });
+
+  test("resolves the GitHub App bot commit author when the bot account is available", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
+    const result = await githubAppService.resolveBotCommitAuthor({
+      installationId: 42,
+      token: "ghs_installation_token",
+    });
+
+    expect(mockGetUser).toHaveBeenCalledWith("agent-center-dev[bot]", "ghs_installation_token");
+    expect(result).toEqual({
+      email: "123456+agent-center-dev[bot]@users.noreply.github.com",
+      id: 123456,
+      login: "agent-center-dev[bot]",
+      name: "agent-center-dev[bot]",
+      source: "github_app_bot",
+    });
   });
 });
