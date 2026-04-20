@@ -30,6 +30,7 @@ const mockFindOrCreateRepositoryProject = mock(async () => project);
 const mockCreateTask = mock(async () => createdTask);
 const mockCreateRun = mock(async () => createdRun);
 const mockCreateIssueComment = mock(async () => ({ id: 1 }));
+const mockCreateMentionReaction = mock(async () => ({ id: 99, content: "eyes" }));
 
 mock.module("../repositories/task-repository", () => ({
   findTaskByGitHubDeliveryId: mockFindTaskByGitHubDeliveryId,
@@ -62,6 +63,7 @@ mock.module("../services/github-app-service", () => ({
   githubAppService: {
     getWebhookMentionLogins: () => ["agent-center-dev", "agent-center-dev[bot]"],
     createIssueComment: mockCreateIssueComment,
+    createMentionReaction: mockCreateMentionReaction,
   },
 }));
 
@@ -107,7 +109,7 @@ function buildIssuesOpenedPayload(body = "@agent-center-dev fix this bug") {
 function buildIssueCommentPayload(input: {
   body?: string;
   hasPullRequest?: boolean;
-}) {
+} = {}) {
   return JSON.stringify({
     action: "created",
     installation: {
@@ -162,6 +164,8 @@ describe("github-webhook-service", () => {
     mockCreateRun.mockResolvedValue(createdRun);
     mockCreateIssueComment.mockReset();
     mockCreateIssueComment.mockResolvedValue({ id: 1 });
+    mockCreateMentionReaction.mockReset();
+    mockCreateMentionReaction.mockResolvedValue({ id: 99, content: "eyes" });
 
     apiEnv.GITHUB_WEBHOOK_SECRET = "test-secret";
     apiEnv.GITHUB_APP_SETUP_URL = "https://app.agent-center.test/settings/repositories";
@@ -224,6 +228,13 @@ describe("github-webhook-service", () => {
       repo: "agent-center",
       issueNumber: 123,
       body: "Started a task for this mention: https://app.agent-center.test/tasks/33333333-3333-3333-3333-333333333333",
+    });
+    expect(mockCreateMentionReaction).toHaveBeenCalledWith({
+      installationId: 42,
+      owner: "opencodedev",
+      repo: "agent-center",
+      issueNumber: 123,
+      commentId: null,
     });
   });
 
@@ -304,6 +315,33 @@ describe("github-webhook-service", () => {
     expect(result.status).toBe("created");
     expect(mockCreateTask).toHaveBeenCalledTimes(1);
     expect(mockCreateRun).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    warnSpy.mockRestore();
+  });
+
+  test("does not block task creation if adding the mention reaction fails", async () => {
+    mockCreateMentionReaction.mockRejectedValueOnce(new Error("boom"));
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const rawBody = buildIssueCommentPayload({});
+    const result = await githubWebhookService.handleSignedDelivery({
+      deliveryId: "delivery-6",
+      event: "issue_comment",
+      rawBody,
+      signature: sign(rawBody, "test-secret"),
+    });
+
+    expect(result.status).toBe("created");
+    expect(mockCreateTask).toHaveBeenCalledTimes(1);
+    expect(mockCreateRun).toHaveBeenCalledTimes(1);
+    expect(mockCreateMentionReaction).toHaveBeenCalledWith({
+      installationId: 42,
+      owner: "opencodedev",
+      repo: "agent-center",
+      issueNumber: 123,
+      commentId: 999,
+    });
     expect(warnSpy).toHaveBeenCalledTimes(1);
 
     warnSpy.mockRestore();

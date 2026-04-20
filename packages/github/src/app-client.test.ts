@@ -159,4 +159,73 @@ describe("github app client", () => {
       ],
     });
   });
+
+  test("creates issue and issue comment eyes reactions with an installation token", async () => {
+    const fetchMock = mock(async (url: string, init?: RequestInit) => {
+      if (url === "https://api.github.com/repos/opencoded/agent.center/issues/123/reactions") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toMatchObject({
+          Authorization: "Bearer ghs_installation_token",
+        });
+        expect(init?.body).toBe(JSON.stringify({ content: "eyes" }));
+
+        return new Response(JSON.stringify({ id: 501, content: "eyes" }), {
+          headers: {
+            "content-type": "application/json",
+          },
+          status: 201,
+        });
+      }
+
+      if (url === "https://api.github.com/repos/opencoded/agent.center/issues/comments/999/reactions") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toMatchObject({
+          Authorization: "Bearer ghs_installation_token",
+        });
+        expect(init?.body).toBe(JSON.stringify({ content: "eyes" }));
+
+        return new Response(JSON.stringify({ id: 502, content: "eyes" }), {
+          headers: {
+            "content-type": "application/json",
+          },
+          status: 201,
+        });
+      }
+
+      throw new Error(`unexpected fetch url: ${url}`);
+    });
+
+    const client = new GitHubAppClient({
+      appId: "3332050",
+      slug: "agent-center-dev",
+      privateKey: createPrivateKeyPem(),
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(
+      client.createIssueReaction({
+        owner: "opencoded",
+        repo: "agent.center",
+        issueNumber: 123,
+        content: "eyes",
+        token: "ghs_installation_token",
+      }),
+    ).resolves.toEqual({
+      id: 501,
+      content: "eyes",
+    });
+
+    await expect(
+      client.createIssueCommentReaction({
+        owner: "opencoded",
+        repo: "agent.center",
+        commentId: 999,
+        content: "eyes",
+        token: "ghs_installation_token",
+      }),
+    ).resolves.toEqual({
+      id: 502,
+      content: "eyes",
+    });
+  });
 });

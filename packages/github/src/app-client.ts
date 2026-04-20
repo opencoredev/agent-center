@@ -66,6 +66,11 @@ export interface GitHubIssueCommentSummary {
   htmlUrl: string;
 }
 
+export interface GitHubReactionSummary {
+  id: number;
+  content: string;
+}
+
 interface GitHubAppResponse {
   id: number;
   slug: string;
@@ -124,6 +129,11 @@ interface GitHubIssueCommentResponse {
   id: number;
   body: string;
   html_url: string;
+}
+
+interface GitHubReactionResponse {
+  id: number;
+  content: string;
 }
 
 interface GitHubErrorBody {
@@ -266,6 +276,50 @@ export class GitHubAppClient {
     });
 
     return mapIssueComment(response);
+  }
+
+  async createIssueReaction(input: {
+    owner: string;
+    repo: string;
+    issueNumber: number;
+    content: string;
+    token: string;
+  }): Promise<GitHubReactionSummary> {
+    const response = await this.#requestJson<GitHubReactionResponse>({
+      path: `/repos/${encodeURIComponent(normalizeRequiredValue(input.owner, "repository owner"))}/${encodeURIComponent(normalizeRequiredValue(input.repo, "repository name"))}/issues/${input.issueNumber}/reactions`,
+      method: "POST",
+      auth: {
+        type: "installation",
+        token: normalizeRequiredValue(input.token, "installation token"),
+      },
+      body: JSON.stringify({
+        content: normalizeRequiredValue(input.content, "reaction content"),
+      }),
+    });
+
+    return mapReaction(response);
+  }
+
+  async createIssueCommentReaction(input: {
+    owner: string;
+    repo: string;
+    commentId: number;
+    content: string;
+    token: string;
+  }): Promise<GitHubReactionSummary> {
+    const response = await this.#requestJson<GitHubReactionResponse>({
+      path: `/repos/${encodeURIComponent(normalizeRequiredValue(input.owner, "repository owner"))}/${encodeURIComponent(normalizeRequiredValue(input.repo, "repository name"))}/issues/comments/${input.commentId}/reactions`,
+      method: "POST",
+      auth: {
+        type: "installation",
+        token: normalizeRequiredValue(input.token, "installation token"),
+      },
+      body: JSON.stringify({
+        content: normalizeRequiredValue(input.content, "reaction content"),
+      }),
+    });
+
+    return mapReaction(response);
   }
 
   async #requestJson<T>(input: {
@@ -440,6 +494,13 @@ function mapIssueComment(comment: GitHubIssueCommentResponse): GitHubIssueCommen
     id: comment.id,
     body: comment.body,
     htmlUrl: comment.html_url,
+  };
+}
+
+function mapReaction(reaction: GitHubReactionResponse): GitHubReactionSummary {
+  return {
+    id: reaction.id,
+    content: reaction.content,
   };
 }
 

@@ -295,29 +295,44 @@ export const githubAppService = {
     issueNumber: number;
     body: string;
   }) {
-    const token = await createGitHubAppClient().createInstallationAccessToken(input.installationId);
-    const response = await fetch(
-      `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.issueNumber}/comments`,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${token.token}`,
-          "Content-Type": "application/json",
-          "User-Agent": "@agent-center/github-app",
-          "X-GitHub-Api-Version": GITHUB_API_VERSION,
-        },
-        body: JSON.stringify({
-          body: input.body,
-        }),
-      },
-    );
+    const client = createGitHubAppClient();
+    const token = await client.createInstallationAccessToken(input.installationId);
+    return client.createIssueComment({
+      owner: input.owner,
+      repo: input.repo,
+      issueNumber: input.issueNumber,
+      body: input.body,
+      token: token.token,
+    });
+  },
 
-    if (!response.ok) {
-      throw new GitHubAppApiError(`Failed to create GitHub issue comment (${response.status})`, response.status);
+  async createMentionReaction(input: {
+    installationId: number;
+    owner: string;
+    repo: string;
+    issueNumber: number;
+    commentId?: number | null;
+  }) {
+    const client = createGitHubAppClient();
+    const token = await client.createInstallationAccessToken(input.installationId);
+
+    if (input.commentId) {
+      return client.createIssueCommentReaction({
+        owner: input.owner,
+        repo: input.repo,
+        commentId: input.commentId,
+        content: "eyes",
+        token: token.token,
+      });
     }
 
-    return response.json();
+    return client.createIssueReaction({
+      owner: input.owner,
+      repo: input.repo,
+      issueNumber: input.issueNumber,
+      content: "eyes",
+      token: token.token,
+    });
   },
 
   async resolveBotCommitAuthor(input: { installationId: number; token?: string }) {

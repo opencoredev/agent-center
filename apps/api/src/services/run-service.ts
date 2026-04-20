@@ -183,6 +183,42 @@ function resolvePublicationBody(input: {
   return input.generatedBody;
 }
 
+function getGitHubIssueOrigin(metadata: DomainMetadata | null | undefined) {
+  const githubMetadata = asRecord(asRecord(metadata)?.github);
+  const repository = asRecord(githubMetadata?.repository);
+  const issue = asRecord(githubMetadata?.issue);
+  const owner = getString(repository?.owner);
+  const repo = getString(repository?.name);
+  const issueNumber = Number(issue?.number);
+
+  if (!owner || !repo || !Number.isInteger(issueNumber) || issueNumber <= 0) {
+    return null;
+  }
+
+  return {
+    owner,
+    repo,
+    issueNumber,
+  };
+}
+
+function ensureIssueLinkInPrBody(body: string, origin: { owner: string; repo: string; issueNumber: number } | null) {
+  if (!origin) {
+    return body;
+  }
+
+  const linkingLine = `Closes ${origin.owner}/${origin.repo}#${origin.issueNumber}`;
+  if (body.includes(linkingLine)) {
+    return body;
+  }
+
+  return body.trim().length > 0 ? `${body.trim()}\n\n${linkingLine}` : linkingLine;
+}
+
+function buildPrOpenedComment(prUrl: string) {
+  return `Draft pull request opened: ${prUrl}`;
+}
+
 function resolveCommitMessage(input: {
   generatedCommitMessage: string;
   runConfig: ExecutionConfig;
@@ -990,6 +1026,8 @@ export const runService = {
       taskConfig: task.config,
       prompts,
     });
+    const issueOrigin = getGitHubIssueOrigin(task.metadata);
+    const prBody = ensureIssueLinkInPrBody(body, issueOrigin);
     const commitMessage = resolveCommitMessage({
       generatedCommitMessage: generatedPublicationContent.commitMessage,
       runConfig: run.config,
@@ -1073,7 +1111,7 @@ export const runService = {
         connectionMetadata: repoConnection.connectionMetadata,
         token,
         title,
-        body,
+        body: prBody,
         head: publishBranch,
         base: baseBranch,
         draft: true,
@@ -1117,6 +1155,25 @@ export const runService = {
           taskId: task.id,
         },
       });
+
+      if (issueOrigin && repoConnection.authType === "github_app_installation" && Number.isInteger(installationId) && installationId > 0) {
+        try {
+          await githubAppService.createIssueComment({
+            installationId,
+            owner: issueOrigin.owner,
+            repo: issueOrigin.repo,
+            issueNumber: issueOrigin.issueNumber,
+            body: buildPrOpenedComment(pullRequest.htmlUrl),
+          });
+        } catch (error) {
+          console.warn("[run-service] failed to post PR URL back to GitHub issue", {
+            runId,
+            taskId: task.id,
+            pullRequestNumber: pullRequest.number,
+            error,
+          });
+        }
+      }
 
       return {
         publication: serializePublicationState(updatedRun.metadata),

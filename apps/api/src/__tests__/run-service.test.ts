@@ -85,7 +85,17 @@ const taskRecord = {
     commands: [],
     prBody: "Task prompt body",
   },
-  metadata: {},
+  metadata: {
+    github: {
+      issue: {
+        number: 123,
+      },
+      repository: {
+        owner: "opencodedev",
+        name: "agent-center",
+      },
+    },
+  },
   createdAt: new Date("2026-04-20T10:00:00.000Z"),
   updatedAt: new Date("2026-04-20T12:00:00.000Z"),
 };
@@ -145,6 +155,11 @@ const mockResolveBotCommitAuthor = mock(async (): Promise<{
   name: "agent-center-dev[bot]",
   source: "github_app_bot",
 }));
+const mockCreateIssueComment = mock(async () => ({
+  id: 501,
+  body: "Draft pull request opened: https://github.com/opencodedev/agent-center/pull/17",
+  htmlUrl: "https://github.com/opencodedev/agent-center/issues/123#issuecomment-501",
+}));
 
 mock.module("../repositories/run-repository", () => ({
   appendRunEvent: mockAppendRunEvent,
@@ -178,6 +193,7 @@ mock.module("../services/github-app-service", () => ({
   githubAppService: {
     getInstallationAccessToken: mockGetInstallationAccessToken,
     resolveBotCommitAuthor: mockResolveBotCommitAuthor,
+    createIssueComment: mockCreateIssueComment,
   },
 }));
 
@@ -251,6 +267,7 @@ describe("run-service publish", () => {
     mockAssertWithinWorkspace.mockClear();
     mockGetInstallationAccessToken.mockClear();
     mockResolveBotCommitAuthor.mockClear();
+    mockCreateIssueComment.mockClear();
   });
 
   afterEach(() => {
@@ -274,10 +291,20 @@ describe("run-service publish", () => {
         body: expect.stringContaining("## Summary"),
       }),
     );
+    expect((mockCreatePullRequest.mock.calls[0]?.[0] as Record<string, unknown>).body).toContain(
+      "Closes opencodedev/agent-center#123",
+    );
     expect(mockGetInstallationAccessToken).toHaveBeenCalledWith(42);
     expect(mockResolveBotCommitAuthor).toHaveBeenCalledWith({
       installationId: 42,
       token: "ghs_installation_token",
+    });
+    expect(mockCreateIssueComment).toHaveBeenCalledWith({
+      installationId: 42,
+      owner: "opencodedev",
+      repo: "agent-center",
+      issueNumber: 123,
+      body: "Draft pull request opened: https://github.com/opencodedev/agent-center/pull/17",
     });
     expect(result.publication.status).toBe("published");
     expect(result.publication.pullRequest).toMatchObject({
@@ -297,9 +324,7 @@ describe("run-service publish", () => {
     expect(runGit(["log", "-1", "--pretty=%an <%ae>%n%s", result.run.branchName as string], workspacePath)).toBe(
       "agent-center-dev[bot] <123456+agent-center-dev[bot]@users.noreply.github.com>\nchore: update `README.md`",
     );
-    expect((mockCreatePullRequest.mock.calls[0]?.[0] as Record<string, unknown>).body).toContain(
-      "<summary>Original task</summary>",
-    );
+    expect((mockCreatePullRequest.mock.calls[0]?.[0] as Record<string, unknown>).body).toContain("<summary>Original task</summary>");
   });
 
   test("persists failed publication state after the branch has been pushed", async () => {
@@ -339,5 +364,14 @@ describe("run-service publish", () => {
     expect(runGit(["log", "-1", "--pretty=%an <%ae>", result.run.branchName as string], workspacePath)).toBe(
       "Agent Center <automation@agent.center>",
     );
+  });
+
+  test("does not fail publication when commenting back on the issue fails", async () => {
+    mockCreateIssueComment.mockRejectedValueOnce(new Error("comment failed"));
+
+    const result = await runService.publish(runRecord.id, "user-1");
+
+    expect(result.publication.status).toBe("published");
+    expect(mockCreatePullRequest).toHaveBeenCalledTimes(1);
   });
 });

@@ -386,6 +386,21 @@ export const githubWebhookService = {
     });
     const taskUrl = webOrigin ? `${webOrigin}/tasks/${task.id}` : null;
 
+    try {
+      await githubAppService.createMentionReaction({
+        installationId: parsed.installationId,
+        owner: parsed.owner,
+        repo: parsed.repo,
+        issueNumber: parsed.issue.number,
+        commentId: parsed.comment?.id ?? null,
+      });
+    } catch (error) {
+      console.warn("[github-webhook-service] failed to add mention reaction", {
+        deliveryId: input.deliveryId,
+        error,
+      });
+    }
+
     if (taskUrl) {
       try {
         await githubAppService.createIssueComment({

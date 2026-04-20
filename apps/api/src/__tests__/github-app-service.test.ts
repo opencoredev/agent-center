@@ -61,6 +61,19 @@ const mockGetUser = mock(async (login: string) => ({
   htmlUrl: `https://github.com/${login}`,
   avatarUrl: "https://avatars.githubusercontent.com/u/123456?v=4",
 }));
+const mockCreateIssueComment = mock(async () => ({
+  id: 77,
+  body: "hello",
+  htmlUrl: "https://github.com/opencoded/agent.center/issues/1#issuecomment-77",
+}));
+const mockCreateIssueReaction = mock(async () => ({
+  id: 88,
+  content: "eyes",
+}));
+const mockCreateIssueCommentReaction = mock(async () => ({
+  id: 89,
+  content: "eyes",
+}));
 
 const mockFindWorkspaceById = mock(async (workspaceId: string) => {
   if (workspaceId === ownedWorkspace.id) {
@@ -105,6 +118,9 @@ mock.module("@agent-center/github", () => ({
     listInstallationRepositories = mockListInstallationRepositories;
     createInstallationAccessToken = mockCreateInstallationAccessToken;
     getUser = mockGetUser;
+    createIssueComment = mockCreateIssueComment;
+    createIssueReaction = mockCreateIssueReaction;
+    createIssueCommentReaction = mockCreateIssueCommentReaction;
   },
   GitHubProviderError: class GitHubProviderError extends Error {
     status = 500;
@@ -154,6 +170,9 @@ describe("github-app-service", () => {
     mockListInstallationRepositories.mockClear();
     mockCreateInstallationAccessToken.mockClear();
     mockGetUser.mockClear();
+    mockCreateIssueComment.mockClear();
+    mockCreateIssueReaction.mockClear();
+    mockCreateIssueCommentReaction.mockClear();
     mockFindWorkspaceById.mockClear();
     mockListWorkspaces.mockClear();
     mockListRepoConnections.mockClear();
@@ -272,5 +291,56 @@ describe("github-app-service", () => {
       name: "agent-center-dev[bot]",
       source: "github_app_bot",
     });
+  });
+
+  test("creates an issue comment with an installation token", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
+    await githubAppService.createIssueComment({
+      installationId: 42,
+      owner: "opencoded",
+      repo: "agent.center",
+      issueNumber: 123,
+      body: "hello",
+    });
+
+    expect(mockCreateInstallationAccessToken).toHaveBeenCalledWith(42);
+    expect(mockCreateIssueComment).toHaveBeenCalledWith({
+      owner: "opencoded",
+      repo: "agent.center",
+      issueNumber: 123,
+      body: "hello",
+      token: "ghs_installation_token",
+    });
+  });
+
+  test("adds an eyes reaction to an issue comment when a comment id is provided", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
+    await githubAppService.createMentionReaction({
+      installationId: 42,
+      owner: "opencoded",
+      repo: "agent.center",
+      issueNumber: 123,
+      commentId: 999,
+    });
+
+    expect(mockCreateInstallationAccessToken).toHaveBeenCalledWith(42);
+    expect(mockCreateIssueCommentReaction).toHaveBeenCalledWith({
+      owner: "opencoded",
+      repo: "agent.center",
+      commentId: 999,
+      content: "eyes",
+      token: "ghs_installation_token",
+    });
+    expect(mockCreateIssueReaction).not.toHaveBeenCalled();
   });
 });

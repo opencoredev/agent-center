@@ -40,6 +40,7 @@ export type {
   GitHubAppClientOptions,
   GitHubAppInstallation,
   GitHubIssueCommentSummary,
+  GitHubReactionSummary,
   GitHubAppSummary,
   GitHubInstallationRepository,
   GitHubInstallationRepositoryPage,
