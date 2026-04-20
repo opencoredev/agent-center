@@ -13,6 +13,7 @@ import type { ApiEnv } from "./http/types";
 import { apiRoutes } from "./routes/api";
 import { healthRoutes } from "./routes/health";
 import { internalCredentialRoutes } from "./routes/internal/credentials";
+import { internalGitHubRoutes } from "./routes/internal/github";
 import { registerWebSocketRoutes } from "./ws";
 
 import type { createBunWebSocket } from "hono/bun";
@@ -48,6 +49,7 @@ export function createApp(upgradeWebSocket: UpgradeWebSocket) {
   app.route("/", healthRoutes);
   app.route("/api", apiRoutes);
   app.route("/internal/credentials", internalCredentialRoutes);
+  app.route("/internal/github", internalGitHubRoutes);
   registerWebSocketRoutes(app as unknown as Hono, upgradeWebSocket);
 
   // ── Frontend SPA serving (for self-hosted mode) ─────────────────────────

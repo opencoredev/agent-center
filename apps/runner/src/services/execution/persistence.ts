@@ -121,6 +121,10 @@ function mapUiMessage(
 } {
   if (!message) return { kind: "ignore", message: null };
 
+  if (payload?.eventType === "assistant_message_delta") {
+    return { kind: "ignore", message: null };
+  }
+
   const item = payload?.item;
   if (
     item &&
@@ -250,6 +254,11 @@ function withUiSummary(
   } else if (payloadStatus === "cancelled") {
     next.phase = "cancelled";
     next.thinkingCompletedAt = now;
+  }
+
+  if (input.payload?.eventType === "assistant_message_delta") {
+    next.phase = "thinking";
+    next.thinkingStartedAt ??= now;
   }
 
   if (input.payload?.eventType === "assistant_message") {

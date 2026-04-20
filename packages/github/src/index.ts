@@ -24,9 +24,22 @@ export {
   GitHubProviderError,
   createGitHubProvider,
 } from "./provider";
+export {
+  GitHubAppApiError,
+  GitHubAppClient,
+  GitHubAppConfigurationError,
+  buildGitHubAppInstallUrl,
+} from "./app-client";
 
 export type {
   GitHubConnectionMetadata,
   GitHubProviderOptions,
   GitHubTokenResolutionContext,
 } from "./provider";
+export type {
+  GitHubAppClientOptions,
+  GitHubAppInstallation,
+  GitHubAppSummary,
+  GitHubInstallationRepository,
+  GitHubInstallationRepositoryPage,
+} from "./app-client";

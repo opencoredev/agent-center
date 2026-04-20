@@ -61,6 +61,7 @@ mock.module("drizzle-orm", () => ({
 mock.module("../env", () => ({
   apiEnv: {
     CREDENTIAL_ENCRYPTION_KEY: "test-encryption-key-for-unit-tests",
+    NODE_ENV: "development",
   },
 }));
 
@@ -73,6 +74,7 @@ describe("credential-service", () => {
     mockUpdateCalled = false;
     mockDeleteCalled = false;
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
   });
 
   describe("getClaudeCredentials", () => {
@@ -158,6 +160,57 @@ describe("credential-service", () => {
       });
 
       const result = await credentialService.resolveCodexCredential();
+      expect(result.type).toBe("auth_json");
+      expect(JSON.parse(result.value)).toEqual({
+        tokens: {
+          access_token: "oauth-access-token",
+          refresh_token: "oauth-refresh-token",
+          id_token: "oauth-id-token",
+        },
+      });
+    });
+  });
+
+  describe("runner-safe credential resolution", () => {
+    test("returns env-backed Claude credentials for self-hosted runners", async () => {
+      process.env.ANTHROPIC_API_KEY = "sk-ant-runner-safe-key";
+
+      const result = await credentialService.resolveRunnerClaudeCredential("workspace-1");
+
+      expect(result).toEqual({
+        type: "api_key",
+        value: "sk-ant-runner-safe-key",
+      });
+    });
+
+    test("returns env-backed OpenAI credentials for self-hosted runners", async () => {
+      process.env.OPENAI_API_KEY = "sk-openai-runner-safe-key";
+
+      const result = await credentialService.resolveRunnerOpenAICredential("workspace-1");
+
+      expect(result).toEqual({
+        type: "api_key",
+        value: "sk-openai-runner-safe-key",
+      });
+    });
+
+    test("falls back to connected OpenAI oauth credentials outside production", async () => {
+      const encKey = "test-encryption-key-for-unit-tests";
+      const encryptedAccessToken = encrypt("oauth-access-token", encKey);
+      const encryptedRefreshToken = encrypt("oauth-refresh-token", encKey);
+
+      mockSelectResult.push({
+        id: "cred-openai-1",
+        provider: "openai",
+        source: "oauth",
+        encryptedApiKey: null,
+        encryptedAccessToken,
+        encryptedRefreshToken,
+        tokenExpiresAt: null,
+        metadata: { idToken: "oauth-id-token" },
+      });
+
+      const result = await credentialService.resolveRunnerOpenAICredential("workspace-1");
       expect(result.type).toBe("auth_json");
       expect(JSON.parse(result.value)).toEqual({
         tokens: {

@@ -35,6 +35,12 @@ export async function findProjectByWorkspaceAndId(workspaceId: string, projectId
   });
 }
 
+export async function findProjectByWorkspaceAndSlug(workspaceId: string, slug: string) {
+  return db.query.projects.findFirst({
+    where: and(eq(projects.workspaceId, workspaceId), eq(projects.slug, slug)),
+  });
+}
+
 export async function createProject(values: typeof projects.$inferInsert) {
   const [project] = await db.insert(projects).values(values).returning();
 

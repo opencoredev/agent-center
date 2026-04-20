@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo, useDeferredValue } from 'react';
 import {
   CornerDownLeft,
   Paperclip,
@@ -15,19 +15,21 @@ import {
   Settings,
   Cloud,
   Monitor,
+  Search,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'convex/react';
 import { useNavigate } from '@tanstack/react-router';
 import type { ExecutionRuntime } from '@agent-center/shared';
 import { api as controlPlaneApi } from '@agent-center/control-plane/api';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { apiGet } from '@/lib/api-client';
+import { apiGet, apiPost } from '@/lib/api-client';
 import { useControlPlaneEnabled } from '@/contexts/convex-context';
 import { getSelfHostedConnectorConfig } from '@/lib/execution-connectors';
 import { toast } from 'sonner';
@@ -234,6 +236,31 @@ interface RepoConnection {
   defaultBranch: string | null;
 }
 
+interface GitHubAppStatus {
+  configured: boolean;
+  installUrl: string | null;
+}
+
+interface GitHubInstallation {
+  id: number;
+  accountLogin: string;
+  repositorySelection: string;
+}
+
+interface GitHubInstallationRepository {
+  id: number;
+  ownerLogin: string;
+  name: string;
+  fullName: string;
+  defaultBranch: string;
+  htmlUrl: string;
+}
+
+interface GitHubInstallationRepositoryPage {
+  totalCount: number;
+  repositories: GitHubInstallationRepository[];
+}
+
 interface AttachedFile {
   id: string;
   attachmentId?: string;
@@ -306,7 +333,10 @@ function RepoSelector({
   disabled?: boolean;
 }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
 
   const { data: rawRepos = [] } = useQuery({
     queryKey: ['repo-connections'],
@@ -318,15 +348,98 @@ function RepoSelector({
     queryFn: () => apiGet<{ id: string; name: string }[]>('/api/workspaces'),
     staleTime: 60_000,
   });
+  const { data: githubAppStatus } = useQuery({
+    queryKey: ['github-app-status'],
+    queryFn: () => apiGet<GitHubAppStatus>('/api/github/app'),
+    staleTime: 60_000,
+  });
+  const { data: installations = [] } = useQuery({
+    queryKey: ['github-installations'],
+    queryFn: () => apiGet<GitHubInstallation[]>('/api/github/installations'),
+    staleTime: 30_000,
+    enabled: githubAppStatus?.configured === true,
+  });
+  const installationRepoQueries = useQueries({
+    queries: installations.map((installation) => ({
+      queryKey: ['github-installation-repositories', installation.id],
+      queryFn: () =>
+        apiGet<GitHubInstallationRepositoryPage>(`/api/github/installations/${installation.id}/repositories`),
+      staleTime: 30_000,
+      enabled: githubAppStatus?.configured === true,
+    })),
+  });
+
+  const connectInstalledRepoMutation = useMutation({
+    mutationFn: (input: { installationId: number; repository: GitHubInstallationRepository }) =>
+      apiPost<RepoConnection>('/api/repo-connections', {
+        workspaceId: workspaces[0]?.id,
+        projectId: null,
+        provider: 'github',
+        owner: input.repository.ownerLogin,
+        repo: input.repository.name,
+        defaultBranch: input.repository.defaultBranch,
+        authType: 'github_app_installation',
+        connectionMetadata: {
+          installationId: input.installationId,
+        },
+      }),
+    onSuccess: (repo: RepoConnection) => {
+      void queryClient.invalidateQueries({ queryKey: ['repo-connections'] });
+      onSelect(repo);
+      setOpen(false);
+    },
+  });
 
   const repos = rawRepos;
-  const workspaceNames = new Map(workspaces.map((workspace) => [workspace.id, workspace.name]));
+  const installationRepos = useMemo(
+    () =>
+      installations
+        .flatMap((installation, index) => {
+          const page = installationRepoQueries[index]?.data;
+          return (page?.repositories ?? []).map((repository) => ({
+            ...repository,
+            installationId: installation.id,
+            installationAccountLogin: installation.accountLogin,
+          }));
+        })
+        .sort((left, right) => left.fullName.localeCompare(right.fullName)),
+    [installationRepoQueries, installations],
+  );
+  const isLoadingInstallationRepos =
+    githubAppStatus?.configured === true &&
+    installations.length > 0 &&
+    installationRepoQueries.some((query) => query.isLoading);
 
   const selected = repos.find((r) => r.id === selectedRepoId);
-  const hasRepos = repos.length > 0;
   const displayLabel = selected
-    ? `${selected.owner}/${selected.repo}${workspaceNames.get(selected.workspaceId) ? ` · ${workspaceNames.get(selected.workspaceId)}` : ''}`
-    : 'No repo';
+    ? `${selected.owner}/${selected.repo}`
+    : 'Select repo';
+
+  const repoEntries = useMemo(() => {
+    const normalizedQuery = deferredSearch.trim().toLowerCase();
+
+    const entries = installationRepos.map((installationRepo) => {
+      const connected = repos.find(
+        (repo) =>
+          repo.owner.toLowerCase() === installationRepo.ownerLogin.toLowerCase() &&
+          repo.repo.toLowerCase() === installationRepo.name.toLowerCase(),
+      );
+
+      return {
+        connectedRepo: connected ?? null,
+        fullName: installationRepo.fullName,
+        id: connected?.id ?? `installation:${installationRepo.id}`,
+        installationRepo,
+        status: connected ? 'connected' as const : 'available' as const,
+      };
+    });
+
+    if (!normalizedQuery) {
+      return entries;
+    }
+
+    return entries.filter((entry) => entry.fullName.toLowerCase().includes(normalizedQuery));
+  }, [deferredSearch, installationRepos, repos]);
 
   return (
     <Popover open={disabled ? false : open} onOpenChange={disabled ? undefined : setOpen}>
@@ -338,72 +451,77 @@ function RepoSelector({
               ? 'text-muted-foreground/40 cursor-default'
               : selected
                 ? 'text-muted-foreground hover:text-foreground hover:bg-muted/80 cursor-pointer'
-                : 'text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50 cursor-pointer'
+                : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 cursor-pointer'
           }`}
         >
           <FolderGit2 className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline max-w-[140px] truncate">{displayLabel}</span>
+          <span className="hidden sm:inline max-w-[180px] truncate">{displayLabel}</span>
           {!disabled && <ChevronDown className="w-3 h-3 opacity-50" />}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-56 p-1" sideOffset={8}>
-        {repos.length === 0 ? (
-          <div className="px-3 py-4 text-center">
-            <FolderGit2 className="w-5 h-5 text-muted-foreground/40 mx-auto mb-2" />
-            <p className="text-xs text-muted-foreground mb-2">No repositories connected</p>
-            <button
-              onClick={() => {
-                setOpen(false);
-                navigate({ to: '/settings/repositories' });
-              }}
-              className="text-xs text-primary hover:underline cursor-pointer"
-            >
-              Connect in Settings
-            </button>
+      <PopoverContent align="start" className="w-[460px] max-w-[calc(100vw-2rem)] p-2" sideOffset={8}>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-2.5 py-2">
+            <Search className="w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
+              placeholder="Search owner/repo..."
+              className="h-auto border-0 bg-transparent px-0 py-0 text-sm shadow-none focus-visible:ring-0"
+            />
           </div>
-        ) : (
-          <>
-            <button
-              onClick={() => {
-                onSelect(null);
-                setOpen(false);
-              }}
-              className={`flex items-center gap-2.5 w-full px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer ${
-                selectedRepoId === null ? 'bg-accent' : 'hover:bg-muted/50'
-              }`}
-            >
-              <FolderGit2 className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="truncate">No repository</span>
-              {selectedRepoId === null && <Check className="w-3.5 h-3.5 text-primary ml-auto" />}
-            </button>
-            <div className="my-1 h-px bg-border/60" />
-            {repos.map((repo) => {
-              const isSelected = repo.id === selectedRepoId;
-              return (
-                <button
-                  key={repo.id}
-                  onClick={() => {
-                    onSelect(repo);
-                    setOpen(false);
-                  }}
-                  className={`flex items-center gap-2.5 w-full px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer ${
-                    isSelected ? 'bg-accent' : 'hover:bg-muted/50'
-                  }`}
-                >
-                  <FolderGit2 className="w-3.5 h-3.5 text-muted-foreground" />
-                  <div className="min-w-0 flex-1 text-left">
-                    <span className="block truncate">{repo.owner}/{repo.repo}</span>
-                    {workspaceNames.get(repo.workspaceId) && (
-                      <span className="block truncate text-[11px] text-muted-foreground/60">
-                        {workspaceNames.get(repo.workspaceId)}
-                      </span>
-                    )}
-                  </div>
-                  {isSelected && <Check className="w-3.5 h-3.5 text-primary ml-auto" />}
-                </button>
-              );
-            })}
-            <div className="my-1 h-px bg-border/60" />
+
+          <div className="max-h-[24rem] overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
+            <div className="space-y-1">
+              {repoEntries.length > 0 ? (
+                repoEntries.map((entry) => {
+                  const connectedRepo = entry.connectedRepo;
+                  const isSelected = connectedRepo?.id === selectedRepoId;
+
+                  return (
+                    <button
+                      key={entry.id}
+                      title={entry.fullName}
+                      onClick={() => {
+                        if (connectedRepo) {
+                          onSelect(connectedRepo);
+                          setOpen(false);
+                          return;
+                        }
+
+                        void connectInstalledRepoMutation.mutate({
+                          installationId: entry.installationRepo.installationId,
+                          repository: entry.installationRepo,
+                        });
+                      }}
+                      className={`flex items-center gap-2.5 w-full px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer ${
+                        isSelected ? 'bg-accent' : 'hover:bg-muted/50'
+                      }`}
+                      disabled={connectInstalledRepoMutation.isPending || !workspaces[0]?.id}
+                    >
+                      <FolderGit2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <span className="min-w-0 flex-1 truncate text-left">{entry.fullName}</span>
+                      {connectedRepo && isSelected ? (
+                        <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                      ) : null}
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="px-2.5 py-6 text-center">
+                  <p className="text-xs text-muted-foreground">
+                    {isLoadingInstallationRepos
+                      ? 'Loading repositories...'
+                      : githubAppStatus?.configured
+                      ? 'No repositories match your search or installation.'
+                      : 'GitHub App is not configured yet.'}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="pt-1 border-t border-border/60">
             <button
               onClick={() => {
                 setOpen(false);
@@ -414,8 +532,8 @@ function RepoSelector({
               <Settings className="w-3.5 h-3.5 text-muted-foreground" />
               <span>Manage repositories</span>
             </button>
-          </>
-        )}
+          </div>
+        </div>
       </PopoverContent>
     </Popover>
   );
@@ -696,7 +814,7 @@ function BranchSelector({
 
 export type SandboxMode = 'local' | 'cloud_light' | 'cloud_full' | 'self_hosted';
 
-const LAUNCH_READY_SANDBOX_MODES = new Set<SandboxMode>(['local']);
+const LAUNCH_READY_SANDBOX_MODES = new Set<SandboxMode>(['local', 'cloud_light', 'cloud_full']);
 
 function isSandboxMode(value: string | null): value is SandboxMode {
   return value === 'local' || value === 'cloud_light' || value === 'cloud_full' || value === 'self_hosted';
@@ -782,24 +900,22 @@ function SandboxSelector({
       value: 'cloud_light',
       label: 'Convex Bash',
       icon: Cloud,
-      desc: 'Coming soon: cloud runtime is not launch-ready yet',
-      disabled: true,
+      desc: 'Low-cost lightweight runtime for quick tasks and follow-ups',
     },
     {
       value: 'cloud_full',
       label: 'AgentOS Full',
       icon: Cloud,
-      desc: 'Coming soon: full cloud sandbox is not launch-ready yet',
-      disabled: true,
+      desc: 'Full workspace sandbox backed by the current managed runner',
     },
     {
       value: 'self_hosted',
       label: selfHostedConnector?.label ?? 'Self-hosted',
       icon: Settings,
       desc: selfHostedConnector
-        ? `${selfHostedConnector.baseUrl} (not launch-ready yet)`
+        ? `${selfHostedConnector.baseUrl}`
         : 'Configure a connector in Settings -> Workspace',
-      disabled: true,
+      disabled: !selfHostedConnector,
     },
   ];
 
@@ -818,8 +934,8 @@ function SandboxSelector({
           desc:
             provider.key === 'self_hosted_runner' && !selfHostedConnector
               ? 'Configure a connector in Settings -> Workspace'
-              : `${provider.description ?? 'Control plane runtime'} (not launch-ready yet)`,
-          disabled: true,
+              : provider.description ?? 'Control plane runtime',
+          disabled: provider.key === 'self_hosted_runner' && !selfHostedConnector,
         })),
       ]
     : fallbackOptions;
@@ -934,7 +1050,6 @@ export function PromptBox({
     return isSandboxMode(stored) && isLaunchReadySandboxMode(stored) ? stored : 'local';
   });
   const [contextOpen, setContextOpen] = useState(false);
-  const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -951,6 +1066,11 @@ export function PromptBox({
   const { data: restWorkspaces = [] } = useQuery({
     queryKey: ['workspaces'],
     queryFn: () => apiGet<{ id: string; name: string }[]>('/api/workspaces'),
+    staleTime: 60_000,
+  });
+  const { data: repoConnections = [] } = useQuery({
+    queryKey: ['repo-connections'],
+    queryFn: () => apiGet<RepoConnection[]>('/api/repo-connections'),
     staleTime: 60_000,
   });
 
@@ -1045,6 +1165,28 @@ export function PromptBox({
     emitConfig(selectedModel, branch, selectedRepo, sandboxMode);
   }, [branch, emitConfig, sandboxMode, selectedModel, selectedRepo]);
 
+  useEffect(() => {
+    if (selectedRepoId) {
+      const matchedRepo = repoConnections.find((repo) => repo.id === selectedRepoId) ?? null;
+      if (matchedRepo?.id !== selectedRepo?.id) {
+        setSelectedRepo(matchedRepo);
+      }
+      return;
+    }
+
+    if (hasDefaultRepoConfig || repoConnections.length === 0) {
+      return;
+    }
+
+    const firstRepo = repoConnections[0]!;
+    setSelectedRepo(firstRepo);
+    setSelectedRepoId(firstRepo.id);
+    localStorage.setItem('ac_selected_repo', firstRepo.id);
+    if (firstRepo.defaultBranch) {
+      setBranch(firstRepo.defaultBranch);
+    }
+  }, [hasDefaultRepoConfig, repoConnections, selectedRepo?.id, selectedRepoId]);
+
   const clearComposer = useCallback(() => {
     setValue('');
     setFiles([]);
@@ -1062,9 +1204,6 @@ export function PromptBox({
   }, []);
   const primaryShortcutLabel = `${isApplePlatform ? 'Cmd' : 'Ctrl'}+Enter`;
   const steerShortcutLabel = `Shift+${primaryShortcutLabel}`;
-  const shortcutHint = canComposeWhileStreaming && hasContent
-    ? `Enter for newline. ${primaryShortcutLabel} queues. ${steerShortcutLabel} steers.`
-    : `Enter for newline. ${primaryShortcutLabel} sends.`;
 
   const handleSubmit = useCallback((mode: 'send' | 'queue' | 'steer' = 'send') => {
     if (isSubmitting) return;
@@ -1309,6 +1448,7 @@ export function PromptBox({
     !isCredentialLoading && !hasProviderCredentials
       ? `${selectedAgent.label} is not connected. Add credentials in Settings -> Models before starting a run.`
       : null;
+  const repoNotice = selectedRepoId === null ? 'Select a repository before starting a run.' : null;
 
   return (
     <div className="w-full">
@@ -1380,8 +1520,6 @@ export function PromptBox({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          onFocus={() => setIsComposerFocused(true)}
-          onBlur={() => setIsComposerFocused(false)}
           onPaste={async (event) => {
             const pastedFiles = Array.from(event.clipboardData.files || []).filter((file) =>
               file.type.startsWith('image/'),
@@ -1491,7 +1629,7 @@ export function PromptBox({
             {canComposeWhileStreaming && hasContent ? (
               <Button
                 onClick={() => handleSubmit('steer')}
-                disabled={isSubmitting || !hasProviderCredentials || hasPendingUploads}
+                disabled={isSubmitting || !hasProviderCredentials || hasPendingUploads || !selectedRepoId}
                 size="sm"
                 variant="outline"
                 className="h-7 rounded-full px-2.5 text-[11px]"
@@ -1517,7 +1655,11 @@ export function PromptBox({
                 disabled={
                   (isStreaming && !canComposeWhileStreaming)
                     ? true
-                    : (!hasContent && !isStreaming) || isSubmitting || !hasProviderCredentials || hasPendingUploads
+                    : (!hasContent && !isStreaming) ||
+                      isSubmitting ||
+                      !hasProviderCredentials ||
+                      hasPendingUploads ||
+                      !selectedRepoId
                 }
                 size="icon"
                 className="h-7 w-7 rounded-full ml-1"
@@ -1540,9 +1682,9 @@ export function PromptBox({
             )}
           </div>
         </div>
-        {(isComposerFocused || hasContent || isStreaming) && !providerNotice && (
-          <div className="flex justify-end px-4 pb-2">
-            <p className="text-[11px] text-muted-foreground/65">{shortcutHint}</p>
+        {repoNotice && !providerNotice && (
+          <div className="px-4 pb-3 text-[11px] text-muted-foreground/75">
+            {repoNotice}
           </div>
         )}
         {providerNotice && (

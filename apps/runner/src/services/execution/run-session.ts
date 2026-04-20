@@ -8,6 +8,7 @@ import type {
   ActiveRunSnapshot,
   RunControlResponse,
 } from "../../internal/protocol";
+import { ensureRunnerApiToken } from "../../lib/runner-bootstrap";
 import { getControlIntent, type ControlAction, type ControlIntentPayload } from "../../lib/metadata";
 import { resolveInsideWorkspace } from "../../lib/path";
 import type { LoadedRunTarget } from "../../repositories/run-repository";
@@ -25,6 +26,8 @@ import { assertCommandAllowed } from "./permission-service";
 import { RunPersistence } from "./persistence";
 import { runFlow } from "./run-flow";
 import { GitService } from "../git/git-service";
+import { InternalApiAuthError, InternalApiError, fetchInternalApiJson } from "../../lib/internal-api";
+import { runnerRuntimeEnv } from "../../env";
 
 interface RunSessionOptions {
   backend: ExecutionBackend;
@@ -270,7 +273,52 @@ export class RunSession implements CommandExecutionController {
           waitUntilRunnable: () => this.#waitUntilRunnable(),
         }),
       );
+    } catch (error) {
+      const message = getRunnerErrorMessage(error);
+
+      if (!TERMINAL_STATUSES.has(this.#currentStatus)) {
+        try {
+          await this.#transitionStatus("failed", message, "failed", message);
+          await this.#persistence.appendEvent({
+            eventType: "run.failed",
+            level: "error",
+            message,
+            payload: {
+              workspacePath: this.#workspacePath,
+              surfacedBy: "run-session-guard",
+            },
+          });
+        } catch (persistError) {
+          console.error("[runner] failed to persist outer run-session failure", {
+            error: persistError,
+            message,
+            runId: this.runId,
+          });
+        }
+      }
+
+      console.error("[runner] run session exited with an unexpected outer error", {
+        error,
+        runId: this.runId,
+      });
     } finally {
+      if (!TERMINAL_STATUSES.has(this.#currentStatus)) {
+        try {
+          const message = this.#cancelRequested
+            ? "Run cancelled before the terminal state reached the API."
+            : "Runner session exited before the run reached a terminal state.";
+          const status: RunStatus = this.#cancelRequested ? "cancelled" : "failed";
+          const taskStatus = this.#cancelRequested ? "cancelled" : "failed";
+          await this.#transitionStatus(status, message, taskStatus, message);
+        } catch (persistError) {
+          console.error("[runner] failed to persist fallback terminal status", {
+            error: persistError,
+            runId: this.runId,
+            status: this.#currentStatus,
+          });
+        }
+      }
+
       this.#disposed = true;
       if (this.#controlPoller) {
         clearInterval(this.#controlPoller);
@@ -569,18 +617,19 @@ export class RunSession implements CommandExecutionController {
       // Use env var directly (fastest path, no network call)
       credentialEnv = { ANTHROPIC_API_KEY: anthropicApiKey };
     } else {
-      // Try to fetch from API credential service
       try {
-        const apiUrl = process.env.RUNNER_API_URL ?? "http://api.agent-center.localhost:1355";
-        const res = await fetch(`${apiUrl}/internal/credentials/claude/resolve`);
-        if (res.ok) {
-          const data = (await res.json()) as { data: { type: string; value: string } };
-          const cred = data.data;
-          credentialEnv = { ANTHROPIC_API_KEY: cred.value };
-        }
-        // If fetch fails, proceed without credentials (will fail at SDK level with a clear error)
-      } catch {
-        // Credentials not available — SDK will fail with auth error
+        await this.#ensureRunnerCloudAuth();
+        const data = await fetchInternalApiJson<{ data: { type: string; value: string } }>(
+          "/internal/credentials/claude/resolve",
+          undefined,
+          {
+            baseUrl: runnerRuntimeEnv.RUNNER_API_URL,
+            token: runnerRuntimeEnv.RUNNER_API_TOKEN,
+          },
+        );
+        credentialEnv = { ANTHROPIC_API_KEY: data.data.value };
+      } catch (error) {
+        await this.#logCredentialResolutionFailure("claude", error);
       }
     }
 
@@ -643,8 +692,15 @@ export class RunSession implements CommandExecutionController {
       },
     });
 
-    const authJson = await this.#resolveCodexAuthJson();
-    const openAiApiKey = await this.#resolveOpenAIApiKey();
+    const localAuthJson = await this.#readLocalCodexAuthJson();
+    let authJson = localAuthJson;
+    let openAiApiKey = process.env.OPENAI_API_KEY ?? null;
+
+    if (!authJson && !openAiApiKey) {
+      const resolved = await this.#resolveCodexCredential();
+      authJson = resolved.authJson;
+      openAiApiKey = resolved.openAiApiKey;
+    }
 
     const handle = startCodexAgent({
       cwd: this.#workspacePath,
@@ -686,7 +742,7 @@ export class RunSession implements CommandExecutionController {
     }
   }
 
-  async #resolveCodexAuthJson() {
+  async #readLocalCodexAuthJson() {
     const authPath = process.env.CODEX_AUTH_PATH ?? `${process.env.HOME ?? ""}/.codex/auth.json`;
     if (authPath) {
       try {
@@ -698,19 +754,7 @@ export class RunSession implements CommandExecutionController {
         // Fall through to API-backed credential resolution.
       }
     }
-
-    const resolved = await this.#resolveCodexCredential();
-    return resolved.authJson;
-  }
-
-  async #resolveOpenAIApiKey() {
-    const openAiApiKey = process.env.OPENAI_API_KEY;
-    if (openAiApiKey) {
-      return openAiApiKey;
-    }
-
-    const resolved = await this.#resolveCodexCredential();
-    return resolved.openAiApiKey;
+    return null;
   }
 
   async #resolveCodexCredential() {
@@ -719,23 +763,68 @@ export class RunSession implements CommandExecutionController {
     }
 
     try {
-      const apiUrl = process.env.RUNNER_API_URL ?? "http://api.agent-center.localhost:1355";
-      const res = await fetch(`${apiUrl}/internal/credentials/openai/resolve`);
-      if (!res.ok) {
-        this.#resolvedCodexCredential = { authJson: null, openAiApiKey: null };
-        return this.#resolvedCodexCredential;
-      }
-
-      const data = (await res.json()) as { data: { type: string; value: string } };
+      await this.#ensureRunnerCloudAuth();
+      const data = await fetchInternalApiJson<{ data: { type: string; value: string } }>(
+        "/internal/credentials/openai/resolve",
+        undefined,
+        {
+          baseUrl: runnerRuntimeEnv.RUNNER_API_URL,
+          token: runnerRuntimeEnv.RUNNER_API_TOKEN,
+        },
+      );
       this.#resolvedCodexCredential = {
         authJson: data.data.type === "auth_json" ? data.data.value : null,
         openAiApiKey: data.data.type === "api_key" ? data.data.value : null,
       };
       return this.#resolvedCodexCredential;
-    } catch {
+    } catch (error) {
+      await this.#logCredentialResolutionFailure("openai", error);
       this.#resolvedCodexCredential = { authJson: null, openAiApiKey: null };
       return this.#resolvedCodexCredential;
     }
+  }
+
+  async #ensureRunnerCloudAuth() {
+    await ensureRunnerApiToken({
+      workspaceId: this.#target.workspace.id,
+      runnerName: "Local Runner",
+    });
+  }
+
+  async #logCredentialResolutionFailure(provider: "claude" | "openai", error: unknown) {
+    const basePayload = {
+      provider,
+      runnerApiUrl: runnerRuntimeEnv.RUNNER_API_URL,
+      runnerApiTokenConfigured: Boolean(runnerRuntimeEnv.RUNNER_API_TOKEN),
+    };
+
+    if (error instanceof InternalApiAuthError) {
+      await this.#persistence.appendLog("Internal API rejected credential resolution", {
+        ...basePayload,
+        error: error.message,
+        status: error.status,
+        type: error.name,
+        warning:
+          "Check RUNNER_API_TOKEN and the API internal auth contract. The runner will continue without remote credentials.",
+      });
+      return;
+    }
+
+    if (error instanceof InternalApiError) {
+      await this.#persistence.appendLog("Internal API credential resolution failed", {
+        ...basePayload,
+        error: error.message,
+        status: error.status,
+        type: error.name,
+      });
+      return;
+    }
+
+    await this.#persistence.appendLog("Internal API credential resolution failed", {
+      ...basePayload,
+      error: error instanceof Error ? error.message : String(error),
+      type: error instanceof Error ? error.name : typeof error,
+    });
   }
 
   #resolveCommands() {

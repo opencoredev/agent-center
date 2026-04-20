@@ -13,7 +13,7 @@ export interface CodexExecutionRequest {
 }
 
 export interface CodexEvent {
-  type: "assistant_message" | "result" | "error" | "log";
+  type: "assistant_message" | "assistant_message_delta" | "result" | "error" | "log";
   message: string;
   payload?: Record<string, unknown>;
 }
@@ -78,6 +78,15 @@ async function runCodexAgent(
       if (parsed?.type === "error") {
         await request.onEvent({
           type: "error",
+          message: parsed.message,
+          payload: parsed.payload,
+        });
+        return;
+      }
+
+      if (parsed?.type === "assistant_message_delta") {
+        await request.onEvent({
+          type: "assistant_message_delta",
           message: parsed.message,
           payload: parsed.payload,
         });
@@ -238,15 +247,47 @@ async function pipeStream(
   }
 }
 
-function parseCodexJsonLine(line: string): { type: "log" | "error"; message: string; payload?: Record<string, unknown> } | null {
+export function parseCodexJsonLine(
+  line: string,
+): { type: "log" | "error" | "assistant_message_delta"; message: string; payload?: Record<string, unknown> } | null {
   try {
     const parsed = JSON.parse(line) as Record<string, unknown>;
-    const message =
-      typeof parsed.message === "string"
-        ? parsed.message
-        : typeof parsed.delta === "string"
-          ? parsed.delta
-          : line;
+    const item =
+      typeof parsed.item === "object" && parsed.item !== null && !Array.isArray(parsed.item)
+        ? (parsed.item as Record<string, unknown>)
+        : null;
+    const itemType = typeof item?.type === "string" ? item.type : null;
+    const itemText = typeof item?.text === "string" ? item.text : null;
+
+    if (itemType === "agent_message" && itemText && itemText.trim().length > 0) {
+      return {
+        type: "assistant_message_delta",
+        message: itemText,
+        payload: {
+          ...parsed,
+          assistantDelta: {
+            mode: "replace",
+            text: itemText,
+          },
+        },
+      };
+    }
+
+    if (typeof parsed.delta === "string" && parsed.delta.length > 0) {
+      return {
+        type: "assistant_message_delta",
+        message: parsed.delta,
+        payload: {
+          ...parsed,
+          assistantDelta: {
+            mode: "append",
+            text: parsed.delta,
+          },
+        },
+      };
+    }
+
+    const message = typeof parsed.message === "string" ? parsed.message : line;
     return {
       type: parsed.type === "error" ? "error" : "log",
       message,

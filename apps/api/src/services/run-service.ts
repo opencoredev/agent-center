@@ -22,7 +22,13 @@ import {
   updateRun,
 } from "../repositories/run-repository";
 import { findTaskById } from "../repositories/task-repository";
-import { assertLaunchReadyExecutionConfig, isActiveRunStatus, mergeMetadata, withControlIntent } from "./helpers";
+import {
+  assertLaunchReadyExecutionConfig,
+  isActiveRunStatus,
+  mergeMetadata,
+  withControlIntent,
+  withoutControlMetadata,
+} from "./helpers";
 import { serializeRun, serializeRunEvent } from "./serializers";
 
 interface RunCreateRequest {
@@ -246,7 +252,7 @@ export const runService = {
       permissionMode: input.permissionMode ?? task.permissionMode,
       policy: input.policy ?? task.policy,
       config: nextConfig,
-      metadata: mergeMetadata(task.metadata, input.metadata),
+      metadata: mergeMetadata(withoutControlMetadata(task.metadata), input.metadata),
       workspacePath: reusableWorkspacePath,
       source,
     });

@@ -12,6 +12,14 @@ export const apiEnv = parseEnv(
     CORS_ORIGIN: process.env.CORS_ORIGIN,
     SERVE_FRONTEND: process.env.SERVE_FRONTEND,
     FRONTEND_DIST_PATH: process.env.FRONTEND_DIST_PATH,
+    GITHUB_APP_ID: process.env.GITHUB_APP_ID,
+    GITHUB_APP_SLUG: process.env.GITHUB_APP_SLUG,
+    GITHUB_APP_CLIENT_ID: process.env.GITHUB_APP_CLIENT_ID,
+    GITHUB_APP_CLIENT_SECRET: process.env.GITHUB_APP_CLIENT_SECRET,
+    GITHUB_APP_PRIVATE_KEY: process.env.GITHUB_APP_PRIVATE_KEY,
+    GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET,
+    GITHUB_APP_CALLBACK_URL: process.env.GITHUB_APP_CALLBACK_URL,
+    GITHUB_APP_SETUP_URL: process.env.GITHUB_APP_SETUP_URL,
   },
   {
     API_HOST: host.default("0.0.0.0"),
@@ -24,5 +32,13 @@ export const apiEnv = parseEnv(
       .default("false")
       .transform((v) => v === "true"),
     FRONTEND_DIST_PATH: z.string().default("../web/dist"),
+    GITHUB_APP_ID: z.string().trim().regex(/^\d+$/).optional(),
+    GITHUB_APP_SLUG: z.string().trim().optional(),
+    GITHUB_APP_CLIENT_ID: z.string().trim().optional(),
+    GITHUB_APP_CLIENT_SECRET: z.string().trim().optional(),
+    GITHUB_APP_PRIVATE_KEY: z.string().trim().optional(),
+    GITHUB_WEBHOOK_SECRET: z.string().trim().optional(),
+    GITHUB_APP_CALLBACK_URL: z.string().trim().optional(),
+    GITHUB_APP_SETUP_URL: z.string().trim().optional(),
   },
 );

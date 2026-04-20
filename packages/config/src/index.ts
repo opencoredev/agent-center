@@ -12,10 +12,17 @@ export const host = z.string().min(1);
 export const port = z.coerce.number().int().min(1).max(65535);
 
 const rootEnvPath = fileURLToPath(new URL("../../../.env", import.meta.url));
+const rootEnvLocalPath = fileURLToPath(new URL("../../../.env.local", import.meta.url));
 
 export function loadRootEnv() {
   dotenv.config({
     path: rootEnvPath,
+    quiet: true,
+  });
+
+  dotenv.config({
+    path: rootEnvLocalPath,
+    override: true,
     quiet: true,
   });
 }

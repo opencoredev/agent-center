@@ -78,6 +78,23 @@ export async function createRepoConnection(values: typeof repoConnections.$infer
   return repoConnection;
 }
 
+export async function updateRepoConnection(
+  repoConnectionId: string,
+  values: Partial<typeof repoConnections.$inferInsert>,
+) {
+  const [repoConnection] = await db
+    .update(repoConnections)
+    .set(values)
+    .where(eq(repoConnections.id, repoConnectionId))
+    .returning();
+
+  if (repoConnection === undefined) {
+    throw new Error(`Failed to update repo connection ${repoConnectionId}`);
+  }
+
+  return repoConnection;
+}
+
 export async function deleteRepoConnection(repoConnectionId: string) {
   const [repoConnection] = await db
     .delete(repoConnections)

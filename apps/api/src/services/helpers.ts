@@ -13,6 +13,16 @@ export function mergeMetadata(base: DomainMetadata, patch?: DomainMetadata) {
   };
 }
 
+export function withoutControlMetadata(metadata: DomainMetadata | null | undefined): DomainMetadata {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return {};
+  }
+
+  const next = { ...metadata };
+  delete next.control;
+  return next;
+}
+
 export function withControlIntent(
   metadata: DomainMetadata,
   action: string,
@@ -48,6 +58,8 @@ export function isActiveRunStatus(status: RunStatus) {
 
 const launchReadyRuntimeProviders = new Set([
   "legacy_local",
+  "convex_bash",
+  "agent_os",
 ]);
 
 export function assertLaunchReadyExecutionConfig(config: ExecutionConfig) {

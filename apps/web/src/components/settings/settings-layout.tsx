@@ -55,7 +55,7 @@ export function SettingsLayout() {
   return (
     <div className="flex h-screen bg-background">
       {/* Settings sidebar */}
-      <aside className="w-[220px] shrink-0 border-r border-border bg-sidebar flex flex-col">
+      <aside className="w-[320px] shrink-0 border-r border-border bg-sidebar flex flex-col">
         {/* Back button */}
         <div className="p-3">
           <button

@@ -43,6 +43,12 @@ import { ZERO_ENABLED } from '@/hooks/use-zero';
 import { useTaskDetail, useRunEvents } from '@/hooks/use-zero-queries';
 import { useRunStream, type RunEvent } from '@/hooks/use-run-stream';
 
+import {
+  extractPersistedAssistantDelta,
+  mergeAssistantText,
+  normalizeAssistantText,
+} from './assistant-stream';
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 interface Task {
@@ -185,9 +191,22 @@ function getInnerType(event: RunEvent): string {
 }
 
 function extractAssistantText(event: RunEvent): string | null {
+  const payloadItem =
+    event.payload && typeof event.payload.item === 'object' && event.payload.item !== null
+      ? (event.payload.item as Record<string, unknown>)
+      : null;
+
+  if (
+    payloadItem?.type === 'agent_message' &&
+    typeof payloadItem.text === 'string' &&
+    payloadItem.text.trim().length > 0
+  ) {
+    return payloadItem.text;
+  }
+
   if (
     event.message &&
-    ['assistant_message', 'assistant.message', 'agent.message'].includes(getInnerType(event))
+    ['assistant_message', 'assistant_message_delta', 'assistant.message', 'agent.message'].includes(getInnerType(event))
   ) {
     return event.message;
   }
@@ -199,6 +218,7 @@ function isAssistantMessage(event: RunEvent): boolean {
   const inner = getInnerType(event);
   return (
     inner === 'assistant_message' ||
+    inner === 'assistant_message_delta' ||
     inner === 'assistant.message' ||
     inner === 'agent.message' ||
     extractAssistantText(event) !== null
@@ -425,6 +445,8 @@ function groupEventsIntoBlocks(
   blocks.push({ type: 'user', content: prompt, attachments, timestamp: taskCreatedAt });
 
   let currentToolEvents: RunEvent[] = [];
+  let pendingAssistantStream = '';
+  let pendingAssistantTimestamp: string | null = null;
 
   function flushTools() {
     if (currentToolEvents.length > 0) {
@@ -433,10 +455,47 @@ function groupEventsIntoBlocks(
     }
   }
 
+  function flushPendingAssistant() {
+    const text =
+      normalizeAssistantText(pendingAssistantStream).length > 0
+        ? normalizeAssistantText(pendingAssistantStream)
+        : null;
+    if (!text) {
+      pendingAssistantStream = '';
+      pendingAssistantTimestamp = null;
+      return;
+    }
+
+    if (normalizeAssistantText(text) !== normalizeAssistantText(lastAgentContent)) {
+      blocks.push({
+        type: 'agent',
+        content: text,
+        timestamp: pendingAssistantTimestamp ?? taskCreatedAt,
+      });
+      lastAgentContent = text;
+    }
+
+    pendingAssistantStream = '';
+    pendingAssistantTimestamp = null;
+  }
+
   let lastAgentContent = '';
 
   for (const event of events) {
     const visibility = isVisibleEvent(event);
+    const assistantDelta = extractPersistedAssistantDelta(event);
+
+    if (assistantDelta) {
+      if (options?.includeAssistantMessages === false) {
+        continue;
+      }
+      flushTools();
+      if (pendingAssistantTimestamp === null) {
+        pendingAssistantTimestamp = event.createdAt;
+      }
+      pendingAssistantStream = mergeAssistantText(pendingAssistantStream, assistantDelta);
+      continue;
+    }
 
     if (visibility === 'agent') {
       if (options?.includeAssistantMessages === false) {
@@ -444,17 +503,32 @@ function groupEventsIntoBlocks(
       }
       flushTools();
       const text = extractAssistantText(event) ?? event.message ?? '';
-      // Skip duplicate consecutive agent messages (e.g. from retried sessions)
-      if (text.trim() && text !== lastAgentContent) {
+
+      // Final assistant message replaces any accumulated streamed draft.
+      if (normalizeAssistantText(pendingAssistantStream).length > 0) {
+        const finalText = text.trim().length > 0 ? text : pendingAssistantStream;
+        pendingAssistantStream = '';
+        pendingAssistantTimestamp = null;
+
+        if (normalizeAssistantText(finalText) !== normalizeAssistantText(lastAgentContent)) {
+          blocks.push({ type: 'agent', content: finalText, timestamp: event.createdAt });
+          lastAgentContent = finalText;
+        }
+        continue;
+      }
+
+      if (text.trim() && normalizeAssistantText(text) !== normalizeAssistantText(lastAgentContent)) {
         blocks.push({ type: 'agent', content: text, timestamp: event.createdAt });
         lastAgentContent = text;
       }
     } else if (visibility === 'tool') {
+      flushPendingAssistant();
       currentToolEvents.push(event);
     }
     // Everything else: silently skip
   }
 
+  flushPendingAssistant();
   flushTools();
   return blocks;
 }
@@ -478,6 +552,14 @@ function buildConversationBlocks(task: Task, runs: Run[], eventsByRunId: Map<str
           includeAssistantMessages: true,
         },
       );
+      const assistantBlocks = runBlocks.filter(
+        (block): block is MessageBlock & { content: string } =>
+          block.type === 'agent' && typeof block.content === 'string' && block.content.trim().length > 0,
+      );
+      const assistantContent =
+        assistantBlocks.length > 0
+          ? assistantBlocks.map((block) => block.content.trim()).join('\n\n')
+          : null;
       const { setupItems, workItems } = splitActivityItems(runEvents);
       const firstAgentIndex = runBlocks.findIndex((block) => block.type === 'agent');
       const meaningfulWorkItems = workItems.filter((item) => !isLowSignalWorkItem(item));
@@ -497,11 +579,12 @@ function buildConversationBlocks(task: Task, runs: Run[], eventsByRunId: Map<str
 
       if (
         firstAgentIndex >= 0 &&
-        (displayReasoningItems.length > 0 || reasoningDuration !== undefined || isRunActive)
+        (displayReasoningItems.length > 0 || isRunActive)
       ) {
         const reasoningBlock: MessageBlock = {
           type: 'reasoning',
           activityItems: displayReasoningItems,
+          content: assistantContent ?? undefined,
           duration: isReasoningStreaming ? undefined : reasoningDuration,
           label: runStateLabel ?? (
             isRunActive
@@ -517,6 +600,7 @@ function buildConversationBlocks(task: Task, runs: Run[], eventsByRunId: Map<str
         };
 
         runBlocks.splice(firstAgentIndex, 0, reasoningBlock);
+        return runBlocks.filter((block, index) => !(index > firstAgentIndex && block.type === 'agent'));
       } else if (firstAgentIndex === -1) {
         const activeItems = hasActualWorkStarted
           ? (workItems.length > 0 ? workItems : persistedReasoningItems)
@@ -525,6 +609,7 @@ function buildConversationBlocks(task: Task, runs: Run[], eventsByRunId: Map<str
           runBlocks.push({
             type: 'reasoning',
             activityItems: activeItems,
+            content: assistantContent ?? undefined,
             label:
               getRunStateLabel(run, persistedSummary, activeItems) ??
               (hasActualWorkStarted
@@ -798,18 +883,7 @@ function buildActivityItems(events: RunEvent[]) {
         : null;
     const payloadType = typeof event.payload?.type === 'string' ? event.payload.type : null;
 
-    if (
-      payloadItem?.type === 'agent_message' &&
-      typeof payloadItem.text === 'string' &&
-      payloadItem.text.trim().length > 0
-    ) {
-      standalone.push({
-        id: typeof payloadItem.id === 'string' ? payloadItem.id : event.id,
-        kind: 'log',
-        label: 'Update',
-        message: payloadItem.text,
-        timestamp: event.createdAt,
-      });
+    if (extractPersistedAssistantDelta(event)) {
       continue;
     }
 
@@ -1080,14 +1154,16 @@ function InlineReasoningDetails({ items, label }: { items: ActivityItem[]; label
   }
 
   if (displayItems.length === 0) {
+    if (!isSetupLabel && !isStreaming) {
+      return null;
+    }
+
     return (
       <div className="mt-3 pl-6">
         <p className="text-xs text-muted-foreground/70">
           {isSetupLabel
             ? 'Setting up the workspace and repository.'
-            : isStreaming
-            ? 'Working details will appear here as the agent emits command or tool activity.'
-            : 'No detailed reasoning trace was emitted for this reply. The model returned a short answer directly.'}
+            : 'Working details will appear here as the agent emits command or tool activity.'}
         </p>
       </div>
     );
@@ -1537,7 +1613,9 @@ export function TaskDetailPage() {
   );
 
   const blocks = buildConversationBlocks(task, runs, eventsByRunId);
-  const hasAssistantReply = blocks.some((block) => block.type === 'agent');
+  const hasAssistantReply = blocks.some(
+    (block) => block.type === 'agent' || (block.type === 'reasoning' && typeof block.content === 'string' && block.content.trim().length > 0),
+  );
   const canShowDiff = Boolean(latestRun?.workspacePath);
   const showInlineDiff = diffOpen && canShowDiff && !isNarrowDiffLayout;
   const showSheetDiff = diffOpen && canShowDiff && isNarrowDiffLayout;
@@ -1582,18 +1660,6 @@ export function TaskDetailPage() {
           </Button>
         ) : null}
 
-        {isActive && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs gap-1.5"
-            onClick={() => cancelMutation.mutate()}
-            disabled={cancelMutation.isPending}
-          >
-            <Square className="w-3 h-3" />
-            Cancel
-          </Button>
-        )}
         {effectiveStatus === 'failed' && (
           <Button
             variant="outline"
@@ -1707,6 +1773,18 @@ export function TaskDetailPage() {
                       )}
                     />
                     <ReasoningContent>
+                      {block.content ? (
+                        <div className="mb-4 pl-6">
+                          <div className="streamdown-content text-sm text-foreground">
+                            <Streamdown
+                              plugins={{ code }}
+                              mode="static"
+                            >
+                              {block.content}
+                            </Streamdown>
+                          </div>
+                        </div>
+                      ) : null}
                       <InlineReasoningDetails items={block.activityItems ?? []} label={block.label} />
                     </ReasoningContent>
                   </Reasoning>

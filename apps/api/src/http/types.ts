@@ -1,6 +1,8 @@
 export interface ApiVariables {
   requestId: string;
   userId?: string;
+  runnerId?: string;
+  runnerWorkspaceId?: string;
 }
 
 export interface ApiEnv {

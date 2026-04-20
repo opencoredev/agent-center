@@ -2,6 +2,8 @@ import {
   automations,
   projects,
   repoConnections,
+  runnerRegistrationTokens,
+  runners,
   runEvents,
   runs,
   tasks,
@@ -19,6 +21,8 @@ function toNullableIsoString(value: Date | null) {
 type WorkspaceRecord = typeof workspaces.$inferSelect;
 type ProjectRecord = typeof projects.$inferSelect;
 type RepoConnectionRecord = typeof repoConnections.$inferSelect;
+type RunnerRecord = typeof runners.$inferSelect;
+type RunnerRegistrationTokenRecord = typeof runnerRegistrationTokens.$inferSelect;
 type TaskRecord = typeof tasks.$inferSelect;
 type RunRecord = typeof runs.$inferSelect;
 type RunEventRecord = typeof runEvents.$inferSelect;
@@ -64,6 +68,33 @@ export function serializeRepoConnection(repoConnection: RepoConnectionRecord) {
     connectionMetadata: repoConnection.connectionMetadata,
     createdAt: toIsoString(repoConnection.createdAt),
     updatedAt: toIsoString(repoConnection.updatedAt),
+  };
+}
+
+export function serializeRunner(runner: RunnerRecord) {
+  return {
+    id: runner.id,
+    workspaceId: runner.workspaceId,
+    name: runner.name,
+    authKeyPrefix: runner.authKeyPrefix,
+    lastSeenAt: toNullableIsoString(runner.lastSeenAt),
+    revokedAt: toNullableIsoString(runner.revokedAt),
+    createdAt: toIsoString(runner.createdAt),
+    updatedAt: toIsoString(runner.updatedAt),
+  };
+}
+
+export function serializeRunnerRegistrationToken(registrationToken: RunnerRegistrationTokenRecord) {
+  return {
+    id: registrationToken.id,
+    workspaceId: registrationToken.workspaceId,
+    name: registrationToken.name,
+    tokenPrefix: registrationToken.tokenPrefix,
+    expiresAt: toIsoString(registrationToken.expiresAt),
+    consumedAt: toNullableIsoString(registrationToken.consumedAt),
+    revokedAt: toNullableIsoString(registrationToken.revokedAt),
+    createdAt: toIsoString(registrationToken.createdAt),
+    updatedAt: toIsoString(registrationToken.updatedAt),
   };
 }
 
