@@ -91,6 +91,7 @@ async function assertWorkspaceAccess(workspaceId: string, userId?: string) {
 }
 
 async function resolveGitHubInstallationRepository(input: {
+  workspaceId: string;
   authType: string;
   connectionMetadata: Record<string, unknown> | null;
   owner: string;
@@ -110,7 +111,11 @@ async function resolveGitHubInstallationRepository(input: {
     );
   }
 
-  const repositories = await githubAppService.listInstallationRepositories(installationId);
+  const repositories = await githubAppService.listInstallationRepositories({
+    installationId,
+    workspaceId: input.workspaceId,
+    enforceLinkedScope: false,
+  });
   const repository = repositories.repositories.find(
     (candidate) =>
       candidate.ownerLogin.toLowerCase() === input.owner.toLowerCase() &&
@@ -280,13 +285,23 @@ export const repoConnectionService = {
           : null;
 
     if (existing) {
-      if (
-        (resolvedProject && existing.projectId !== resolvedProject.id) ||
-        (resolvedDefaultBranch && existing.defaultBranch !== resolvedDefaultBranch)
-      ) {
+      const nextProjectId = resolvedProject?.id ?? existing.projectId;
+      const nextDefaultBranch = resolvedDefaultBranch ?? existing.defaultBranch;
+      const nextAuthType = input.authType;
+      const nextConnectionMetadata = input.connectionMetadata;
+      const shouldUpdate =
+        nextProjectId !== existing.projectId ||
+        nextDefaultBranch !== existing.defaultBranch ||
+        nextAuthType !== existing.authType ||
+        JSON.stringify(nextConnectionMetadata ?? null) !==
+          JSON.stringify((existing.connectionMetadata as Record<string, unknown> | null) ?? null);
+
+      if (shouldUpdate) {
         const updated = await updateRepoConnection(existing.id, {
-          projectId: resolvedProject?.id ?? existing.projectId,
-          defaultBranch: resolvedDefaultBranch ?? existing.defaultBranch,
+          projectId: nextProjectId,
+          defaultBranch: nextDefaultBranch,
+          authType: nextAuthType,
+          connectionMetadata: nextConnectionMetadata,
           updatedAt: new Date(),
         });
         return serializeRepoConnection(updated);

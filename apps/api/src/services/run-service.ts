@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
+import { createGitHubProvider } from "@agent-center/github";
 import type {
   DomainMetadata,
   ExecutionConfig,
@@ -21,7 +22,8 @@ import {
   listRunsForTask,
   updateRun,
 } from "../repositories/run-repository";
-import { findTaskById } from "../repositories/task-repository";
+import { findTaskById, updateTask } from "../repositories/task-repository";
+import { findWorkspaceById } from "../repositories/workspace-repository";
 import {
   assertLaunchReadyExecutionConfig,
   isActiveRunStatus,
@@ -29,7 +31,9 @@ import {
   withControlIntent,
   withoutControlMetadata,
 } from "./helpers";
-import { serializeRun, serializeRunEvent } from "./serializers";
+import { githubAppService } from "./github-app-service";
+import { repoConnectionService } from "./repo-connection-service";
+import { serializePublicationState, serializeRun, serializeRunEvent, serializeTask } from "./serializers";
 
 interface RunCreateRequest {
   taskId: string;
@@ -65,11 +69,93 @@ interface RunDiffResponse {
 }
 
 const MAX_UNTRACKED_DIFF_FILES = 20;
+const githubProvider = createGitHubProvider();
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function getString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeBranchName(value: string | null | undefined) {
+  const branch = getString(value);
+
+  if (!branch) {
+    return null;
+  }
+
+  return branch.replace(/^refs\/heads\//, "");
+}
+
+function buildPublicationMetadata(
+  currentMetadata: DomainMetadata | null | undefined,
+  publication: Record<string, unknown>,
+): DomainMetadata {
+  return {
+    ...(asRecord(currentMetadata) ?? {}),
+    publication,
+  };
+}
+
+async function assertWorkspaceAccess(workspaceId: string, userId?: string) {
+  if (!userId) {
+    return;
+  }
+
+  const workspace = await findWorkspaceById(workspaceId);
+
+  if (workspace === undefined) {
+    throw notFoundError("workspace", workspaceId);
+  }
+
+  if (workspace.ownerId !== userId) {
+    throw new ApiError(403, "workspace_forbidden", "You do not have access to this workspace", {
+      workspaceId,
+    });
+  }
+}
+
+function resolvePublicationTitle(input: {
+  runConfig: ExecutionConfig;
+  taskConfig: ExecutionConfig;
+  taskTitle: string;
+  owner: string;
+  repo: string;
+}) {
+  return (
+    getString(input.runConfig.prTitle) ??
+    getString(input.taskConfig.prTitle) ??
+    getString(input.taskTitle) ??
+    `Update ${input.owner}/${input.repo}`
+  );
+}
+
+function resolvePublicationBody(input: {
+  runConfig: ExecutionConfig;
+  taskConfig: ExecutionConfig;
+  runPrompt: string;
+  taskPrompt: string;
+}) {
+  return (
+    getString(input.runConfig.prBody) ??
+    getString(input.taskConfig.prBody) ??
+    getString(input.runPrompt) ??
+    getString(input.taskPrompt)
+  );
+}
 
 async function runGitCommand(workspacePath: string, args: string[]) {
   const subprocess = Bun.spawn({
     cmd: ["git", ...args],
     cwd: workspacePath,
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -85,6 +171,21 @@ async function runGitCommand(workspacePath: string, args: string[]) {
     stderr: stderr.trim(),
     stdout: stdout.trim(),
   };
+}
+
+async function runGitCommandChecked(workspacePath: string, args: string[], message: string) {
+  const result = await runGitCommand(workspacePath, args);
+
+  if (result.exitCode !== 0) {
+    throw new ApiError(500, "git_command_failed", message, {
+      args,
+      stderr: result.stderr,
+      stdout: result.stdout,
+      workspacePath,
+    });
+  }
+
+  return result;
 }
 
 async function getUntrackedFiles(workspacePath: string) {
@@ -212,6 +313,163 @@ async function readWorkspaceDiff(workspacePath: string): Promise<RunDiffResponse
   };
 }
 
+function slugifyBranchSegment(value: string) {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized.slice(0, 32) || "task";
+}
+
+function resolvePublishBranchName(input: {
+  currentBranchName: string | null;
+  baseBranch: string;
+  taskId: string;
+  runId: string;
+  taskTitle: string;
+}) {
+  if (input.currentBranchName && input.currentBranchName !== input.baseBranch) {
+    return input.currentBranchName;
+  }
+
+  return `agent-center/${slugifyBranchSegment(input.taskTitle)}-${input.taskId.slice(0, 8)}-${input.runId.slice(0, 8)}`;
+}
+
+function resolveCommitMessage(input: {
+  runConfig: ExecutionConfig;
+  taskConfig: ExecutionConfig;
+  taskTitle: string;
+  owner: string;
+  repo: string;
+}) {
+  return (
+    getString(input.runConfig.commitMessage) ??
+    getString(input.taskConfig.commitMessage) ??
+    `chore: publish ${input.taskTitle || `${input.owner}/${input.repo}`}`
+  );
+}
+
+async function getCurrentBranchName(workspacePath: string) {
+  const result = await runGitCommand(workspacePath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+
+  if (result.exitCode !== 0) {
+    throw new ApiError(500, "git_branch_resolution_failed", "Failed to resolve the current git branch", {
+      stderr: result.stderr,
+      stdout: result.stdout,
+      workspacePath,
+    });
+  }
+
+  const branch = normalizeBranchName(result.stdout);
+  return branch === "HEAD" ? null : branch;
+}
+
+async function checkoutPublishBranch(workspacePath: string, branchName: string) {
+  await runGitCommandChecked(
+    workspacePath,
+    ["checkout", "-B", branchName],
+    "Failed to create or switch to the publish branch",
+  );
+}
+
+async function stageAndCommitChanges(workspacePath: string, commitMessage: string) {
+  await runGitCommandChecked(workspacePath, ["add", "-A"], "Failed to stage workspace changes for publication");
+
+  const cachedDiff = await runGitCommand(workspacePath, ["diff", "--cached", "--quiet"]);
+
+  if (cachedDiff.exitCode === 0) {
+    return {
+      committed: false,
+      commitSha: null,
+    };
+  }
+
+  if (cachedDiff.exitCode !== 1) {
+    throw new ApiError(500, "git_diff_failed", "Failed to inspect staged workspace changes", {
+      stderr: cachedDiff.stderr,
+      stdout: cachedDiff.stdout,
+      workspacePath,
+    });
+  }
+
+  await runGitCommandChecked(
+    workspacePath,
+    [
+      "-c",
+      "user.name=Agent Center",
+      "-c",
+      "user.email=automation@agent.center",
+      "commit",
+      "-m",
+      commitMessage,
+    ],
+    "Failed to create a git commit for publication",
+  );
+
+  const commitSha = (
+    await runGitCommandChecked(
+      workspacePath,
+      ["rev-parse", "HEAD"],
+      "Failed to resolve the publication commit SHA",
+    )
+  ).stdout;
+
+  return {
+    committed: true,
+    commitSha: getString(commitSha),
+  };
+}
+
+async function countAheadCommits(workspacePath: string, baseBranch: string) {
+  const remoteBase = `origin/${baseBranch}`;
+  const remoteRef = await runGitCommand(workspacePath, [
+    "show-ref",
+    "--verify",
+    "--quiet",
+    `refs/remotes/${remoteBase}`,
+  ]);
+
+  if (remoteRef.exitCode !== 0) {
+    return 0;
+  }
+
+  const result = await runGitCommandChecked(
+    workspacePath,
+    ["rev-list", "--count", `${remoteBase}..HEAD`],
+    "Failed to compare the publish branch against the base branch",
+  );
+
+  return Number.parseInt(result.stdout, 10) || 0;
+}
+
+async function pushPublishBranch(input: {
+  workspacePath: string;
+  owner: string;
+  repo: string;
+  authType: string;
+  connectionMetadata: Record<string, unknown> | null;
+  branchName: string;
+  token?: string;
+}) {
+  const cloneUrl = githubProvider.buildCloneUrl({
+    owner: input.owner,
+    repo: input.repo,
+    authType: input.authType,
+    connectionMetadata: input.connectionMetadata,
+    token: input.token,
+  });
+  const pushMetadata = githubProvider.buildBranchPushMetadata({
+    branchName: input.branchName,
+  });
+
+  await runGitCommandChecked(
+    input.workspacePath,
+    ["push", cloneUrl.unwrap(), pushMetadata.refspec],
+    "Failed to push the publish branch to GitHub",
+  );
+}
+
 function assertPauseable(status: RunStatus) {
   if (!["queued", "provisioning", "cloning", "running"].includes(status)) {
     throw conflictError(`Run cannot be paused from status "${status}"`, {
@@ -325,6 +583,297 @@ export const runService = {
     }
 
     return readWorkspaceDiff(run.workspacePath);
+  },
+
+  async publish(runId: string, userId?: string) {
+    const run = await findRunById(runId);
+
+    if (run === undefined) {
+      throw notFoundError("run", runId);
+    }
+
+    const task = await findTaskById(run.taskId);
+
+    if (task === undefined) {
+      throw notFoundError("task", run.taskId);
+    }
+
+    await assertWorkspaceAccess(task.workspaceId, userId);
+
+    if (run.status !== "completed") {
+      throw conflictError(`Run cannot be published from status "${run.status}"`, {
+        runId,
+        status: run.status,
+      });
+    }
+
+    if (!run.repoConnectionId) {
+      throw new ApiError(
+        409,
+        "run_repo_connection_required",
+        "Run does not have a connected repository to publish to",
+        { runId },
+      );
+    }
+
+    const repoConnection = await repoConnectionService.assertWithinWorkspace(
+      task.workspaceId,
+      run.repoConnectionId,
+      task.projectId,
+    );
+
+    if (repoConnection.provider !== "github") {
+      throw new ApiError(
+        409,
+        "repo_connection_provider_unsupported",
+        "Only GitHub-backed repo connections can publish draft pull requests",
+        {
+          provider: repoConnection.provider,
+          repoConnectionId: repoConnection.id,
+        },
+      );
+    }
+
+    const existingPublication = serializePublicationState(run.metadata);
+
+    if (
+      existingPublication.status === "published" &&
+      existingPublication.pullRequest?.id &&
+      existingPublication.pullRequest.htmlUrl
+    ) {
+      return {
+        publication: existingPublication,
+        run: serializeRun(run),
+        task: serializeTask(task),
+      };
+    }
+
+    if (!run.workspacePath) {
+      throw new ApiError(
+        409,
+        "run_workspace_required",
+        "Run does not have a workspace available for publication",
+        { runId },
+      );
+    }
+
+    const diff = await readWorkspaceDiff(run.workspacePath);
+
+    if (!diff.available || !diff.workspacePath) {
+      throw new ApiError(
+        409,
+        "run_workspace_unavailable",
+        diff.error ?? "Run workspace is not accessible from the API process in this deployment.",
+        {
+          runId,
+        },
+      );
+    }
+
+    const baseBranch = normalizeBranchName(run.baseBranch ?? task.baseBranch ?? repoConnection.defaultBranch);
+
+    if (!baseBranch) {
+      throw new ApiError(
+        409,
+        "run_publish_base_branch_missing",
+        "Run is missing a base branch for pull request publication",
+        {
+          runId,
+          taskId: task.id,
+          repoConnectionId: repoConnection.id,
+        },
+      );
+    }
+
+    const currentBranchName =
+      normalizeBranchName(run.branchName ?? task.branchName) ?? (await getCurrentBranchName(diff.workspacePath));
+    const publishBranch = resolvePublishBranchName({
+      currentBranchName,
+      baseBranch,
+      taskId: task.id,
+      runId: run.id,
+      taskTitle: task.title,
+    });
+    const attemptedAt = new Date().toISOString();
+    const title = resolvePublicationTitle({
+      runConfig: run.config,
+      taskConfig: task.config,
+      taskTitle: task.title,
+      owner: repoConnection.owner,
+      repo: repoConnection.repo,
+    });
+    const body = resolvePublicationBody({
+      runConfig: run.config,
+      taskConfig: task.config,
+      runPrompt: run.prompt,
+      taskPrompt: task.prompt,
+    });
+    const commitMessage = resolveCommitMessage({
+      runConfig: run.config,
+      taskConfig: task.config,
+      taskTitle: task.title,
+      owner: repoConnection.owner,
+      repo: repoConnection.repo,
+    });
+
+    try {
+      const installationId = Number(
+        (repoConnection.connectionMetadata as Record<string, unknown> | null)?.installationId,
+      );
+      const token =
+        repoConnection.authType === "github_app_installation" &&
+        Number.isInteger(installationId) &&
+        installationId > 0
+          ? (await githubAppService.getInstallationAccessToken(installationId)).token
+          : undefined;
+
+      await checkoutPublishBranch(diff.workspacePath, publishBranch);
+
+      const commitResult = await stageAndCommitChanges(diff.workspacePath, commitMessage);
+      const aheadCommits = await countAheadCommits(diff.workspacePath, baseBranch);
+
+      if (!commitResult.committed && aheadCommits === 0) {
+        throw new ApiError(
+          409,
+          "run_publish_no_changes",
+          "Run workspace has no publishable changes to commit or push",
+          {
+            runId,
+            workspacePath: diff.workspacePath,
+          },
+        );
+      }
+
+      await pushPublishBranch({
+        workspacePath: diff.workspacePath,
+        owner: repoConnection.owner,
+        repo: repoConnection.repo,
+        authType: repoConnection.authType,
+        connectionMetadata: repoConnection.connectionMetadata as Record<string, unknown> | null,
+        branchName: publishBranch,
+        token,
+      });
+
+      if (commitResult.committed) {
+        await appendRunEvent(run.id, {
+          eventType: "git.commit.created",
+          level: "info",
+          message: `Publication commit created on ${publishBranch}`,
+          payload: {
+            branchName: publishBranch,
+            commitMessage,
+            commitSha: commitResult.commitSha,
+            taskId: task.id,
+          },
+        });
+      }
+
+      await appendRunEvent(run.id, {
+        eventType: "git.branch.pushed",
+        level: "info",
+        message: `Publication branch pushed: ${publishBranch}`,
+        payload: {
+          aheadCommits,
+          branchName: publishBranch,
+          taskId: task.id,
+        },
+      });
+
+      const pullRequest = await githubProvider.createPullRequest({
+        owner: repoConnection.owner,
+        repo: repoConnection.repo,
+        authType: repoConnection.authType,
+        connectionMetadata: repoConnection.connectionMetadata,
+        token,
+        title,
+        body,
+        head: publishBranch,
+        base: baseBranch,
+        draft: true,
+      });
+
+      const publishedAt = new Date().toISOString();
+      const publication = {
+        status: "published",
+        provider: "github",
+        attemptedAt,
+        publishedAt,
+        error: null,
+        commitMessage,
+        commitSha: commitResult.commitSha,
+        headBranch: publishBranch,
+        baseBranch,
+        pullRequest,
+      } satisfies Record<string, unknown>;
+
+      const updatedRun = await updateRun(run.id, {
+        branchName: publishBranch,
+        baseBranch,
+        metadata: buildPublicationMetadata(run.metadata, publication),
+        updatedAt: new Date(),
+      });
+      const updatedTask = await updateTask(task.id, {
+        branchName: publishBranch,
+        baseBranch,
+        metadata: buildPublicationMetadata(task.metadata, publication),
+        updatedAt: new Date(),
+      });
+
+      await appendRunEvent(run.id, {
+        eventType: "git.pr.opened",
+        level: "info",
+        message: `Draft pull request published: #${pullRequest.number}`,
+        payload: {
+          publication,
+          taskId: task.id,
+        },
+      });
+
+      return {
+        publication: serializePublicationState(updatedRun.metadata),
+        run: serializeRun(updatedRun),
+        task: serializeTask(updatedTask),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to publish draft pull request";
+      const failedPublication = {
+        status: "failed",
+        provider: "github",
+        attemptedAt,
+        publishedAt: null,
+        error: message,
+        headBranch: publishBranch,
+        baseBranch,
+        pullRequest: null,
+      } satisfies Record<string, unknown>;
+
+      await Promise.all([
+        updateRun(run.id, {
+          branchName: publishBranch,
+          baseBranch,
+          metadata: buildPublicationMetadata(run.metadata, failedPublication),
+          updatedAt: new Date(),
+        }),
+        updateTask(task.id, {
+          branchName: publishBranch,
+          baseBranch,
+          metadata: buildPublicationMetadata(task.metadata, failedPublication),
+          updatedAt: new Date(),
+        }),
+        appendRunEvent(run.id, {
+          eventType: "run.log",
+          level: "error",
+          message: "Draft pull request publication failed",
+          payload: {
+            error: message,
+            publication: failedPublication,
+            taskId: task.id,
+          },
+        }),
+      ]);
+
+      throw error;
+    }
   },
 
   async pause(runId: string, input: { reason?: string | null }): Promise<RunControlResponse> {

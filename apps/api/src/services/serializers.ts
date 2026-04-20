@@ -28,6 +28,53 @@ type RunRecord = typeof runs.$inferSelect;
 type RunEventRecord = typeof runEvents.$inferSelect;
 type AutomationRecord = typeof automations.$inferSelect;
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function asBoolean(value: unknown) {
+  return typeof value === "boolean" ? value : null;
+}
+
+function asNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function serializePublicationState(metadata: unknown) {
+  const publication = asRecord(asRecord(metadata)?.publication);
+  const pullRequest = asRecord(publication?.pullRequest);
+
+  return {
+    status: asString(publication?.status) ?? "unpublished",
+    provider: asString(publication?.provider),
+    attemptedAt: asString(publication?.attemptedAt),
+    publishedAt: asString(publication?.publishedAt),
+    error: asString(publication?.error),
+    headBranch: asString(publication?.headBranch),
+    baseBranch: asString(publication?.baseBranch),
+    pullRequest: pullRequest
+      ? {
+          id: asString(pullRequest.id),
+          number: asNumber(pullRequest.number),
+          state: asString(pullRequest.state),
+          title: asString(pullRequest.title),
+          body: asString(pullRequest.body),
+          url: asString(pullRequest.url),
+          htmlUrl: asString(pullRequest.htmlUrl),
+          draft: asBoolean(pullRequest.draft),
+          head: asString(pullRequest.head),
+          base: asString(pullRequest.base),
+        }
+      : null,
+  };
+}
+
 export function serializeWorkspace(workspace: WorkspaceRecord) {
   return {
     id: workspace.id,
@@ -115,6 +162,7 @@ export function serializeTask(task: TaskRecord) {
     policy: task.policy,
     config: task.config,
     metadata: task.metadata,
+    publication: serializePublicationState(task.metadata),
     createdAt: toIsoString(task.createdAt),
     updatedAt: toIsoString(task.updatedAt),
   };
@@ -135,6 +183,7 @@ export function serializeRun(run: RunRecord) {
     policy: run.policy,
     config: run.config,
     metadata: run.metadata,
+    publication: serializePublicationState(run.metadata),
     startedAt: toNullableIsoString(run.startedAt),
     completedAt: toNullableIsoString(run.completedAt),
     failedAt: toNullableIsoString(run.failedAt),

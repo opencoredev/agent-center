@@ -261,6 +261,11 @@ interface GitHubInstallationRepositoryPage {
   repositories: GitHubInstallationRepository[];
 }
 
+interface SelectableInstallationRepository extends GitHubInstallationRepository {
+  installationAccountLogin: string;
+  installationId: number;
+}
+
 interface AttachedFile {
   id: string;
   attachmentId?: string;
@@ -391,7 +396,7 @@ function RepoSelector({
   });
 
   const repos = rawRepos;
-  const installationRepos = useMemo(
+  const installationRepos = useMemo<SelectableInstallationRepository[]>(
     () =>
       installations
         .flatMap((installation, index) => {
@@ -415,24 +420,65 @@ function RepoSelector({
     ? `${selected.owner}/${selected.repo}`
     : 'Select repo';
 
+  type RepoEntry =
+    | {
+        connectedRepo: RepoConnection;
+        fullName: string;
+        id: string;
+        installationRepo: SelectableInstallationRepository | null;
+        status: 'connected';
+      }
+    | {
+        connectedRepo: null;
+        fullName: string;
+        id: string;
+        installationRepo: SelectableInstallationRepository;
+        status: 'available';
+      };
+
   const repoEntries = useMemo(() => {
     const normalizedQuery = deferredSearch.trim().toLowerCase();
 
-    const entries = installationRepos.map((installationRepo) => {
-      const connected = repos.find(
-        (repo) =>
-          repo.owner.toLowerCase() === installationRepo.ownerLogin.toLowerCase() &&
-          repo.repo.toLowerCase() === installationRepo.name.toLowerCase(),
-      );
-
-      return {
-        connectedRepo: connected ?? null,
-        fullName: installationRepo.fullName,
-        id: connected?.id ?? `installation:${installationRepo.id}`,
+    const connectedRepoByKey = new Map<string, RepoConnection>(
+      repos.map((repo) => [`${repo.owner.toLowerCase()}/${repo.repo.toLowerCase()}`, repo] as const),
+    );
+    const installationRepoByKey = new Map<string, SelectableInstallationRepository>(
+      installationRepos.map((installationRepo) => [
+        `${installationRepo.ownerLogin.toLowerCase()}/${installationRepo.name.toLowerCase()}`,
         installationRepo,
-        status: connected ? 'connected' as const : 'available' as const,
-      };
-    });
+      ] as const),
+    );
+
+    const connectedEntries: RepoEntry[] = repos
+      .map((repo): RepoEntry => {
+        const key = `${repo.owner.toLowerCase()}/${repo.repo.toLowerCase()}`;
+        const installationRepo = installationRepoByKey.get(key) ?? null;
+
+        return {
+          connectedRepo: repo,
+          fullName: `${repo.owner}/${repo.repo}`,
+          id: repo.id,
+          installationRepo,
+          status: 'connected' as const,
+        };
+      });
+
+    const availableEntries: RepoEntry[] = installationRepos
+      .filter((installationRepo) => {
+        const key = `${installationRepo.ownerLogin.toLowerCase()}/${installationRepo.name.toLowerCase()}`;
+        return !connectedRepoByKey.has(key);
+      })
+      .map((installationRepo): RepoEntry => ({
+        connectedRepo: null,
+        fullName: installationRepo.fullName,
+        id: `installation:${installationRepo.id}`,
+        installationRepo,
+        status: 'available' as const,
+      }));
+
+    const entries = connectedEntries
+      .concat(availableEntries)
+      .sort((left, right) => left.fullName.localeCompare(right.fullName));
 
     if (!normalizedQuery) {
       return entries;
@@ -477,6 +523,7 @@ function RepoSelector({
                 repoEntries.map((entry) => {
                   const connectedRepo = entry.connectedRepo;
                   const isSelected = connectedRepo?.id === selectedRepoId;
+                  const installationRepo = entry.status === 'available' ? entry.installationRepo : null;
 
                   return (
                     <button
@@ -489,9 +536,13 @@ function RepoSelector({
                           return;
                         }
 
+                        if (!installationRepo) {
+                          return;
+                        }
+
                         void connectInstalledRepoMutation.mutate({
-                          installationId: entry.installationRepo.installationId,
-                          repository: entry.installationRepo,
+                          installationId: installationRepo.installationId,
+                          repository: installationRepo,
                         });
                       }}
                       className={`flex items-center gap-2.5 w-full px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer ${

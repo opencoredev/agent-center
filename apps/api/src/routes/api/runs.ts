@@ -6,7 +6,12 @@ import { runApiEffect } from "../../effect/http";
 import { validateJson, validateParams } from "../../http/validation";
 import type { ApiEnv } from "../../http/types";
 import { runService } from "../../services/run-service";
-import { createRunSchema, runControlSchema, runIdParamsSchema } from "../../validators/runs";
+import {
+  createRunSchema,
+  runControlSchema,
+  runIdParamsSchema,
+  runPublishSchema,
+} from "../../validators/runs";
 import { runEventsHub } from "../../ws";
 
 export const runRoutes = new Hono<ApiEnv>();
@@ -45,6 +50,22 @@ runRoutes.get("/:runId/diff", async (context) => {
   const { runId } = validateParams(context, runIdParamsSchema);
 
   return runApiEffect(context, Effect.tryPromise(() => runService.getDiff(runId)));
+});
+
+runRoutes.post("/:runId/publish", async (context) => {
+  const { runId } = validateParams(context, runIdParamsSchema);
+  const userId = context.get("userId");
+
+  await validateJson(context, runPublishSchema, {
+    optionalBody: true,
+  });
+
+  return runApiEffect(
+    context,
+    Effect.tryPromise(() => runService.publish(runId, userId)).pipe(
+      Effect.tap(() => Effect.sync(() => runEventsHub.notifyTasksChanged())),
+    ),
+  );
 });
 
 runRoutes.post("/:runId/pause", async (context) => {

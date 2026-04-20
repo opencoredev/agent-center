@@ -62,6 +62,13 @@ const mockCreateRepoConnection = mock(async (values: Record<string, unknown>) =>
   createdAt: repoConnectionRecord.createdAt,
   updatedAt: repoConnectionRecord.updatedAt,
 }));
+const mockUpdateRepoConnection = mock(async (id: string, values: Record<string, unknown>) => ({
+  ...repoConnectionRecord,
+  id,
+  ...values,
+  createdAt: repoConnectionRecord.createdAt,
+  updatedAt: repoConnectionRecord.updatedAt,
+}));
 const mockFindRepoConnectionById = mock(async (repoConnectionId: string) => {
   if (repoConnectionId === repoConnectionRecord.id) {
     return repoConnectionRecord;
@@ -114,6 +121,7 @@ mock.module("../repositories/repo-connection-repository", () => ({
   findRepoConnectionByWorkspaceAndId: mockFindRepoConnectionByWorkspaceAndId,
   findRepoConnectionByWorkspaceAndRepo: mock(async () => undefined),
   listRepoConnections: mockListRepoConnections,
+  updateRepoConnection: mockUpdateRepoConnection,
 }));
 
 mock.module("../services/serializers", () => ({
@@ -122,11 +130,19 @@ mock.module("../services/serializers", () => ({
     createdAt: repoConnection.createdAt.toISOString(),
     updatedAt: repoConnection.updatedAt.toISOString(),
   }),
+  serializePublicationState: () => ({
+    status: "unpublished",
+    pullRequest: null,
+  }),
+  serializeRun: (run: Record<string, unknown>) => run,
+  serializeRunEvent: (event: Record<string, unknown>) => event,
+  serializeTask: (task: Record<string, unknown>) => task,
 }));
 
 mock.module("../services/project-service", () => ({
   projectService: {
     assertWithinWorkspace: mockAssertWithinWorkspace,
+    findOrCreateRepositoryProject: mock(async () => null),
   },
 }));
 
@@ -147,6 +163,7 @@ describe("repo-connection-service", () => {
     mockFindWorkspaceById.mockClear();
     mockListRepoConnections.mockClear();
     mockCreateRepoConnection.mockClear();
+    mockUpdateRepoConnection.mockClear();
     mockFindRepoConnectionById.mockClear();
     mockDeleteRepoConnection.mockClear();
     mockFindRepoConnectionByWorkspaceAndId.mockClear();
@@ -253,9 +270,61 @@ describe("repo-connection-service", () => {
       "user-1",
     );
 
-    expect(mockListInstallationRepositories).toHaveBeenCalledWith(42);
+    expect(mockListInstallationRepositories).toHaveBeenCalledWith({
+      installationId: 42,
+      workspaceId: ownedWorkspace.id,
+      enforceLinkedScope: false,
+    });
     expect(mockCreateRepoConnection).toHaveBeenCalled();
     expect(result.defaultBranch).toBe("main");
+  });
+
+  test("upgrades an existing repo connection to GitHub App auth metadata", async () => {
+    mockListRepoConnections.mockResolvedValueOnce([
+      {
+        ...repoConnectionRecord,
+        authType: "pat",
+        connectionMetadata: {
+          token: "legacy-token",
+        },
+      },
+    ] as any);
+
+    const result = await repoConnectionService.create(
+      {
+        workspaceId: ownedWorkspace.id,
+        projectId: null,
+        provider: "github",
+        owner: "opencodedev",
+        repo: "agent-center",
+        defaultBranch: null,
+        authType: "github_app_installation",
+        connectionMetadata: {
+          installationId: 99,
+        },
+      },
+      "user-1",
+    );
+
+    expect(mockUpdateRepoConnection).toHaveBeenCalledWith(
+      repoConnectionRecord.id,
+      expect.objectContaining({
+        authType: "github_app_installation",
+        connectionMetadata: {
+          installationId: 99,
+        },
+        defaultBranch: "main",
+      }),
+    );
+    expect(mockListInstallationRepositories).toHaveBeenLastCalledWith({
+      installationId: 99,
+      workspaceId: ownedWorkspace.id,
+      enforceLinkedScope: false,
+    });
+    expect(result.authType).toBe("github_app_installation");
+    expect(result.connectionMetadata).toEqual({
+      installationId: 99,
+    });
   });
 
   test("rejects reading a repo connection outside the caller workspace", async () => {

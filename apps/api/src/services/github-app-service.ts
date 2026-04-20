@@ -7,6 +7,9 @@ import {
 
 import { apiEnv } from "../env";
 import { ApiError } from "../http/errors";
+import { listRepoConnections } from "../repositories/repo-connection-repository";
+import { findWorkspaceById } from "../repositories/workspace-repository";
+import { listWorkspaces } from "../repositories/workspace-repository";
 
 const REQUIRED_GITHUB_APP_FIELDS = ["GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"] as const;
 
@@ -55,6 +58,91 @@ function createGitHubAppClient() {
   });
 }
 
+async function assertWorkspaceScope(workspaceId: string | undefined, userId?: string) {
+  if (userId && !workspaceId) {
+    throw new ApiError(
+      400,
+      "github_workspace_scope_required",
+      "workspaceId is required to access GitHub App installations in an authenticated workspace scope",
+    );
+  }
+
+  if (!workspaceId) {
+    return null;
+  }
+
+  const workspace = await findWorkspaceById(workspaceId);
+
+  if (workspace === undefined) {
+    throw new ApiError(404, "workspace_not_found", "workspace not found", {
+      id: workspaceId,
+    });
+  }
+
+  if (userId && workspace.ownerId !== userId) {
+    throw new ApiError(403, "workspace_forbidden", "You do not have access to this workspace", {
+      workspaceId,
+    });
+  }
+
+  return workspace;
+}
+
+function extractInstallationId(connectionMetadata: Record<string, unknown> | null | undefined) {
+  const installationId = Number(connectionMetadata?.installationId);
+  return Number.isInteger(installationId) && installationId > 0 ? installationId : null;
+}
+
+async function listScopedWorkspaceIds(input: { workspaceId?: string; userId?: string }) {
+  if (input.workspaceId) {
+    await assertWorkspaceScope(input.workspaceId, input.userId);
+    return [input.workspaceId];
+  }
+
+  if (input.userId) {
+    const workspaces = await listWorkspaces();
+    return workspaces
+      .filter((workspace) => workspace.ownerId === input.userId)
+      .map((workspace) => workspace.id);
+  }
+
+  const workspaces = await listWorkspaces();
+  return workspaces.map((workspace) => workspace.id);
+}
+
+async function listScopedInstallationIds(input: { workspaceId?: string; userId?: string }) {
+  const workspaceIds = await listScopedWorkspaceIds(input);
+
+  if (workspaceIds.length === 0) {
+    return new Set<number>();
+  }
+
+  const installationIds = new Set<number>();
+
+  for (const workspaceId of workspaceIds) {
+    const repoConnections = await listRepoConnections({
+      workspaceId,
+      provider: "github",
+    });
+
+    for (const repoConnection of repoConnections) {
+      if (repoConnection.authType !== "github_app_installation") {
+        continue;
+      }
+
+      const installationId = extractInstallationId(
+        repoConnection.connectionMetadata as Record<string, unknown> | null,
+      );
+
+      if (installationId) {
+        installationIds.add(installationId);
+      }
+    }
+  }
+
+  return installationIds;
+}
+
 export const githubAppService = {
   async getStatus() {
     const missingFields = getMissingFields();
@@ -94,12 +182,46 @@ export const githubAppService = {
     }
   },
 
-  async listInstallations() {
-    return createGitHubAppClient().listInstallations();
+  async listInstallations(input: { workspaceId?: string; userId?: string } = {}) {
+    if (!input.userId) {
+      return createGitHubAppClient().listInstallations();
+    }
+
+    const scopedInstallationIds = await listScopedInstallationIds(input);
+
+    if (scopedInstallationIds.size === 0) {
+      return [];
+    }
+
+    const installations = await createGitHubAppClient().listInstallations();
+    return installations.filter((installation) => scopedInstallationIds.has(installation.id));
   },
 
-  async listInstallationRepositories(installationId: number) {
-    return createGitHubAppClient().listInstallationRepositories(installationId);
+  async listInstallationRepositories(input: {
+    installationId: number;
+    workspaceId?: string;
+    userId?: string;
+    enforceLinkedScope?: boolean;
+  }) {
+    await assertWorkspaceScope(input.workspaceId, input.userId);
+
+    if (input.userId && (input.enforceLinkedScope ?? true)) {
+      const scopedInstallationIds = await listScopedInstallationIds(input);
+
+      if (!scopedInstallationIds.has(input.installationId)) {
+        throw new ApiError(
+          403,
+          "github_installation_forbidden",
+          "The requested GitHub App installation is not linked to the selected workspace scope",
+          {
+            installationId: input.installationId,
+            workspaceId: input.workspaceId ?? null,
+          },
+        );
+      }
+    }
+
+    return createGitHubAppClient().listInstallationRepositories(input.installationId);
   },
 
   async getInstallationAccessToken(installationId: number) {

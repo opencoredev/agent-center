@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+const ownedWorkspace = {
+  id: "11111111-1111-1111-1111-111111111111",
+  ownerId: "user-1",
+};
+
+const otherWorkspace = {
+  id: "22222222-2222-2222-2222-222222222222",
+  ownerId: "user-2",
+};
+
 const mockGetApp = mock(async () => ({
   id: 3332050,
   slug: "agent-center-dev",
@@ -45,6 +55,34 @@ const mockCreateInstallationAccessToken = mock(async () => ({
   token: "ghs_installation_token",
 }));
 
+const mockFindWorkspaceById = mock(async (workspaceId: string) => {
+  if (workspaceId === ownedWorkspace.id) {
+    return ownedWorkspace;
+  }
+
+  if (workspaceId === otherWorkspace.id) {
+    return otherWorkspace;
+  }
+
+  return undefined;
+});
+
+const mockListWorkspaces = mock(async () => [ownedWorkspace, otherWorkspace]);
+const mockListRepoConnections = mock(async ({ workspaceId }: { workspaceId?: string }) => {
+  if (workspaceId === ownedWorkspace.id) {
+    return [
+      {
+        authType: "github_app_installation",
+        connectionMetadata: {
+          installationId: 42,
+        },
+      },
+    ];
+  }
+
+  return [];
+});
+
 mock.module("@agent-center/github", () => ({
   GitHubApiError: class GitHubApiError extends Error {
     status = 500;
@@ -75,6 +113,20 @@ mock.module("@agent-center/github", () => ({
   }),
 }));
 
+mock.module("../repositories/workspace-repository", () => ({
+  findWorkspaceById: mockFindWorkspaceById,
+  listWorkspaces: mockListWorkspaces,
+}));
+
+mock.module("../repositories/repo-connection-repository", () => ({
+  createRepoConnection: mock(async () => undefined),
+  deleteRepoConnection: mock(async () => undefined),
+  findRepoConnectionById: mock(async () => undefined),
+  findRepoConnectionByWorkspaceAndId: mock(async () => undefined),
+  listRepoConnections: mockListRepoConnections,
+  updateRepoConnection: mock(async () => undefined),
+}));
+
 const { apiEnv } = await import("../env");
 const { githubAppService } = await import("../services/github-app-service");
 
@@ -93,6 +145,9 @@ describe("github-app-service", () => {
     mockListInstallations.mockClear();
     mockListInstallationRepositories.mockClear();
     mockCreateInstallationAccessToken.mockClear();
+    mockFindWorkspaceById.mockClear();
+    mockListWorkspaces.mockClear();
+    mockListRepoConnections.mockClear();
 
     Object.assign(apiEnv, originalApiEnv);
   });
@@ -137,5 +192,54 @@ describe("github-app-service", () => {
       "GITHUB_APP_SLUG",
       "GITHUB_APP_PRIVATE_KEY",
     ]);
+  });
+
+  test("scopes authenticated installation listings to linked installations", async () => {
+    const result = await githubAppService.listInstallations({ userId: "user-1" });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 42,
+      }),
+    ]);
+  });
+
+  test("rejects repository listings outside the caller workspace", async () => {
+    await expect(
+      githubAppService.listInstallationRepositories({
+        installationId: 42,
+        workspaceId: otherWorkspace.id,
+        userId: "user-1",
+      }),
+    ).rejects.toMatchObject({
+      code: "workspace_forbidden",
+      status: 403,
+    });
+  });
+
+  test("allows workspace-scoped repository listings for owned workspaces", async () => {
+    const result = await githubAppService.listInstallationRepositories({
+      installationId: 42,
+      workspaceId: ownedWorkspace.id,
+      userId: "user-1",
+    });
+
+    expect(mockFindWorkspaceById).toHaveBeenCalledWith(ownedWorkspace.id);
+    expect(mockListInstallationRepositories).toHaveBeenCalledWith(42);
+    expect(result.totalCount).toBe(1);
+  });
+
+  test("filters installation listings down to linked workspace installations", async () => {
+    const result = await githubAppService.listInstallations({
+      workspaceId: ownedWorkspace.id,
+      userId: "user-1",
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 42,
+      }),
+    ]);
+    expect(result).toHaveLength(1);
   });
 });
