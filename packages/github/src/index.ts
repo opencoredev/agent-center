@@ -39,6 +39,7 @@ export type {
 export type {
   GitHubAppClientOptions,
   GitHubAppInstallation,
+  GitHubIssueCommentSummary,
   GitHubAppSummary,
   GitHubInstallationRepository,
   GitHubInstallationRepositoryPage,

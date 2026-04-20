@@ -278,6 +278,48 @@ export const githubAppService = {
     return createGitHubAppClient().createInstallationAccessToken(installationId);
   },
 
+  getWebhookMentionLogins() {
+    const slug = apiEnv.GITHUB_APP_SLUG?.trim();
+
+    if (!slug) {
+      return [];
+    }
+
+    return [slug, `${slug}[bot]`];
+  },
+
+  async createIssueComment(input: {
+    installationId: number;
+    owner: string;
+    repo: string;
+    issueNumber: number;
+    body: string;
+  }) {
+    const token = await createGitHubAppClient().createInstallationAccessToken(input.installationId);
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.issueNumber}/comments`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token.token}`,
+          "Content-Type": "application/json",
+          "User-Agent": "@agent-center/github-app",
+          "X-GitHub-Api-Version": GITHUB_API_VERSION,
+        },
+        body: JSON.stringify({
+          body: input.body,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new GitHubAppApiError(`Failed to create GitHub issue comment (${response.status})`, response.status);
+    }
+
+    return response.json();
+  },
+
   async resolveBotCommitAuthor(input: { installationId: number; token?: string }) {
     if (!apiEnv.GITHUB_APP_SLUG) {
       return {

@@ -1,5 +1,5 @@
 import { db, repoConnections } from "@agent-center/db";
-import { and, desc, eq, type SQL } from "drizzle-orm";
+import { and, desc, eq, ilike, sql, type SQL } from "drizzle-orm";
 
 export interface RepoConnectionListFilters {
   workspaceId?: string;
@@ -63,6 +63,23 @@ export async function findRepoConnectionByWorkspaceAndRepo(
       eq(repoConnections.provider, provider),
       eq(repoConnections.owner, owner),
       eq(repoConnections.repo, repo),
+    ),
+    orderBy: desc(repoConnections.createdAt),
+  });
+}
+
+export async function findGitHubAppRepoConnectionByRepository(input: {
+  owner: string;
+  repo: string;
+  installationId: number;
+}) {
+  return db.query.repoConnections.findFirst({
+    where: and(
+      eq(repoConnections.provider, "github"),
+      eq(repoConnections.authType, "github_app_installation"),
+      ilike(repoConnections.owner, input.owner),
+      ilike(repoConnections.repo, input.repo),
+      sql`(${repoConnections.connectionMetadata} ->> 'installationId')::bigint = ${input.installationId}`,
     ),
     orderBy: desc(repoConnections.createdAt),
   });

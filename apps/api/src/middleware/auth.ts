@@ -15,6 +15,7 @@ const PUBLIC_PATHS = [
   "/api/auth/claude/callback",
   "/api/auth/github/start",
   "/api/auth/github/callback",
+  "/api/github/webhook",
   "/api/runners/register",
   "/health",
   "/assets/",

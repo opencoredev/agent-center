@@ -60,6 +60,12 @@ export interface GitHubInstallationRepositoryPage {
   repositories: GitHubInstallationRepository[];
 }
 
+export interface GitHubIssueCommentSummary {
+  id: number;
+  body: string;
+  htmlUrl: string;
+}
+
 interface GitHubAppResponse {
   id: number;
   slug: string;
@@ -112,6 +118,12 @@ interface GitHubUserResponse {
   type: string;
   html_url: string;
   avatar_url?: string | null;
+}
+
+interface GitHubIssueCommentResponse {
+  id: number;
+  body: string;
+  html_url: string;
 }
 
 interface GitHubErrorBody {
@@ -232,6 +244,28 @@ export class GitHubAppClient {
     });
 
     return mapUser(response);
+  }
+
+  async createIssueComment(input: {
+    owner: string;
+    repo: string;
+    issueNumber: number;
+    body: string;
+    token: string;
+  }): Promise<GitHubIssueCommentSummary> {
+    const response = await this.#requestJson<GitHubIssueCommentResponse>({
+      path: `/repos/${encodeURIComponent(normalizeRequiredValue(input.owner, "repository owner"))}/${encodeURIComponent(normalizeRequiredValue(input.repo, "repository name"))}/issues/${input.issueNumber}/comments`,
+      method: "POST",
+      auth: {
+        type: "installation",
+        token: normalizeRequiredValue(input.token, "installation token"),
+      },
+      body: JSON.stringify({
+        body: normalizeRequiredValue(input.body, "issue comment body"),
+      }),
+    });
+
+    return mapIssueComment(response);
   }
 
   async #requestJson<T>(input: {
@@ -398,6 +432,14 @@ function mapUser(user: GitHubUserResponse): GitHubUserSummary {
     type: user.type,
     htmlUrl: user.html_url,
     avatarUrl: user.avatar_url ?? null,
+  };
+}
+
+function mapIssueComment(comment: GitHubIssueCommentResponse): GitHubIssueCommentSummary {
+  return {
+    id: comment.id,
+    body: comment.body,
+    htmlUrl: comment.html_url,
   };
 }
 
