@@ -197,6 +197,7 @@ describe("runner-bootstrap", () => {
       },
       {
         apiUrl: "http://api.example.test",
+        bootstrapToken: "service-bootstrap-token",
         envApiToken: "",
         fetchImpl,
         registrationToken: "",
@@ -210,5 +211,33 @@ describe("runner-bootstrap", () => {
       "http://api.example.test/api/runners/registration-tokens",
       "http://api.example.test/api/runners/register",
     ]);
+  });
+
+  test("does not auto-register without a bootstrap token", async () => {
+    const statePath = await createTempStatePath("runner-state.json");
+    let fetchCalled = false;
+    const fetchImpl: InternalApiFetch = async () => {
+      fetchCalled = true;
+      return new Response("unexpected", { status: 500 });
+    };
+
+    const { ensureRunnerApiToken } = await import("../lib/runner-bootstrap");
+
+    const result = await ensureRunnerApiToken(
+      {
+        workspaceId: "workspace_auto",
+      },
+      {
+        apiUrl: "http://api.example.test",
+        envApiToken: "",
+        fetchImpl,
+        registrationToken: "",
+        statePath,
+      },
+    );
+
+    expect(result.source).toBe("none");
+    expect(result.token).toBe("");
+    expect(fetchCalled).toBe(false);
   });
 });

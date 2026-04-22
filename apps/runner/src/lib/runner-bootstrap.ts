@@ -36,6 +36,7 @@ interface BootstrapLogger {
 
 export interface BootstrapRunnerAuthOptions {
   apiUrl?: string;
+  bootstrapToken?: string;
   envApiToken?: string;
   fetchImpl?: InternalApiFetch;
   logger?: BootstrapLogger;
@@ -120,6 +121,7 @@ async function registerRunner(input: {
 
 async function createRegistrationToken(input: {
   apiUrl: string;
+  bootstrapToken: string;
   fetchImpl?: InternalApiFetch;
   runnerName: string;
   workspaceId: string;
@@ -139,7 +141,7 @@ async function createRegistrationToken(input: {
     {
       baseUrl: input.apiUrl,
       fetchImpl: input.fetchImpl,
-      token: "",
+      token: input.bootstrapToken,
     },
   );
 
@@ -162,6 +164,7 @@ export async function bootstrapRunnerAuth(
   const logger = options.logger ?? console;
   const statePath = options.statePath ?? runnerRuntimeEnv.RUNNER_STATE_PATH;
   const apiUrl = options.apiUrl ?? runnerRuntimeEnv.RUNNER_API_URL;
+  const bootstrapToken = trimToken(options.bootstrapToken ?? runnerRuntimeEnv.RUNNER_BOOTSTRAP_TOKEN);
   const envApiToken = trimToken(options.envApiToken ?? runnerRuntimeEnv.RUNNER_API_TOKEN);
 
   if (envApiToken) {
@@ -241,10 +244,16 @@ export async function ensureRunnerApiToken(
   const logger = options.logger ?? console;
   const statePath = options.statePath ?? runnerRuntimeEnv.RUNNER_STATE_PATH;
   const apiUrl = options.apiUrl ?? runnerRuntimeEnv.RUNNER_API_URL;
+  const bootstrapToken = trimToken(options.bootstrapToken ?? runnerRuntimeEnv.RUNNER_BOOTSTRAP_TOKEN);
 
   try {
+    if (!bootstrapToken) {
+      return initial;
+    }
+
     const registrationToken = await createRegistrationToken({
       apiUrl,
+      bootstrapToken,
       fetchImpl: options.fetchImpl,
       runnerName: input.runnerName ?? "Local Runner",
       workspaceId: input.workspaceId,

@@ -223,6 +223,10 @@ export const runnerService = {
   },
 
   async authenticate(token: string) {
+    if (token.startsWith(RUNNER_REGISTRATION_TOKEN_PREFIX)) {
+      throw new ApiError(401, "runner_unauthorized", "Runner registration tokens cannot be used for runner authentication");
+    }
+
     if (!token.startsWith(RUNNER_AUTH_TOKEN_PREFIX)) {
       throw new ApiError(401, "runner_unauthorized", "Invalid runner token");
     }
@@ -236,6 +240,8 @@ export const runnerService = {
     void updateRunner(runner.id, {
       lastSeenAt: new Date(),
       updatedAt: new Date(),
+    }).catch((error) => {
+      console.warn("[runner-service] failed to update lastSeenAt", error);
     });
 
     return runner;

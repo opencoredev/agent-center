@@ -11,7 +11,7 @@ interface RunnerRegistrationTokenFilters {
 }
 
 function buildRunnerFilters(filters: RunnerFilters) {
-  const conditions: SQL[] = [];
+  const conditions: SQL[] = [isNull(runners.revokedAt)];
 
   if (filters.workspaceId !== undefined) {
     conditions.push(eq(runners.workspaceId, filters.workspaceId));

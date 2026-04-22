@@ -35,6 +35,7 @@ function parsePollInterval(value: string | undefined) {
 
 export const runnerRuntimeEnv = {
   ...runnerEnv,
+  RUNNER_BOOTSTRAP_TOKEN: process.env.RUNNER_BOOTSTRAP_TOKEN?.trim() ?? "",
   RUNNER_CLEANUP_MODE: parseCleanupMode(process.env.RUNNER_CLEANUP_MODE),
   RUNNER_CONTROL_POLL_INTERVAL_MS: parsePollInterval(process.env.RUNNER_CONTROL_POLL_INTERVAL_MS),
   RUNNER_API_TOKEN: process.env.RUNNER_API_TOKEN?.trim() ?? "",

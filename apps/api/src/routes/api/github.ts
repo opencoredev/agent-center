@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { Effect } from "effect";
+import type { Context } from "hono";
 
 import { runApiEffect, tryApiPromise } from "../../effect/http";
 import { validateParams, validateQuery } from "../../http/validation";
@@ -21,6 +22,33 @@ const githubInstallationsQuerySchema = z
   .strict();
 
 export const githubRoutes = new Hono<ApiEnv>();
+
+async function listInstallationsHandler(context: Context<ApiEnv>) {
+  const { workspaceId } = validateQuery(context, githubInstallationsQuerySchema);
+  const userId = context.get("userId");
+
+  return runApiEffect(
+    context,
+    tryApiPromise(() => githubAppService.listInstallations({ workspaceId, userId })),
+  );
+}
+
+async function listInstallationRepositoriesHandler(context: Context<ApiEnv>) {
+  const { installationId } = validateParams(context, installationIdParamsSchema);
+  const { workspaceId } = validateQuery(context, githubInstallationsQuerySchema);
+  const userId = context.get("userId");
+
+  return runApiEffect(
+    context,
+    tryApiPromise(() =>
+      githubAppService.listInstallationRepositories({
+        installationId,
+        workspaceId,
+        userId,
+      }),
+    ),
+  );
+}
 
 githubRoutes.post("/webhook", async (context) => {
   const rawBody = await context.req.text();
@@ -50,56 +78,7 @@ githubRoutes.get("/app", async (context) => {
   return runApiEffect(context, tryApiPromise(() => githubAppService.getStatus()));
 });
 
-githubRoutes.get("/installations", async (context) => {
-  const { workspaceId } = validateQuery(context, githubInstallationsQuerySchema);
-  const userId = context.get("userId");
-
-  return runApiEffect(
-    context,
-    tryApiPromise(() => githubAppService.listInstallations({ workspaceId, userId })),
-  );
-});
-
-githubRoutes.get("/app/installations", async (context) => {
-  const { workspaceId } = validateQuery(context, githubInstallationsQuerySchema);
-  const userId = context.get("userId");
-
-  return runApiEffect(
-    context,
-    tryApiPromise(() => githubAppService.listInstallations({ workspaceId, userId })),
-  );
-});
-
-githubRoutes.get("/installations/:installationId/repositories", async (context) => {
-  const { installationId } = validateParams(context, installationIdParamsSchema);
-  const { workspaceId } = validateQuery(context, githubInstallationsQuerySchema);
-  const userId = context.get("userId");
-
-  return runApiEffect(
-    context,
-    tryApiPromise(() =>
-      githubAppService.listInstallationRepositories({
-        installationId,
-        workspaceId,
-        userId,
-      }),
-    ),
-  );
-});
-
-githubRoutes.get("/app/installations/:installationId/repositories", async (context) => {
-  const { installationId } = validateParams(context, installationIdParamsSchema);
-  const { workspaceId } = validateQuery(context, githubInstallationsQuerySchema);
-  const userId = context.get("userId");
-
-  return runApiEffect(
-    context,
-    tryApiPromise(() =>
-      githubAppService.listInstallationRepositories({
-        installationId,
-        workspaceId,
-        userId,
-      }),
-    ),
-  );
-});
+githubRoutes.get("/installations", listInstallationsHandler);
+githubRoutes.get("/app/installations", listInstallationsHandler);
+githubRoutes.get("/installations/:installationId/repositories", listInstallationRepositoriesHandler);
+githubRoutes.get("/app/installations/:installationId/repositories", listInstallationRepositoriesHandler);

@@ -260,6 +260,7 @@ async function resolveCodexCredential(): Promise<ResolvedCredential> {
 
 function resolveRunnerEnvCredential(
   provider: Provider,
+  workspaceId: string,
   envFallbackKey: string,
   errorCode: string,
   errorMessage: string,
@@ -271,33 +272,37 @@ function resolveRunnerEnvCredential(
 
   throw new ApiError(422, errorCode, errorMessage, {
     provider,
+    workspaceId,
     requiresWorkspaceScopedCredential: true,
+    workspaceScopedCredentialLookupImplemented: false,
   });
 }
 
-async function resolveRunnerClaudeCredential(_workspaceId: string): Promise<ResolvedCredential> {
+async function resolveRunnerClaudeCredential(workspaceId: string): Promise<ResolvedCredential> {
   if (apiEnv.NODE_ENV !== "production" || process.env.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS === "true") {
     return resolveClaudeCredential();
   }
 
   return resolveRunnerEnvCredential(
     "claude",
+    workspaceId,
     "ANTHROPIC_API_KEY",
     "no_runner_claude_credentials",
-    "No runner-safe Claude credentials configured. Self-hosted runners can only use env-backed or workspace-scoped credentials.",
+    "No runner-safe Claude credentials configured. Production runners currently support env-backed credentials only for this workspace.",
   );
 }
 
-async function resolveRunnerOpenAICredential(_workspaceId: string): Promise<ResolvedCredential> {
+async function resolveRunnerOpenAICredential(workspaceId: string): Promise<ResolvedCredential> {
   if (apiEnv.NODE_ENV !== "production" || process.env.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS === "true") {
     return resolveOpenAICredential();
   }
 
   return resolveRunnerEnvCredential(
     "openai",
+    workspaceId,
     "OPENAI_API_KEY",
     "no_runner_openai_credentials",
-    "No runner-safe OpenAI credentials configured. Self-hosted runners can only use env-backed or workspace-scoped credentials.",
+    "No runner-safe OpenAI credentials configured. Production runners currently support env-backed credentials only for this workspace.",
   );
 }
 
