@@ -66,10 +66,7 @@ async function storeProviderApiKey(provider: Provider, apiKey: string): Promise<
   };
 
   if (existing[0]) {
-    await db
-      .update(credentials)
-      .set(values)
-      .where(eq(credentials.id, existing[0].id));
+    await db.update(credentials).set(values).where(eq(credentials.id, existing[0].id));
   } else {
     await db.insert(credentials).values({
       provider,
@@ -122,7 +119,10 @@ async function storeClaudeApiKey(apiKey: string): Promise<void> {
   return storeProviderApiKey("claude", apiKey);
 }
 
-async function updateClaudeProfile(email: string | null, subscriptionType: string | null): Promise<void> {
+async function updateClaudeProfile(
+  email: string | null,
+  subscriptionType: string | null,
+): Promise<void> {
   const existing = await db
     .select({ id: credentials.id })
     .from(credentials)
@@ -184,17 +184,12 @@ async function storeOpenAITokens(
     encryptedRefreshToken: encrypt(refreshToken, key),
     encryptedApiKey: null,
     metadata: idToken ? { idToken } : {},
-    tokenExpiresAt: expiresIn
-      ? new Date(Date.now() + expiresIn * 1000)
-      : null,
+    tokenExpiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000) : null,
     updatedAt: new Date(),
   };
 
   if (existing[0]) {
-    await db
-      .update(credentials)
-      .set(values)
-      .where(eq(credentials.id, existing[0].id));
+    await db.update(credentials).set(values).where(eq(credentials.id, existing[0].id));
   } else {
     await db.insert(credentials).values({
       provider: "openai",
@@ -263,6 +258,54 @@ async function resolveCodexCredential(): Promise<ResolvedCredential> {
   return resolveOpenAICredential();
 }
 
+function resolveRunnerEnvCredential(
+  provider: Provider,
+  workspaceId: string,
+  envFallbackKey: string,
+  errorCode: string,
+  errorMessage: string,
+): ResolvedCredential {
+  const envApiKey = process.env[envFallbackKey];
+  if (envApiKey) {
+    return { type: "api_key", value: envApiKey };
+  }
+
+  throw new ApiError(422, errorCode, errorMessage, {
+    provider,
+    workspaceId,
+    requiresWorkspaceScopedCredential: true,
+    workspaceScopedCredentialLookupImplemented: false,
+  });
+}
+
+async function resolveRunnerClaudeCredential(workspaceId: string): Promise<ResolvedCredential> {
+  if (apiEnv.NODE_ENV !== "production" || process.env.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS === "true") {
+    return resolveClaudeCredential();
+  }
+
+  return resolveRunnerEnvCredential(
+    "claude",
+    workspaceId,
+    "ANTHROPIC_API_KEY",
+    "no_runner_claude_credentials",
+    "No runner-safe Claude credentials configured. Production runners currently support env-backed credentials only for this workspace.",
+  );
+}
+
+async function resolveRunnerOpenAICredential(workspaceId: string): Promise<ResolvedCredential> {
+  if (apiEnv.NODE_ENV !== "production" || process.env.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS === "true") {
+    return resolveOpenAICredential();
+  }
+
+  return resolveRunnerEnvCredential(
+    "openai",
+    workspaceId,
+    "OPENAI_API_KEY",
+    "no_runner_openai_credentials",
+    "No runner-safe OpenAI credentials configured. Production runners currently support env-backed credentials only for this workspace.",
+  );
+}
+
 export const credentialService = {
   // Claude
   getClaudeCredentials,
@@ -270,6 +313,7 @@ export const credentialService = {
   updateClaudeProfile,
   resolveCredential,
   resolveClaudeCredential,
+  resolveRunnerClaudeCredential,
   deleteClaudeCredentials,
   // OpenAI
   getOpenAICredentials,
@@ -277,5 +321,6 @@ export const credentialService = {
   storeOpenAITokens,
   resolveCodexCredential,
   resolveOpenAICredential,
+  resolveRunnerOpenAICredential,
   deleteOpenAICredentials,
 };

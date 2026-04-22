@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { eq, gt } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 
 import { db, apiKeys, sessions } from "@agent-center/db";
@@ -13,6 +13,10 @@ const PUBLIC_PATHS = [
   "/api/auth/google/callback",
   "/api/auth/claude/start",
   "/api/auth/claude/callback",
+  "/api/auth/github/start",
+  "/api/auth/github/callback",
+  "/api/github/webhook",
+  "/api/runners/register",
   "/health",
   "/assets/",
 ];
@@ -22,12 +26,13 @@ function isPublicPath(path: string): boolean {
   return PUBLIC_PATHS.some((p) => path.startsWith(p));
 }
 
-function isInternalPath(path: string): boolean {
-  return path.startsWith("/internal/");
-}
-
 function isFrontendPath(path: string): boolean {
-  return !path.startsWith("/api/") && !path.startsWith("/ws") && !path.startsWith("/internal/") && path !== "/health";
+  return (
+    !path.startsWith("/api/") &&
+    !path.startsWith("/ws") &&
+    !path.startsWith("/internal/") &&
+    path !== "/health"
+  );
 }
 
 /**
@@ -37,14 +42,17 @@ function isFrontendPath(path: string): boolean {
  * 2. Session tokens (Bearer sess_xxx) — looked up in sessions table
  * 3. Legacy basic auth tokens (Bearer <hex>) — from in-memory tokenStore (backwards compat)
  *
- * When AUTH_USERNAME/AUTH_PASSWORD are not set and DEPLOY_MODE is 'self-hosted' (default),
- * auth is disabled entirely.
+ * Internal routes use their own dedicated auth middleware and are allowed to
+ * continue through this layer untouched.
+ *
+ * When AUTH_USERNAME/AUTH_PASSWORD are not set and DEPLOY_MODE is 'self-hosted'
+ * (default), user auth is disabled entirely.
  */
 export const authMiddleware = createMiddleware(async (context, next) => {
   const path = new URL(context.req.url).pathname;
 
-  // Always allow public paths, internal paths, and frontend assets
-  if (isPublicPath(path) || isInternalPath(path) || isFrontendPath(path)) {
+  // Always allow public paths, internal routes with dedicated middleware, and frontend assets
+  if (isPublicPath(path) || path.startsWith("/internal/") || isFrontendPath(path)) {
     return next();
   }
 
@@ -67,11 +75,7 @@ export const authMiddleware = createMiddleware(async (context, next) => {
   // Strategy 1: API key (prefixed with ac_)
   if (token.startsWith("ac_")) {
     const keyHash = createHash("sha256").update(token).digest("hex");
-    const [apiKey] = await db
-      .select()
-      .from(apiKeys)
-      .where(eq(apiKeys.keyHash, keyHash))
-      .limit(1);
+    const [apiKey] = await db.select().from(apiKeys).where(eq(apiKeys.keyHash, keyHash)).limit(1);
 
     if (!apiKey) {
       throw new ApiError(401, "unauthorized", "Invalid API key");
@@ -92,11 +96,7 @@ export const authMiddleware = createMiddleware(async (context, next) => {
 
   // Strategy 2: Session token (prefixed with sess_)
   if (token.startsWith("sess_")) {
-    const [session] = await db
-      .select()
-      .from(sessions)
-      .where(eq(sessions.token, token))
-      .limit(1);
+    const [session] = await db.select().from(sessions).where(eq(sessions.token, token)).limit(1);
 
     if (!session) {
       throw new ApiError(401, "unauthorized", "Invalid session");

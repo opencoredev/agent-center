@@ -5,6 +5,8 @@ import { automations } from "./automations";
 import { credentials } from "./credentials";
 import { projects } from "./projects";
 import { repoConnections } from "./repo-connections";
+import { runnerRegistrationTokens } from "./runner-registration-tokens";
+import { runners } from "./runners";
 import { runEvents } from "./run-events";
 import { runs } from "./runs";
 import { sessions } from "./sessions";
@@ -17,6 +19,8 @@ import { workspaces } from "./workspaces";
 export const userRelations = relations(users, ({ many }) => ({
   apiKeys: many(apiKeys),
   credentials: many(credentials),
+  runnerRegistrationTokens: many(runnerRegistrationTokens),
+  runners: many(runners),
   sessions: many(sessions),
   workspaces: many(workspaces),
 }));
@@ -52,7 +56,31 @@ export const workspaceRelations = relations(workspaces, ({ many, one }) => ({
   automations: many(automations),
   projects: many(projects),
   repoConnections: many(repoConnections),
+  runnerRegistrationTokens: many(runnerRegistrationTokens),
+  runners: many(runners),
   tasks: many(tasks),
+}));
+
+export const runnerRelations = relations(runners, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [runners.workspaceId],
+    references: [workspaces.id],
+  }),
+  createdByUser: one(users, {
+    fields: [runners.createdByUserId],
+    references: [users.id],
+  }),
+}));
+
+export const runnerRegistrationTokenRelations = relations(runnerRegistrationTokens, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [runnerRegistrationTokens.workspaceId],
+    references: [workspaces.id],
+  }),
+  createdByUser: one(users, {
+    fields: [runnerRegistrationTokens.createdByUserId],
+    references: [users.id],
+  }),
 }));
 
 export const projectRelations = relations(projects, ({ many, one }) => ({

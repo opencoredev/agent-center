@@ -32,3 +32,9 @@ export const runControlSchema = z
     reason: optionalNullableTextSchema,
   })
   .strict();
+
+export const runPublishSchema = z
+  .object({
+    mode: z.literal("draft_pr").default("draft_pr"),
+  })
+  .strict();

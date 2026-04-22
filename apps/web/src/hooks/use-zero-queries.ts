@@ -22,12 +22,15 @@ interface TaskRow {
   prompt: string;
   status: string;
   metadata: Record<string, unknown>;
+  publication: PublicationSummary;
   config: {
     agentProvider?: string;
     agentModel?: string;
     agentPrompt?: string;
     agentReasoningEffort?: AgentReasoningEffort;
     agentThinkingEnabled?: boolean;
+    prBody?: string;
+    prTitle?: string;
     runtime?: ExecutionRuntime;
   };
   sandboxSize: string;
@@ -49,12 +52,15 @@ interface RunRow {
   completedAt: string | number | null;
   errorMessage: string | null;
   metadata: Record<string, unknown>;
+  publication: PublicationSummary;
   config: {
     agentProvider?: string;
     agentModel?: string;
     agentPrompt?: string;
     agentReasoningEffort?: AgentReasoningEffort;
     agentThinkingEnabled?: boolean;
+    prBody?: string;
+    prTitle?: string;
     runtime?: ExecutionRuntime;
   };
   baseBranch: string | null;
@@ -63,6 +69,28 @@ interface RunRow {
   permissionMode: string;
   workspacePath?: string | null;
   createdAt: string | number;
+}
+
+interface PublicationPullRequestSummary {
+  body: string | null;
+  draft: boolean | null;
+  htmlUrl: string | null;
+  id: string | null;
+  number: number | null;
+  state: string | null;
+  title: string | null;
+  url: string | null;
+}
+
+interface PublicationSummary {
+  attemptedAt: string | null;
+  baseBranch: string | null;
+  error: string | null;
+  headBranch: string | null;
+  provider: string | null;
+  publishedAt: string | null;
+  pullRequest: PublicationPullRequestSummary | null;
+  status: string;
 }
 
 interface TaskListResult {
@@ -91,6 +119,51 @@ function ts(v: string | number | null | undefined): string {
   return v;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asString(value: unknown) {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function asBoolean(value: unknown) {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function asNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function serializePublicationState(metadata: unknown): PublicationSummary {
+  const publication = asRecord(asRecord(metadata)?.publication);
+  const pullRequest = asRecord(publication?.pullRequest);
+
+  return {
+    status: asString(publication?.status) ?? 'unpublished',
+    provider: asString(publication?.provider),
+    attemptedAt: asString(publication?.attemptedAt),
+    publishedAt: asString(publication?.publishedAt),
+    error: asString(publication?.error),
+    headBranch: asString(publication?.headBranch),
+    baseBranch: asString(publication?.baseBranch),
+    pullRequest: pullRequest
+      ? {
+          id: asString(pullRequest.id),
+          number: asNumber(pullRequest.number),
+          state: asString(pullRequest.state),
+          title: asString(pullRequest.title),
+          body: asString(pullRequest.body),
+          url: asString(pullRequest.url),
+          htmlUrl: asString(pullRequest.htmlUrl),
+          draft: asBoolean(pullRequest.draft),
+        }
+      : null,
+  };
+}
+
 function zeroTaskToRow(t: ZTask): TaskRow {
   return {
     id: t.id,
@@ -101,6 +174,7 @@ function zeroTaskToRow(t: ZTask): TaskRow {
     prompt: t.prompt,
     status: t.status ?? 'pending',
     metadata: (t.metadata ?? {}) as Record<string, unknown>,
+    publication: serializePublicationState(t.metadata),
     config: (t.config ?? {}) as TaskRow['config'],
     sandboxSize: t.sandboxSize ?? 'medium',
     permissionMode: t.permissionMode ?? 'safe',
@@ -123,6 +197,7 @@ function zeroRunToRow(r: ZRun): RunRow {
     completedAt: r.completedAt ? ts(r.completedAt) : null,
     errorMessage: r.errorMessage ?? null,
     metadata: (r.metadata ?? {}) as Record<string, unknown>,
+    publication: serializePublicationState(r.metadata),
     config: (r.config ?? {}) as RunRow['config'],
     baseBranch: r.baseBranch ?? null,
     branchName: r.branchName ?? null,

@@ -3,17 +3,18 @@ import {
   GitHubAuthenticationError,
   GitHubProviderError,
   createGitHubProvider,
-} from "../../../../packages/github/src/index.ts";
+} from "@agent-center/github";
 import type { GitRepository, RepoProvider } from "@agent-center/shared";
 
 import { ApiError, notFoundError } from "../http/errors";
+import { githubAppService } from "./github-app-service";
 import {
   createRepoConnection,
   deleteRepoConnection,
   findRepoConnectionById,
-  findRepoConnectionByWorkspaceAndRepo,
   findRepoConnectionByWorkspaceAndId,
   listRepoConnections,
+  updateRepoConnection,
 } from "../repositories/repo-connection-repository";
 import { findWorkspaceById } from "../repositories/workspace-repository";
 import { projectService } from "./project-service";
@@ -38,11 +39,20 @@ class GitHubRepoConnectionTester implements RepoConnectionTester {
   #provider = createGitHubProvider();
 
   async test(connection: RepoConnectionRecord): Promise<RepoConnectionTestResult> {
+    const installationId = Number(
+      (connection.connectionMetadata as Record<string, unknown> | null)?.installationId,
+    );
+    const token =
+      connection.authType === "github_app_installation" && Number.isInteger(installationId) && installationId > 0
+        ? (await githubAppService.getInstallationAccessToken(installationId)).token
+        : undefined;
+
     const access = await this.#provider.testRepositoryAccess({
       owner: connection.owner,
       repo: connection.repo,
       authType: connection.authType,
       connectionMetadata: connection.connectionMetadata,
+      token,
     });
 
     return {
@@ -62,6 +72,70 @@ const repoConnectionTesters: Record<RepoProvider, RepoConnectionTester> = {
 
 function getRepoConnectionTester(provider: RepoProvider) {
   return repoConnectionTesters[provider];
+}
+
+async function assertWorkspaceAccess(workspaceId: string, userId?: string) {
+  const workspace = await findWorkspaceById(workspaceId);
+
+  if (workspace === undefined) {
+    throw notFoundError("workspace", workspaceId);
+  }
+
+  if (userId && workspace.ownerId !== userId) {
+    throw new ApiError(403, "workspace_forbidden", "You do not have access to this workspace", {
+      workspaceId,
+    });
+  }
+
+  return workspace;
+}
+
+async function resolveGitHubInstallationRepository(input: {
+  workspaceId: string;
+  authType: string;
+  connectionMetadata: Record<string, unknown> | null;
+  owner: string;
+  repo: string;
+}) {
+  if (input.authType !== "github_app_installation") {
+    return null;
+  }
+
+  const installationId = Number(input.connectionMetadata?.installationId);
+
+  if (!Number.isInteger(installationId) || installationId <= 0) {
+    throw new ApiError(
+      400,
+      "github_installation_required",
+      "GitHub App connections must include a valid installationId",
+    );
+  }
+
+  const repositories = await githubAppService.listInstallationRepositories({
+    installationId,
+    workspaceId: input.workspaceId,
+    enforceLinkedScope: false,
+  });
+  const repository = repositories.repositories.find(
+    (candidate) =>
+      candidate.ownerLogin.toLowerCase() === input.owner.toLowerCase() &&
+      candidate.name.toLowerCase() === input.repo.toLowerCase(),
+  );
+
+  if (!repository) {
+    throw new ApiError(
+      403,
+      "github_installation_repository_forbidden",
+      "The selected GitHub App installation does not have access to this repository",
+      {
+        installationId,
+        owner: input.owner,
+        repo: input.repo,
+      },
+    );
+  }
+
+  return repository;
 }
 
 function buildRepoConnectionTestError(result: RepoConnectionTestResult, repoConnectionId: string) {
@@ -143,7 +217,14 @@ function normalizeRepoConnectionTestError(error: unknown, repoConnectionId: stri
 }
 
 export const repoConnectionService = {
-  async list(filters: { workspaceId?: string; projectId?: string; provider?: RepoProvider }) {
+  async list(
+    filters: { workspaceId?: string; projectId?: string; provider?: RepoProvider },
+    userId?: string,
+  ) {
+    if (filters.workspaceId) {
+      await assertWorkspaceAccess(filters.workspaceId, userId);
+    }
+
     const repoConnections = await listRepoConnections(filters);
     const deduped = new Map<string, (typeof repoConnections)[number]>();
 
@@ -172,16 +253,14 @@ export const repoConnectionService = {
     defaultBranch: string | null;
     authType: string;
     connectionMetadata: Record<string, unknown> | null;
-  }) {
-    const workspace = await findWorkspaceById(input.workspaceId);
-
-    if (workspace === undefined) {
-      throw notFoundError("workspace", input.workspaceId);
-    }
+  }, userId?: string) {
+    await assertWorkspaceAccess(input.workspaceId, userId);
 
     if (input.projectId !== null) {
       await projectService.assertWithinWorkspace(input.workspaceId, input.projectId);
     }
+
+    const installationRepository = await resolveGitHubInstallationRepository(input);
 
     const existing = (await listRepoConnections({
       workspaceId: input.workspaceId,
@@ -192,17 +271,52 @@ export const repoConnectionService = {
         repoConnection.repo.toLowerCase() === input.repo.toLowerCase(),
     );
 
+    const resolvedDefaultBranch = input.defaultBranch ?? installationRepository?.defaultBranch ?? null;
+    const resolvedProject =
+      input.projectId !== null
+        ? await projectService.assertWithinWorkspace(input.workspaceId, input.projectId)
+        : installationRepository
+          ? await projectService.findOrCreateRepositoryProject({
+              workspaceId: input.workspaceId,
+              owner: input.owner,
+              repo: input.repo,
+              defaultBranch: resolvedDefaultBranch ?? "main",
+            })
+          : null;
+
     if (existing) {
+      const nextProjectId = resolvedProject?.id ?? existing.projectId;
+      const nextDefaultBranch = resolvedDefaultBranch ?? existing.defaultBranch;
+      const nextAuthType = input.authType;
+      const nextConnectionMetadata = input.connectionMetadata;
+      const shouldUpdate =
+        nextProjectId !== existing.projectId ||
+        nextDefaultBranch !== existing.defaultBranch ||
+        nextAuthType !== existing.authType ||
+        JSON.stringify(nextConnectionMetadata ?? null) !==
+          JSON.stringify((existing.connectionMetadata as Record<string, unknown> | null) ?? null);
+
+      if (shouldUpdate) {
+        const updated = await updateRepoConnection(existing.id, {
+          projectId: nextProjectId,
+          defaultBranch: nextDefaultBranch,
+          authType: nextAuthType,
+          connectionMetadata: nextConnectionMetadata,
+          updatedAt: new Date(),
+        });
+        return serializeRepoConnection(updated);
+      }
+
       return serializeRepoConnection(existing);
     }
 
     const repoConnection = await createRepoConnection({
       workspaceId: input.workspaceId,
-      projectId: input.projectId,
+      projectId: resolvedProject?.id ?? input.projectId,
       provider: input.provider,
       owner: input.owner,
       repo: input.repo,
-      defaultBranch: input.defaultBranch,
+      defaultBranch: resolvedDefaultBranch,
       authType: input.authType,
       connectionMetadata: input.connectionMetadata,
     });
@@ -210,34 +324,40 @@ export const repoConnectionService = {
     return serializeRepoConnection(repoConnection);
   },
 
-  async getById(repoConnectionId: string) {
+  async getById(repoConnectionId: string, userId?: string) {
     const repoConnection = await findRepoConnectionById(repoConnectionId);
 
     if (repoConnection === undefined) {
       throw notFoundError("repo_connection", repoConnectionId);
     }
+
+    await assertWorkspaceAccess(repoConnection.workspaceId, userId);
 
     return serializeRepoConnection(repoConnection);
   },
 
-  async delete(repoConnectionId: string) {
+  async delete(repoConnectionId: string, userId?: string) {
     const repoConnection = await findRepoConnectionById(repoConnectionId);
 
     if (repoConnection === undefined) {
       throw notFoundError("repo_connection", repoConnectionId);
     }
+
+    await assertWorkspaceAccess(repoConnection.workspaceId, userId);
 
     await deleteRepoConnection(repoConnectionId);
 
     return { deleted: true as const };
   },
 
-  async test(repoConnectionId: string) {
+  async test(repoConnectionId: string, userId?: string) {
     const repoConnection = await findRepoConnectionById(repoConnectionId);
 
     if (repoConnection === undefined) {
       throw notFoundError("repo_connection", repoConnectionId);
     }
+
+    await assertWorkspaceAccess(repoConnection.workspaceId, userId);
 
     const tester = getRepoConnectionTester(repoConnection.provider);
 

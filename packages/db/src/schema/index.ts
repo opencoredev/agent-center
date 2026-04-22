@@ -5,6 +5,8 @@ export * from "./enums";
 export * from "./projects";
 export * from "./relations";
 export * from "./repo-connections";
+export * from "./runner-registration-tokens";
+export * from "./runners";
 export * from "./run-events";
 export * from "./runs";
 export * from "./sessions";

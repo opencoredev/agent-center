@@ -1,5 +1,5 @@
 import { db, tasks } from "@agent-center/db";
-import { and, desc, eq, type SQL } from "drizzle-orm";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 
 export interface TaskListFilters {
   workspaceId?: string;
@@ -36,6 +36,13 @@ export function listTasks(filters: TaskListFilters) {
 export async function findTaskById(taskId: string) {
   return db.query.tasks.findFirst({
     where: eq(tasks.id, taskId),
+  });
+}
+
+export async function findTaskByGitHubDeliveryId(deliveryId: string) {
+  return db.query.tasks.findFirst({
+    where: sql`${tasks.metadata} -> 'github' ->> 'deliveryId' = ${deliveryId}`,
+    orderBy: desc(tasks.createdAt),
   });
 }
 

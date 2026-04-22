@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
-import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   ChevronDown,
@@ -25,7 +25,7 @@ import { Streamdown } from 'streamdown';
 import { code } from '@streamdown/code';
 import 'streamdown/styles.css';
 import type { ExecutionRuntime } from '@agent-center/shared';
-import { apiGet, apiPost } from '@/lib/api-client';
+import { apiFetch, apiGet, apiPost } from '@/lib/api-client';
 import { broadcastTaskSync } from '@/lib/task-sync';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -43,6 +43,12 @@ import { ZERO_ENABLED } from '@/hooks/use-zero';
 import { useTaskDetail, useRunEvents } from '@/hooks/use-zero-queries';
 import { useRunStream, type RunEvent } from '@/hooks/use-run-stream';
 
+import {
+  extractPersistedAssistantDelta,
+  mergeAssistantText,
+  normalizeAssistantText,
+} from './assistant-stream';
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 interface Task {
@@ -54,12 +60,15 @@ interface Task {
   prompt: string;
   status: string;
   metadata: Record<string, unknown>;
+  publication?: PublicationSummary;
   config: {
     agentProvider?: string;
     agentModel?: string;
     agentPrompt?: string;
     agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
     agentThinkingEnabled?: boolean;
+    prBody?: string;
+    prTitle?: string;
     runtime?: ExecutionRuntime;
   };
   sandboxSize: string;
@@ -81,12 +90,15 @@ interface Run {
   completedAt: string | number | null;
   errorMessage: string | null;
   metadata: Record<string, unknown>;
+  publication?: PublicationSummary;
   workspacePath?: string | null;
   config: {
     agentProvider?: string;
     agentModel?: string;
     agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
     agentThinkingEnabled?: boolean;
+    prBody?: string;
+    prTitle?: string;
     runtime?: ExecutionRuntime;
   };
   baseBranch: string | null;
@@ -94,6 +106,38 @@ interface Run {
   sandboxSize: string;
   permissionMode: string;
   createdAt: string | number;
+}
+
+interface RunDiffPayload {
+  available: boolean;
+  error: string | null;
+  hasChanges: boolean;
+  patch: string | null;
+  stats: string | null;
+  statusLines: string[];
+  workspacePath: string | null;
+}
+
+interface PublicationPullRequestSummary {
+  body: string | null;
+  draft: boolean | null;
+  htmlUrl: string | null;
+  id: string | null;
+  number: number | null;
+  state: string | null;
+  title: string | null;
+  url: string | null;
+}
+
+interface PublicationSummary {
+  attemptedAt: string | null;
+  baseBranch: string | null;
+  error: string | null;
+  headBranch: string | null;
+  provider: string | null;
+  publishedAt: string | null;
+  pullRequest: PublicationPullRequestSummary | null;
+  status: string;
 }
 
 interface FollowUpConfig {
@@ -185,9 +229,22 @@ function getInnerType(event: RunEvent): string {
 }
 
 function extractAssistantText(event: RunEvent): string | null {
+  const payloadItem =
+    event.payload && typeof event.payload.item === 'object' && event.payload.item !== null
+      ? (event.payload.item as Record<string, unknown>)
+      : null;
+
+  if (
+    payloadItem?.type === 'agent_message' &&
+    typeof payloadItem.text === 'string' &&
+    payloadItem.text.trim().length > 0
+  ) {
+    return payloadItem.text;
+  }
+
   if (
     event.message &&
-    ['assistant_message', 'assistant.message', 'agent.message'].includes(getInnerType(event))
+    ['assistant_message', 'assistant_message_delta', 'assistant.message', 'agent.message'].includes(getInnerType(event))
   ) {
     return event.message;
   }
@@ -199,6 +256,7 @@ function isAssistantMessage(event: RunEvent): boolean {
   const inner = getInnerType(event);
   return (
     inner === 'assistant_message' ||
+    inner === 'assistant_message_delta' ||
     inner === 'assistant.message' ||
     inner === 'agent.message' ||
     extractAssistantText(event) !== null
@@ -353,6 +411,179 @@ function extractUiSummary(metadata: Record<string, unknown> | undefined): Persis
   return raw as PersistedUiSummary;
 }
 
+type PublicationStatus = 'idle' | 'pending' | 'creating' | 'success' | 'error';
+
+interface PublicationState {
+  actionLabel: string;
+  description: string;
+  errorMessage: string | null;
+  prTitle: string | null;
+  prUrl: string | null;
+  status: PublicationStatus;
+  tone: 'muted' | 'info' | 'success' | 'error';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readString(value: unknown) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readPublicationRecord(metadata: Record<string, unknown> | undefined) {
+  if (!metadata) {
+    return null;
+  }
+
+  const nestedCandidates = [metadata.publication, metadata.publish, metadata.pr];
+  for (const candidate of nestedCandidates) {
+    if (isRecord(candidate)) {
+      return candidate;
+    }
+  }
+
+  if (
+    typeof metadata.publicationStatus === 'string' ||
+    typeof metadata.prUrl === 'string' ||
+    typeof metadata.prTitle === 'string' ||
+    typeof metadata.publicationError === 'string'
+  ) {
+    return metadata;
+  }
+
+  return null;
+}
+
+function normalizePublicationStatus(value: string | null | undefined, hasPrUrl: boolean): PublicationStatus {
+  const normalized = value?.trim().toLowerCase();
+
+  if (!normalized) {
+    return hasPrUrl ? 'success' : 'idle';
+  }
+
+  if (['pending', 'queued', 'requested'].includes(normalized)) {
+    return 'pending';
+  }
+
+  if (['creating', 'publishing', 'opening', 'in_progress'].includes(normalized)) {
+    return 'creating';
+  }
+
+  if (['success', 'completed', 'opened', 'published'].includes(normalized)) {
+    return 'success';
+  }
+
+  if (['error', 'failed'].includes(normalized)) {
+    return 'error';
+  }
+
+  return hasPrUrl ? 'success' : 'idle';
+}
+
+function derivePublicationState(
+  task: Task,
+  latestRun: Run | undefined,
+  events: RunEvent[],
+  isPublishing: boolean,
+): PublicationState {
+  const explicitPublication = latestRun?.publication ?? task.publication ?? null;
+  const runRecord = readPublicationRecord(latestRun?.metadata);
+  const taskRecord = readPublicationRecord(task.metadata);
+  const metadataRecord = runRecord ?? taskRecord;
+  const latestPrEvent = [...events].reverse().find((event) => event.eventType === 'git.pr.opened');
+  const eventPayload = isRecord(latestPrEvent?.payload) ? latestPrEvent.payload : null;
+
+  const prUrl =
+    explicitPublication?.pullRequest?.htmlUrl ??
+    explicitPublication?.pullRequest?.url ??
+    readString(metadataRecord?.prUrl) ??
+    readString(metadataRecord?.url) ??
+    readString(metadataRecord?.htmlUrl) ??
+    readString(eventPayload?.prUrl) ??
+    readString(eventPayload?.url) ??
+    readString(eventPayload?.htmlUrl);
+
+  const prTitle =
+    explicitPublication?.pullRequest?.title ??
+    readString(metadataRecord?.prTitle) ??
+    readString(metadataRecord?.title) ??
+    latestRun?.config.prTitle ??
+    task.config.prTitle ??
+    null;
+
+  const errorMessage =
+    explicitPublication?.error ??
+    readString(metadataRecord?.errorMessage) ??
+    readString(metadataRecord?.error) ??
+    readString(metadataRecord?.publicationError) ??
+    null;
+
+  const metadataStatus = normalizePublicationStatus(
+    explicitPublication?.status ??
+    readString(metadataRecord?.status) ?? readString(metadataRecord?.publicationStatus),
+    Boolean(prUrl),
+  );
+
+  const status: PublicationStatus =
+    isPublishing
+      ? 'creating'
+      : latestPrEvent
+        ? 'success'
+        : metadataStatus;
+
+  if (status === 'success') {
+    return {
+      actionLabel: prUrl ? 'View Draft PR' : 'Draft PR Opened',
+      description: prUrl
+        ? 'The run has already published a draft pull request. Open it in GitHub to review or keep iterating here.'
+        : 'The run published a draft pull request. Publication details should appear here once the backend returns them.',
+      errorMessage: null,
+      prTitle,
+      prUrl,
+      status,
+      tone: 'success',
+    };
+  }
+
+  if (status === 'error') {
+    return {
+      actionLabel: 'Retry Draft PR',
+      description:
+        'The task finished with changes, but opening the draft PR did not succeed. You can retry once publication is available.',
+      errorMessage,
+      prTitle,
+      prUrl,
+      status,
+      tone: 'error',
+    };
+  }
+
+  if (status === 'pending' || status === 'creating') {
+    return {
+      actionLabel: 'Opening Draft PR…',
+      description:
+        'Agent Center is preparing the branch and draft pull request. This card will update as soon as the backend reports publication progress.',
+      errorMessage: null,
+      prTitle,
+      prUrl,
+      status,
+      tone: 'info',
+    };
+  }
+
+  return {
+    actionLabel: 'Open Draft PR',
+    description:
+      'Task complete, want to open a draft PR? We will use the agent’s suggested title and description when the backend provides them.',
+    errorMessage: null,
+    prTitle,
+    prUrl: null,
+    status: 'idle',
+    tone: 'muted',
+  };
+}
+
 function extractUiSummaryItems(summary: PersistedUiSummary | null, mode: 'active' | 'completed'): ActivityItem[] {
   if (!summary) {
     return [];
@@ -425,6 +656,8 @@ function groupEventsIntoBlocks(
   blocks.push({ type: 'user', content: prompt, attachments, timestamp: taskCreatedAt });
 
   let currentToolEvents: RunEvent[] = [];
+  let pendingAssistantStream = '';
+  let pendingAssistantTimestamp: string | null = null;
 
   function flushTools() {
     if (currentToolEvents.length > 0) {
@@ -433,10 +666,47 @@ function groupEventsIntoBlocks(
     }
   }
 
+  function flushPendingAssistant() {
+    const text =
+      normalizeAssistantText(pendingAssistantStream).length > 0
+        ? normalizeAssistantText(pendingAssistantStream)
+        : null;
+    if (!text) {
+      pendingAssistantStream = '';
+      pendingAssistantTimestamp = null;
+      return;
+    }
+
+    if (normalizeAssistantText(text) !== normalizeAssistantText(lastAgentContent)) {
+      blocks.push({
+        type: 'agent',
+        content: text,
+        timestamp: pendingAssistantTimestamp ?? taskCreatedAt,
+      });
+      lastAgentContent = text;
+    }
+
+    pendingAssistantStream = '';
+    pendingAssistantTimestamp = null;
+  }
+
   let lastAgentContent = '';
 
   for (const event of events) {
     const visibility = isVisibleEvent(event);
+    const assistantDelta = extractPersistedAssistantDelta(event);
+
+    if (assistantDelta) {
+      if (options?.includeAssistantMessages === false) {
+        continue;
+      }
+      flushTools();
+      if (pendingAssistantTimestamp === null) {
+        pendingAssistantTimestamp = event.createdAt;
+      }
+      pendingAssistantStream = mergeAssistantText(pendingAssistantStream, assistantDelta);
+      continue;
+    }
 
     if (visibility === 'agent') {
       if (options?.includeAssistantMessages === false) {
@@ -444,17 +714,32 @@ function groupEventsIntoBlocks(
       }
       flushTools();
       const text = extractAssistantText(event) ?? event.message ?? '';
-      // Skip duplicate consecutive agent messages (e.g. from retried sessions)
-      if (text.trim() && text !== lastAgentContent) {
+
+      // Final assistant message replaces any accumulated streamed draft.
+      if (normalizeAssistantText(pendingAssistantStream).length > 0) {
+        const finalText = text.trim().length > 0 ? text : pendingAssistantStream;
+        pendingAssistantStream = '';
+        pendingAssistantTimestamp = null;
+
+        if (normalizeAssistantText(finalText) !== normalizeAssistantText(lastAgentContent)) {
+          blocks.push({ type: 'agent', content: finalText, timestamp: event.createdAt });
+          lastAgentContent = finalText;
+        }
+        continue;
+      }
+
+      if (text.trim() && normalizeAssistantText(text) !== normalizeAssistantText(lastAgentContent)) {
         blocks.push({ type: 'agent', content: text, timestamp: event.createdAt });
         lastAgentContent = text;
       }
     } else if (visibility === 'tool') {
+      flushPendingAssistant();
       currentToolEvents.push(event);
     }
     // Everything else: silently skip
   }
 
+  flushPendingAssistant();
   flushTools();
   return blocks;
 }
@@ -478,6 +763,14 @@ function buildConversationBlocks(task: Task, runs: Run[], eventsByRunId: Map<str
           includeAssistantMessages: true,
         },
       );
+      const assistantBlocks = runBlocks.filter(
+        (block): block is MessageBlock & { content: string } =>
+          block.type === 'agent' && typeof block.content === 'string' && block.content.trim().length > 0,
+      );
+      const assistantContent =
+        assistantBlocks.length > 0
+          ? assistantBlocks.map((block) => block.content.trim()).join('\n\n')
+          : null;
       const { setupItems, workItems } = splitActivityItems(runEvents);
       const firstAgentIndex = runBlocks.findIndex((block) => block.type === 'agent');
       const meaningfulWorkItems = workItems.filter((item) => !isLowSignalWorkItem(item));
@@ -497,7 +790,7 @@ function buildConversationBlocks(task: Task, runs: Run[], eventsByRunId: Map<str
 
       if (
         firstAgentIndex >= 0 &&
-        (displayReasoningItems.length > 0 || reasoningDuration !== undefined || isRunActive)
+        (displayReasoningItems.length > 0 || isRunActive)
       ) {
         const reasoningBlock: MessageBlock = {
           type: 'reasoning',
@@ -517,6 +810,7 @@ function buildConversationBlocks(task: Task, runs: Run[], eventsByRunId: Map<str
         };
 
         runBlocks.splice(firstAgentIndex, 0, reasoningBlock);
+        return runBlocks;
       } else if (firstAgentIndex === -1) {
         const activeItems = hasActualWorkStarted
           ? (workItems.length > 0 ? workItems : persistedReasoningItems)
@@ -525,6 +819,7 @@ function buildConversationBlocks(task: Task, runs: Run[], eventsByRunId: Map<str
           runBlocks.push({
             type: 'reasoning',
             activityItems: activeItems,
+            content: assistantContent ?? undefined,
             label:
               getRunStateLabel(run, persistedSummary, activeItems) ??
               (hasActualWorkStarted
@@ -798,18 +1093,7 @@ function buildActivityItems(events: RunEvent[]) {
         : null;
     const payloadType = typeof event.payload?.type === 'string' ? event.payload.type : null;
 
-    if (
-      payloadItem?.type === 'agent_message' &&
-      typeof payloadItem.text === 'string' &&
-      payloadItem.text.trim().length > 0
-    ) {
-      standalone.push({
-        id: typeof payloadItem.id === 'string' ? payloadItem.id : event.id,
-        kind: 'log',
-        label: 'Update',
-        message: payloadItem.text,
-        timestamp: event.createdAt,
-      });
+    if (extractPersistedAssistantDelta(event)) {
       continue;
     }
 
@@ -1080,14 +1364,16 @@ function InlineReasoningDetails({ items, label }: { items: ActivityItem[]; label
   }
 
   if (displayItems.length === 0) {
+    if (!isSetupLabel && !isStreaming) {
+      return null;
+    }
+
     return (
       <div className="mt-3 pl-6">
         <p className="text-xs text-muted-foreground/70">
           {isSetupLabel
             ? 'Setting up the workspace and repository.'
-            : isStreaming
-            ? 'Working details will appear here as the agent emits command or tool activity.'
-            : 'No detailed reasoning trace was emitted for this reply. The model returned a short answer directly.'}
+            : 'Working details will appear here as the agent emits command or tool activity.'}
         </p>
       </div>
     );
@@ -1282,6 +1568,53 @@ export function TaskDetailPage() {
     effectiveStatus === 'queued' || effectiveStatus === 'provisioning' || effectiveStatus === 'cloning'
       ? 'Setting up...'
       : 'Working...';
+  const publicationMutation = useMutation({
+    mutationFn: async () => {
+      if (!latestRun?.id) {
+        throw new Error('No completed run is available to publish yet.');
+      }
+
+      const response = await apiFetch(`/api/runs/${latestRun.id}/publish`, {
+        method: 'POST',
+      });
+
+      if (response.status === 404) {
+        throw new Error('Draft PR publishing is not available on this backend yet.');
+      }
+
+      if (!response.ok) {
+        let message = 'Could not open a draft PR. Try again.';
+
+        try {
+          const body = (await response.json()) as {
+            error?: {
+              message?: string;
+            };
+          };
+          if (typeof body?.error?.message === 'string' && body.error.message.trim().length > 0) {
+            message = body.error.message;
+          }
+        } catch {
+          // Ignore malformed error bodies and use the generic message.
+        }
+
+        throw new Error(message);
+      }
+
+      return response;
+    },
+    onSuccess: () => {
+      broadcastTaskSync('run_publication_requested');
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+      queryClient.invalidateQueries({ queryKey: ['task-runs', taskId] });
+      queryClient.invalidateQueries({ queryKey: ['run-events', latestRun?.id] });
+      queryClient.invalidateQueries({ queryKey: ['run-diff', latestRun?.id] });
+      toast.success('Draft PR request sent. This card will update when publication status arrives.');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
   const eventsByRunId = new Map<string, RunEvent[]>();
 
   for (const [index, run] of runs
@@ -1293,6 +1626,47 @@ export function TaskDetailPage() {
   if (latestRun) {
     eventsByRunId.set(latestRun.id, events);
   }
+
+  const publicationState = task
+    ? derivePublicationState(task, latestRun, events, publicationMutation.isPending)
+    : null;
+  const publicationProvider =
+    latestRun?.publication?.provider ?? task?.publication?.provider ?? null;
+  const headBranchForPublication =
+    latestRun?.publication?.headBranch ??
+    task?.publication?.headBranch ??
+    latestRun?.branchName ??
+    task?.branchName ??
+    null;
+  const baseBranchForPublication =
+    latestRun?.publication?.baseBranch ??
+    task?.publication?.baseBranch ??
+    latestRun?.baseBranch ??
+    task?.baseBranch ??
+    null;
+  const canRequestPublication = Boolean(
+    task?.repoConnectionId &&
+    latestRun?.id &&
+    baseBranchForPublication &&
+    (!publicationProvider || publicationProvider === 'github')
+  );
+  const publicationDiffQuery = useQuery({
+    queryKey: ['run-diff', latestRun?.id, 'publication-card'],
+    queryFn: () => apiGet<RunDiffPayload>(`/api/runs/${latestRun?.id}/diff`),
+    enabled: Boolean(
+      latestRun?.id &&
+      (publicationState?.status !== 'idle' || canRequestPublication) &&
+      (
+        effectiveStatus === 'completed' ||
+        publicationState?.status !== 'idle'
+      ),
+    ),
+    refetchInterval:
+      publicationState?.status === 'pending' || publicationState?.status === 'creating'
+        ? 3000
+        : false,
+    staleTime: 5000,
+  });
 
   useEffect(() => {
     setShouldAutoScroll(true);
@@ -1537,10 +1911,39 @@ export function TaskDetailPage() {
   );
 
   const blocks = buildConversationBlocks(task, runs, eventsByRunId);
-  const hasAssistantReply = blocks.some((block) => block.type === 'agent');
+  const hasAssistantReply = blocks.some(
+    (block) => block.type === 'agent' || (block.type === 'reasoning' && typeof block.content === 'string' && block.content.trim().length > 0),
+  );
   const canShowDiff = Boolean(latestRun?.workspacePath);
   const showInlineDiff = diffOpen && canShowDiff && !isNarrowDiffLayout;
   const showSheetDiff = diffOpen && canShowDiff && isNarrowDiffLayout;
+  const hasPublishableChanges = Boolean(
+    publicationDiffQuery.data?.available && publicationDiffQuery.data?.hasChanges,
+  );
+  const showPublicationCard = Boolean(task.repoConnectionId && latestRun?.id) && (
+    publicationState?.status !== 'idle' ||
+    (effectiveStatus === 'completed' &&
+      canRequestPublication &&
+      hasPublishableChanges)
+  );
+  const publicationToneClasses =
+    publicationState?.tone === 'success'
+      ? 'border-status-success/25 bg-status-success/8'
+      : publicationState?.tone === 'error'
+        ? 'border-status-error/25 bg-status-error/8'
+        : publicationState?.tone === 'info'
+          ? 'border-status-info/25 bg-status-info/8'
+          : 'border-border/70 bg-card/65';
+  const publicationStatusLabel =
+    publicationState?.status === 'creating'
+      ? 'Opening'
+      : publicationState?.status === 'pending'
+        ? 'Queued'
+        : publicationState?.status === 'success'
+          ? 'Ready'
+          : publicationState?.status === 'error'
+            ? 'Needs retry'
+            : 'Optional';
 
   return (
     <div className="flex h-full min-w-0">
@@ -1582,18 +1985,6 @@ export function TaskDetailPage() {
           </Button>
         ) : null}
 
-        {isActive && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs gap-1.5"
-            onClick={() => cancelMutation.mutate()}
-            disabled={cancelMutation.isPending}
-          >
-            <Square className="w-3 h-3" />
-            Cancel
-          </Button>
-        )}
         {effectiveStatus === 'failed' && (
           <Button
             variant="outline"
@@ -1707,6 +2098,18 @@ export function TaskDetailPage() {
                       )}
                     />
                     <ReasoningContent>
+                      {block.content ? (
+                        <div className="mb-4 pl-6">
+                          <div className="streamdown-content text-sm text-foreground">
+                            <Streamdown
+                              plugins={{ code }}
+                              mode="static"
+                            >
+                              {block.content}
+                            </Streamdown>
+                          </div>
+                        </div>
+                      ) : null}
                       <InlineReasoningDetails items={block.activityItems ?? []} label={block.label} />
                     </ReasoningContent>
                   </Reasoning>
@@ -1855,6 +2258,105 @@ export function TaskDetailPage() {
               )}
             </div>
           )}
+
+          {showPublicationCard && publicationState ? (
+            <div className={`mb-3 rounded-2xl border px-4 py-3 ${publicationToneClasses}`}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-background/70 text-foreground/80">
+                      {publicationState.status === 'success' ? (
+                        <Check className="h-4 w-4" />
+                      ) : publicationState.status === 'error' ? (
+                        <AlertTriangle className="h-4 w-4" />
+                      ) : publicationState.status === 'pending' || publicationState.status === 'creating' ? (
+                        <Clock3 className="h-4 w-4" />
+                      ) : (
+                        <GitBranch className="h-4 w-4" />
+                      )}
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium text-foreground">
+                          {publicationState.status === 'success'
+                            ? 'Draft PR ready'
+                            : publicationState.status === 'error'
+                              ? 'Draft PR needs another try'
+                              : publicationState.status === 'pending' || publicationState.status === 'creating'
+                                ? 'Opening draft PR'
+                                : 'Task complete, want to open a draft PR?'}
+                        </p>
+                        <span className="rounded-full border border-border/60 bg-background/75 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                          {publicationStatusLabel}
+                        </span>
+                      </div>
+
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {publicationState.description}
+                      </p>
+
+                      {publicationState.prTitle ? (
+                        <p className="mt-2 text-xs text-foreground/80">
+                          Suggested title: <span className="font-medium">{publicationState.prTitle}</span>
+                        </p>
+                      ) : null}
+
+                      {publicationState.errorMessage ? (
+                        <p className="mt-2 text-xs text-status-error">
+                          {publicationState.errorMessage}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  {publicationState.prUrl ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      onClick={() => window.open(publicationState.prUrl ?? '', '_blank', 'noopener,noreferrer')}
+                    >
+                      <CornerUpRight className="h-3.5 w-3.5" />
+                      View Draft PR
+                    </Button>
+                  ) : publicationState.status === 'success' ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      disabled
+                    >
+                      {publicationState.actionLabel}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      disabled={
+                        publicationMutation.isPending ||
+                        (
+                          publicationState.status === 'idle' &&
+                          !hasPublishableChanges
+                        )
+                      }
+                      onClick={() => publicationMutation.mutate()}
+                    >
+                      {publicationMutation.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      {publicationState.actionLabel}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <PromptBox
             onSubmit={(prompt, files) => followUpMutation.mutate({ prompt, files })}

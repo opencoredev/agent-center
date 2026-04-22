@@ -3,10 +3,21 @@ import {
   createProject,
   findProjectById,
   findProjectByWorkspaceAndId,
+  findProjectByWorkspaceAndSlug,
   listProjects,
 } from "../repositories/project-repository";
 import { findWorkspaceById } from "../repositories/workspace-repository";
 import { serializeProject } from "./serializers";
+
+function normalizeProjectSlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 64) || "project";
+}
 
 export const projectService = {
   async list(filters: { workspaceId?: string }) {
@@ -61,5 +72,37 @@ export const projectService = {
     }
 
     return project;
+  },
+
+  async findOrCreateRepositoryProject(input: {
+    workspaceId: string;
+    owner: string;
+    repo: string;
+    defaultBranch: string;
+  }) {
+    const workspace = await findWorkspaceById(input.workspaceId);
+
+    if (workspace === undefined) {
+      throw notFoundError("workspace", input.workspaceId);
+    }
+
+    const slug = normalizeProjectSlug(`${input.owner}-${input.repo}`);
+    const existing = await findProjectByWorkspaceAndSlug(input.workspaceId, slug);
+
+    if (existing) {
+      return existing;
+    }
+
+    return createProject({
+      workspaceId: input.workspaceId,
+      slug,
+      name: `${input.owner}/${input.repo}`,
+      description: null,
+      defaultBranch: input.defaultBranch,
+      rootDirectory: null,
+      metadata: {
+        source: "repo_connection",
+      },
+    });
   },
 };

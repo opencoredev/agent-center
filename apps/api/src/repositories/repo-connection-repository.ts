@@ -1,5 +1,5 @@
 import { db, repoConnections } from "@agent-center/db";
-import { and, desc, eq, type SQL } from "drizzle-orm";
+import { and, desc, eq, ilike, sql, type SQL } from "drizzle-orm";
 
 export interface RepoConnectionListFilters {
   workspaceId?: string;
@@ -68,11 +68,45 @@ export async function findRepoConnectionByWorkspaceAndRepo(
   });
 }
 
+export async function findGitHubAppRepoConnectionByRepository(input: {
+  owner: string;
+  repo: string;
+  installationId: number;
+}) {
+  return db.query.repoConnections.findFirst({
+    where: and(
+      eq(repoConnections.provider, "github"),
+      eq(repoConnections.authType, "github_app_installation"),
+      ilike(repoConnections.owner, input.owner),
+      ilike(repoConnections.repo, input.repo),
+      sql`(${repoConnections.connectionMetadata} ->> 'installationId')::bigint = ${input.installationId}`,
+    ),
+    orderBy: desc(repoConnections.createdAt),
+  });
+}
+
 export async function createRepoConnection(values: typeof repoConnections.$inferInsert) {
   const [repoConnection] = await db.insert(repoConnections).values(values).returning();
 
   if (repoConnection === undefined) {
     throw new Error("Failed to create repo connection");
+  }
+
+  return repoConnection;
+}
+
+export async function updateRepoConnection(
+  repoConnectionId: string,
+  values: Partial<typeof repoConnections.$inferInsert>,
+) {
+  const [repoConnection] = await db
+    .update(repoConnections)
+    .set(values)
+    .where(eq(repoConnections.id, repoConnectionId))
+    .returning();
+
+  if (repoConnection === undefined) {
+    throw new Error(`Failed to update repo connection ${repoConnectionId}`);
   }
 
   return repoConnection;

@@ -11,6 +11,9 @@ import {
   toLineTail,
 } from "../../effect/errors";
 import { runEffectOrThrow } from "../../effect/runtime";
+import { runnerRuntimeEnv } from "../../env";
+import { fetchInternalApiJson } from "../../lib/internal-api";
+import { ensureRunnerApiToken } from "../../lib/runner-bootstrap";
 import { shellQuote } from "../../lib/shell";
 import type { LoadedRunTarget } from "../../repositories/run-repository";
 import type {
@@ -89,11 +92,25 @@ export class GitService {
         });
       }
 
+      const token = yield* Effect.tryPromise({
+        try: () => this.#resolveRepositoryToken(target),
+        catch: (error) =>
+          new RunnerStateError({
+            message:
+              error instanceof Error
+                ? error.message
+                : "Runner could not obtain a GitHub installation token for this repository.",
+            hint:
+              "Check the runner registration state and GitHub App installation, then retry the task.",
+          }),
+      });
+
       const cloneUrl = this.#githubProvider.buildCloneUrl({
         authType: repoConnection.authType,
         connectionMetadata: repoConnection.connectionMetadata,
         owner: repoConnection.owner,
         repo: repoConnection.repo,
+        token,
       });
 
       yield* Effect.tryPromise(() =>
@@ -127,6 +144,34 @@ export class GitService {
         }),
       );
     });
+  }
+
+  async #resolveRepositoryToken(target: LoadedRunTarget) {
+    const repoConnection = target.repoConnection;
+
+    if (!repoConnection) {
+      return undefined;
+    }
+
+    if (repoConnection.authType !== "github_app_installation") {
+      return undefined;
+    }
+
+    await ensureRunnerApiToken({
+      workspaceId: target.workspace.id,
+      runnerName: "Local Runner",
+    });
+
+    const response = await fetchInternalApiJson<{ data: { token: string } }>(
+      `/internal/github/repo-connections/${repoConnection.id}/installation-token`,
+      undefined,
+      {
+        baseUrl: runnerRuntimeEnv.RUNNER_API_URL,
+        token: runnerRuntimeEnv.RUNNER_API_TOKEN,
+      },
+    );
+
+    return response.data.token;
   }
 
   #prepareBranchEffect(target: LoadedRunTarget, context: GitStepContext) {

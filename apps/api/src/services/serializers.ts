@@ -2,6 +2,8 @@ import {
   automations,
   projects,
   repoConnections,
+  runnerRegistrationTokens,
+  runners,
   runEvents,
   runs,
   tasks,
@@ -19,10 +21,72 @@ function toNullableIsoString(value: Date | null) {
 type WorkspaceRecord = typeof workspaces.$inferSelect;
 type ProjectRecord = typeof projects.$inferSelect;
 type RepoConnectionRecord = typeof repoConnections.$inferSelect;
+type RunnerRecord = typeof runners.$inferSelect;
+type RunnerRegistrationTokenRecord = typeof runnerRegistrationTokens.$inferSelect;
 type TaskRecord = typeof tasks.$inferSelect;
 type RunRecord = typeof runs.$inferSelect;
 type RunEventRecord = typeof runEvents.$inferSelect;
 type AutomationRecord = typeof automations.$inferSelect;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function asBoolean(value: unknown) {
+  return typeof value === "boolean" ? value : null;
+}
+
+function asNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function serializePublicationState(metadata: unknown) {
+  const publication = asRecord(asRecord(metadata)?.publication);
+  const pullRequest = asRecord(publication?.pullRequest);
+  const commitAuthor = asRecord(publication?.commitAuthor);
+
+  return {
+    status: asString(publication?.status) ?? "unpublished",
+    provider: asString(publication?.provider),
+    attemptedAt: asString(publication?.attemptedAt),
+    publishedAt: asString(publication?.publishedAt),
+    error: asString(publication?.error),
+    summary: asString(publication?.summary),
+    commitMessage: asString(publication?.commitMessage),
+    commitSha: asString(publication?.commitSha),
+    commitAuthor: commitAuthor
+      ? {
+          email: asString(commitAuthor.email),
+          id: asNumber(commitAuthor.id),
+          login: asString(commitAuthor.login),
+          name: asString(commitAuthor.name),
+          source: asString(commitAuthor.source),
+        }
+      : null,
+    headBranch: asString(publication?.headBranch),
+    baseBranch: asString(publication?.baseBranch),
+    pullRequest: pullRequest
+      ? {
+          id: asString(pullRequest.id),
+          number: asNumber(pullRequest.number),
+          state: asString(pullRequest.state),
+          title: asString(pullRequest.title),
+          body: asString(pullRequest.body),
+          url: asString(pullRequest.url),
+          htmlUrl: asString(pullRequest.htmlUrl),
+          draft: asBoolean(pullRequest.draft),
+          head: asString(pullRequest.head),
+          base: asString(pullRequest.base),
+        }
+      : null,
+  };
+}
 
 export function serializeWorkspace(workspace: WorkspaceRecord) {
   return {
@@ -67,6 +131,33 @@ export function serializeRepoConnection(repoConnection: RepoConnectionRecord) {
   };
 }
 
+export function serializeRunner(runner: RunnerRecord) {
+  return {
+    id: runner.id,
+    workspaceId: runner.workspaceId,
+    name: runner.name,
+    authKeyPrefix: runner.authKeyPrefix,
+    lastSeenAt: toNullableIsoString(runner.lastSeenAt),
+    revokedAt: toNullableIsoString(runner.revokedAt),
+    createdAt: toIsoString(runner.createdAt),
+    updatedAt: toIsoString(runner.updatedAt),
+  };
+}
+
+export function serializeRunnerRegistrationToken(registrationToken: RunnerRegistrationTokenRecord) {
+  return {
+    id: registrationToken.id,
+    workspaceId: registrationToken.workspaceId,
+    name: registrationToken.name,
+    tokenPrefix: registrationToken.tokenPrefix,
+    expiresAt: toIsoString(registrationToken.expiresAt),
+    consumedAt: toNullableIsoString(registrationToken.consumedAt),
+    revokedAt: toNullableIsoString(registrationToken.revokedAt),
+    createdAt: toIsoString(registrationToken.createdAt),
+    updatedAt: toIsoString(registrationToken.updatedAt),
+  };
+}
+
 export function serializeTask(task: TaskRecord) {
   return {
     id: task.id,
@@ -84,6 +175,7 @@ export function serializeTask(task: TaskRecord) {
     policy: task.policy,
     config: task.config,
     metadata: task.metadata,
+    publication: serializePublicationState(task.metadata),
     createdAt: toIsoString(task.createdAt),
     updatedAt: toIsoString(task.updatedAt),
   };
@@ -104,6 +196,7 @@ export function serializeRun(run: RunRecord) {
     policy: run.policy,
     config: run.config,
     metadata: run.metadata,
+    publication: serializePublicationState(run.metadata),
     startedAt: toNullableIsoString(run.startedAt),
     completedAt: toNullableIsoString(run.completedAt),
     failedAt: toNullableIsoString(run.failedAt),
