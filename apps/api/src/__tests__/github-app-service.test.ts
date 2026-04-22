@@ -79,6 +79,8 @@ const mockCreateIssueCommentReaction = mock(async () => ({
   id: 89,
   content: "eyes",
 }));
+const mockDeleteIssueReaction = mock(async () => undefined);
+const mockDeleteIssueCommentReaction = mock(async () => undefined);
 
 const mockFindWorkspaceById = mock(async (workspaceId: string) => {
   if (workspaceId === ownedWorkspace.id) {
@@ -127,6 +129,8 @@ mock.module("@agent-center/github", () => ({
     updateIssueComment = mockUpdateIssueComment;
     createIssueReaction = mockCreateIssueReaction;
     createIssueCommentReaction = mockCreateIssueCommentReaction;
+    deleteIssueReaction = mockDeleteIssueReaction;
+    deleteIssueCommentReaction = mockDeleteIssueCommentReaction;
   },
   GitHubProviderError: class GitHubProviderError extends Error {
     status = 500;
@@ -180,6 +184,8 @@ describe("github-app-service", () => {
     mockUpdateIssueComment.mockClear();
     mockCreateIssueReaction.mockClear();
     mockCreateIssueCommentReaction.mockClear();
+    mockDeleteIssueReaction.mockClear();
+    mockDeleteIssueCommentReaction.mockClear();
     mockFindWorkspaceById.mockClear();
     mockListWorkspaces.mockClear();
     mockListRepoConnections.mockClear();
@@ -374,5 +380,32 @@ describe("github-app-service", () => {
       token: "ghs_installation_token",
     });
     expect(mockCreateIssueReaction).not.toHaveBeenCalled();
+  });
+
+  test("deletes an issue comment reaction when a comment id is provided", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
+    await githubAppService.deleteMentionReaction({
+      installationId: 42,
+      owner: "opencoded",
+      repo: "agent.center",
+      issueNumber: 123,
+      reactionId: 89,
+      commentId: 999,
+    });
+
+    expect(mockCreateInstallationAccessToken).toHaveBeenCalledWith(42);
+    expect(mockDeleteIssueCommentReaction).toHaveBeenCalledWith({
+      owner: "opencoded",
+      repo: "agent.center",
+      commentId: 999,
+      reactionId: 89,
+      token: "ghs_installation_token",
+    });
+    expect(mockDeleteIssueReaction).not.toHaveBeenCalled();
   });
 });

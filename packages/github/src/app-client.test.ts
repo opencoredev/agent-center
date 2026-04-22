@@ -276,4 +276,55 @@ describe("github app client", () => {
       htmlUrl: "https://github.com/opencoded/agent.center/issues/1#issuecomment-999",
     });
   });
+
+  test("deletes issue and issue comment reactions with an installation token", async () => {
+    const fetchMock = mock(async (url: string, init?: RequestInit) => {
+      if (url === "https://api.github.com/repos/opencoded/agent.center/issues/123/reactions/501") {
+        expect(init?.method).toBe("DELETE");
+        expect(init?.headers).toMatchObject({
+          Authorization: "Bearer ghs_installation_token",
+        });
+
+        return new Response(null, { status: 204 });
+      }
+
+      if (url === "https://api.github.com/repos/opencoded/agent.center/issues/comments/999/reactions/502") {
+        expect(init?.method).toBe("DELETE");
+        expect(init?.headers).toMatchObject({
+          Authorization: "Bearer ghs_installation_token",
+        });
+
+        return new Response(null, { status: 204 });
+      }
+
+      throw new Error(`unexpected fetch url: ${url}`);
+    });
+
+    const client = new GitHubAppClient({
+      appId: "3332050",
+      slug: "agent-center-dev",
+      privateKey: createPrivateKeyPem(),
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(
+      client.deleteIssueReaction({
+        owner: "opencoded",
+        repo: "agent.center",
+        issueNumber: 123,
+        reactionId: 501,
+        token: "ghs_installation_token",
+      }),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      client.deleteIssueCommentReaction({
+        owner: "opencoded",
+        repo: "agent.center",
+        commentId: 999,
+        reactionId: 502,
+        token: "ghs_installation_token",
+      }),
+    ).resolves.toBeUndefined();
+  });
 });

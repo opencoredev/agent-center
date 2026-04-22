@@ -344,9 +344,43 @@ export class GitHubAppClient {
     return mapReaction(response);
   }
 
+  async deleteIssueReaction(input: {
+    owner: string;
+    repo: string;
+    issueNumber: number;
+    reactionId: number;
+    token: string;
+  }): Promise<void> {
+    await this.#requestJson<void>({
+      path: `/repos/${encodeURIComponent(normalizeRequiredValue(input.owner, "repository owner"))}/${encodeURIComponent(normalizeRequiredValue(input.repo, "repository name"))}/issues/${input.issueNumber}/reactions/${input.reactionId}`,
+      method: "DELETE",
+      auth: {
+        type: "installation",
+        token: normalizeRequiredValue(input.token, "installation token"),
+      },
+    });
+  }
+
+  async deleteIssueCommentReaction(input: {
+    owner: string;
+    repo: string;
+    commentId: number;
+    reactionId: number;
+    token: string;
+  }): Promise<void> {
+    await this.#requestJson<void>({
+      path: `/repos/${encodeURIComponent(normalizeRequiredValue(input.owner, "repository owner"))}/${encodeURIComponent(normalizeRequiredValue(input.repo, "repository name"))}/issues/comments/${input.commentId}/reactions/${input.reactionId}`,
+      method: "DELETE",
+      auth: {
+        type: "installation",
+        token: normalizeRequiredValue(input.token, "installation token"),
+      },
+    });
+  }
+
   async #requestJson<T>(input: {
     path: string;
-    method?: "GET" | "POST" | "PATCH";
+    method?: "GET" | "POST" | "PATCH" | "DELETE";
     auth: { type: "app" } | { type: "installation"; token: string };
     body?: string;
   }): Promise<T> {

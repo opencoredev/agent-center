@@ -330,16 +330,18 @@ export const githubAppService = {
     repo: string;
     issueNumber: number;
     commentId?: number | null;
+    content?: "eyes" | "+1";
   }) {
     const client = createGitHubAppClient();
     const token = await client.createInstallationAccessToken(input.installationId);
+    const content = input.content ?? "eyes";
 
     if (input.commentId) {
       return client.createIssueCommentReaction({
         owner: input.owner,
         repo: input.repo,
         commentId: input.commentId,
-        content: "eyes",
+        content,
         token: token.token,
       });
     }
@@ -348,7 +350,37 @@ export const githubAppService = {
       owner: input.owner,
       repo: input.repo,
       issueNumber: input.issueNumber,
-      content: "eyes",
+      content,
+      token: token.token,
+    });
+  },
+
+  async deleteMentionReaction(input: {
+    installationId: number;
+    owner: string;
+    repo: string;
+    issueNumber: number;
+    reactionId: number;
+    commentId?: number | null;
+  }) {
+    const client = createGitHubAppClient();
+    const token = await client.createInstallationAccessToken(input.installationId);
+
+    if (input.commentId) {
+      return client.deleteIssueCommentReaction({
+        owner: input.owner,
+        repo: input.repo,
+        commentId: input.commentId,
+        reactionId: input.reactionId,
+        token: token.token,
+      });
+    }
+
+    return client.deleteIssueReaction({
+      owner: input.owner,
+      repo: input.repo,
+      issueNumber: input.issueNumber,
+      reactionId: input.reactionId,
       token: token.token,
     });
   },

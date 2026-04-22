@@ -26,6 +26,7 @@ import { assertCommandAllowed } from "./permission-service";
 import { RunPersistence } from "./persistence";
 import { runFlow } from "./run-flow";
 import { GitService } from "../git/git-service";
+import { markGitHubIssueHandled } from "../github/issue-progress";
 import { InternalApiAuthError, InternalApiError, fetchInternalApiJson } from "../../lib/internal-api";
 import { runnerRuntimeEnv } from "../../env";
 
@@ -273,6 +274,10 @@ export class RunSession implements CommandExecutionController {
           waitUntilRunnable: () => this.#waitUntilRunnable(),
         }),
       );
+
+      if (this.#currentStatus === "completed") {
+        await markGitHubIssueHandled(this.#target.task.metadata);
+      }
     } catch (error) {
       const message = getRunnerErrorMessage(error);
 

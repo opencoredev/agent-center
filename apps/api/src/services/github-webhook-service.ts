@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import type { ExecutionConfig } from "@agent-center/shared";
+import type { DomainMetadata, ExecutionConfig } from "@agent-center/shared";
 import { z } from "zod";
 
 import { apiEnv } from "../env";
@@ -167,9 +167,12 @@ function buildAckComment(taskUrl: string) {
   ].join("\n");
 }
 
-function withProgressCommentMetadata(
+function withGitHubProgressMetadata(
   metadata: Record<string, unknown>,
-  progressComment: { id: number; htmlUrl: string; taskUrl: string },
+  input: {
+    progressComment?: { id: number; htmlUrl: string; taskUrl: string } | null;
+    mentionReaction?: { id: number; commentId: number | null; target: "issue" | "issue_comment" } | null;
+  },
 ) {
   const github = (metadata.github ?? {}) as Record<string, unknown>;
 
@@ -177,7 +180,8 @@ function withProgressCommentMetadata(
     ...metadata,
     github: {
       ...github,
-      progressComment,
+      ...(input.progressComment ? { progressComment: input.progressComment } : {}),
+      ...(input.mentionReaction ? { mentionReaction: input.mentionReaction } : {}),
     },
   };
 }
@@ -397,23 +401,22 @@ export const githubWebhookService = {
       config: DEFAULT_WEBHOOK_RUN_CONFIG,
       metadata,
     });
-
-    const run = await runService.create({
-      taskId: task.id,
-    });
-
-    const webOrigin = deriveWebOrigin({
-      requestOrigin: input.requestOrigin,
-    });
-    const taskUrl = webOrigin ? `${webOrigin}/tasks/${task.id}` : null;
-
+    let nextMetadata: DomainMetadata = metadata;
     try {
-      await githubAppService.createMentionReaction({
+      const reaction = await githubAppService.createMentionReaction({
         installationId: parsed.installationId,
         owner: parsed.owner,
         repo: parsed.repo,
         issueNumber: parsed.issue.number,
         commentId: parsed.comment?.id ?? null,
+      });
+
+      nextMetadata = withGitHubProgressMetadata(nextMetadata, {
+        mentionReaction: {
+          id: reaction.id,
+          commentId: parsed.comment?.id ?? null,
+          target: parsed.comment ? "issue_comment" : "issue",
+        },
       });
     } catch (error) {
       console.warn("[github-webhook-service] failed to add mention reaction", {
@@ -421,6 +424,11 @@ export const githubWebhookService = {
         error,
       });
     }
+
+    const webOrigin = deriveWebOrigin({
+      requestOrigin: input.requestOrigin,
+    });
+    const taskUrl = webOrigin ? `${webOrigin}/tasks/${task.id}` : null;
 
     if (taskUrl) {
       try {
@@ -431,12 +439,12 @@ export const githubWebhookService = {
           issueNumber: parsed.issue.number,
           body: buildAckComment(taskUrl),
         });
-        await taskService.update(task.id, {
-          metadata: withProgressCommentMetadata(metadata, {
+        nextMetadata = withGitHubProgressMetadata(nextMetadata, {
+          progressComment: {
             id: progressComment.id,
             htmlUrl: progressComment.htmlUrl,
             taskUrl,
-          }),
+          },
         });
       } catch (error) {
         console.warn("[github-webhook-service] failed to post acknowledgement comment", {
@@ -445,6 +453,16 @@ export const githubWebhookService = {
         });
       }
     }
+
+    if (nextMetadata !== metadata) {
+      await taskService.update(task.id, {
+        metadata: nextMetadata,
+      });
+    }
+
+    const run = await runService.create({
+      taskId: task.id,
+    });
 
     return {
       deliveryId: input.deliveryId,
