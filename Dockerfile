@@ -1,4 +1,4 @@
-FROM oven/bun:1-debian AS workspace
+FROM oven/bun:1.3.5-debian AS workspace
 WORKDIR /app
 ENV CI=1
 
@@ -32,7 +32,7 @@ COPY apps/control-plane ./apps/control-plane
 COPY apps/web ./apps/web
 RUN cd apps/web && bunx --bun vite build
 
-FROM oven/bun:1-debian AS runtime-deps
+FROM oven/bun:1.3.5-debian AS runtime-deps
 WORKDIR /app
 ENV CI=1
 ENV NODE_ENV=production
@@ -51,7 +51,7 @@ COPY packages/shared/package.json packages/shared/package.json
 
 RUN bun install --frozen-lockfile --production
 
-FROM oven/bun:1-debian
+FROM oven/bun:1.3.5-debian
 WORKDIR /app
 ENV NODE_ENV=production
 ENV API_HOST=0.0.0.0
