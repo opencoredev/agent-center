@@ -29,6 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=runtime-deps /app/node_modules ./node_modules
+COPY --from=runtime-deps /app/apps ./apps
+COPY --from=runtime-deps /app/packages ./packages
 COPY package.json bun.lock tsconfig.base.json turbo.json ./
 COPY packages ./packages
 COPY apps/runner ./apps/runner

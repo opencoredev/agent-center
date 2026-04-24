@@ -61,6 +61,8 @@ ENV SERVE_FRONTEND=true
 ENV FRONTEND_DIST_PATH=/app/apps/web/dist
 
 COPY --from=runtime-deps /app/node_modules ./node_modules
+COPY --from=runtime-deps /app/apps ./apps
+COPY --from=runtime-deps /app/packages ./packages
 COPY package.json bun.lock tsconfig.base.json turbo.json ./
 COPY packages ./packages
 COPY apps/api ./apps/api
