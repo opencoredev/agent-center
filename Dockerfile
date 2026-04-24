@@ -19,11 +19,13 @@ RUN bun install --frozen-lockfile
 FROM workspace AS web-build
 ARG VITE_API_URL=
 ARG VITE_AUTH_ENABLED=true
+ARG VITE_CONVEX_URL=
 ARG VITE_ZERO_ENABLED=false
 ARG VITE_ZERO_CACHE_URL=
 ENV NODE_ENV=production
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_AUTH_ENABLED=$VITE_AUTH_ENABLED
+ENV VITE_CONVEX_URL=$VITE_CONVEX_URL
 ENV VITE_ZERO_ENABLED=$VITE_ZERO_ENABLED
 ENV VITE_ZERO_CACHE_URL=$VITE_ZERO_CACHE_URL
 
@@ -35,7 +37,6 @@ RUN cd apps/web && bunx --bun vite build
 FROM oven/bun:1.3.5-debian AS runtime-deps
 WORKDIR /app
 ENV CI=1
-ENV NODE_ENV=production
 
 COPY package.json bun.lock tsconfig.base.json turbo.json ./
 COPY apps/api/package.json apps/api/package.json
