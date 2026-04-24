@@ -1,6 +1,7 @@
-import { and, desc, eq, gt, isNull, type SQL } from "drizzle-orm";
+import { api } from "@agent-center/control-plane/api";
 
-import { db, runnerRegistrationTokens, runners } from "@agent-center/db";
+import { convexServiceClient } from "../services/convex-service-client";
+import { asConvexArgs, asConvexId } from "./convex-repository-utils";
 
 interface RunnerFilters {
   workspaceId?: string;
@@ -10,95 +11,71 @@ interface RunnerRegistrationTokenFilters {
   workspaceId?: string;
 }
 
-function buildRunnerFilters(filters: RunnerFilters) {
-  const conditions: SQL[] = [isNull(runners.revokedAt)];
-
-  if (filters.workspaceId !== undefined) {
-    conditions.push(eq(runners.workspaceId, filters.workspaceId));
-  }
-
-  return conditions;
-}
-
-function buildRunnerRegistrationTokenFilters(filters: RunnerRegistrationTokenFilters) {
-  const conditions: SQL[] = [];
-
-  if (filters.workspaceId !== undefined) {
-    conditions.push(eq(runnerRegistrationTokens.workspaceId, filters.workspaceId));
-  }
-
-  return conditions;
-}
-
 export function listRunners(filters: RunnerFilters = {}) {
-  const conditions = buildRunnerFilters(filters);
-
-  return db.query.runners.findMany({
-    where: conditions.length === 0 ? undefined : and(...conditions),
-    orderBy: desc(runners.createdAt),
+  return convexServiceClient.query(api.serviceApi.listRunners, {
+    workspaceId: filters.workspaceId
+      ? asConvexId<"workspaces">(filters.workspaceId)
+      : undefined,
   });
 }
 
 export async function findRunnerById(runnerId: string) {
-  return db.query.runners.findFirst({
-    where: eq(runners.id, runnerId),
+  const runner = await convexServiceClient.query(api.serviceApi.getRunner, {
+    runnerId: asConvexId<"runners">(runnerId),
   });
+  return runner ?? undefined;
 }
 
 export async function findRunnerByAuthKeyHash(authKeyHash: string) {
-  return db.query.runners.findFirst({
-    where: eq(runners.authKeyHash, authKeyHash),
+  const runner = await convexServiceClient.query(api.serviceApi.getRunnerByAuthKeyHash, {
+    authKeyHash,
   });
+  return runner ?? undefined;
 }
 
-export async function createRunner(values: typeof runners.$inferInsert) {
-  const [runner] = await db.insert(runners).values(values).returning();
-
-  if (runner === undefined) {
-    throw new Error("Failed to create runner");
-  }
-
-  return runner;
-}
-
-export async function updateRunner(runnerId: string, values: Partial<typeof runners.$inferInsert>) {
-  const [runner] = await db.update(runners).set(values).where(eq(runners.id, runnerId)).returning();
-
-  return runner;
+export async function updateRunner(runnerId: string, values: Record<string, unknown>) {
+  const runner = await convexServiceClient.mutation(api.serviceApi.updateRunner, {
+    runnerId: asConvexId<"runners">(runnerId),
+    ...asConvexArgs(values),
+  });
+  return runner ?? undefined;
 }
 
 export function listRunnerRegistrationTokens(filters: RunnerRegistrationTokenFilters = {}) {
-  const conditions = buildRunnerRegistrationTokenFilters(filters);
-
-  return db.query.runnerRegistrationTokens.findMany({
-    where: conditions.length === 0 ? undefined : and(...conditions),
-    orderBy: desc(runnerRegistrationTokens.createdAt),
+  return convexServiceClient.query(api.serviceApi.listRunnerRegistrationTokens, {
+    workspaceId: filters.workspaceId
+      ? asConvexId<"workspaces">(filters.workspaceId)
+      : undefined,
   });
 }
 
 export async function findRunnerRegistrationTokenById(registrationTokenId: string) {
-  return db.query.runnerRegistrationTokens.findFirst({
-    where: eq(runnerRegistrationTokens.id, registrationTokenId),
-  });
+  const registrationToken = await convexServiceClient.query(
+    api.serviceApi.getRunnerRegistrationToken,
+    {
+      registrationTokenId: asConvexId<"runnerRegistrationTokens">(registrationTokenId),
+    },
+  );
+  return registrationToken ?? undefined;
 }
 
 export async function findActiveRunnerRegistrationTokenByHash(tokenHash: string) {
-  return db.query.runnerRegistrationTokens.findFirst({
-    where: and(
-      eq(runnerRegistrationTokens.tokenHash, tokenHash),
-      isNull(runnerRegistrationTokens.revokedAt),
-      isNull(runnerRegistrationTokens.consumedAt),
-      gt(runnerRegistrationTokens.expiresAt, new Date()),
-    ),
-  });
+  const registrationToken = await convexServiceClient.query(
+    api.serviceApi.getActiveRunnerRegistrationTokenByHash,
+    {
+      tokenHash,
+    },
+  );
+  return registrationToken ?? undefined;
 }
 
-export async function createRunnerRegistrationToken(
-  values: typeof runnerRegistrationTokens.$inferInsert,
-) {
-  const [registrationToken] = await db.insert(runnerRegistrationTokens).values(values).returning();
+export async function createRunnerRegistrationToken(values: Record<string, unknown>) {
+  const registrationToken = await convexServiceClient.mutation(
+    api.serviceApi.createRunnerRegistrationToken,
+    asConvexArgs(values),
+  );
 
-  if (registrationToken === undefined) {
+  if (registrationToken === null) {
     throw new Error("Failed to create runner registration token");
   }
 
@@ -107,13 +84,26 @@ export async function createRunnerRegistrationToken(
 
 export async function updateRunnerRegistrationToken(
   registrationTokenId: string,
-  values: Partial<typeof runnerRegistrationTokens.$inferInsert>,
+  values: Record<string, unknown>,
 ) {
-  const [registrationToken] = await db
-    .update(runnerRegistrationTokens)
-    .set(values)
-    .where(eq(runnerRegistrationTokens.id, registrationTokenId))
-    .returning();
+  const registrationToken = await convexServiceClient.mutation(
+    api.serviceApi.updateRunnerRegistrationToken,
+    {
+      registrationTokenId: asConvexId<"runnerRegistrationTokens">(registrationTokenId),
+      ...asConvexArgs(values),
+    },
+  );
+  return registrationToken ?? undefined;
+}
 
-  return registrationToken;
+export function registerRunnerWithToken(input: {
+  tokenHash: string;
+  authKeyHash: string;
+  authKeyPrefix: string;
+  lastSeenAt?: Date | number;
+}) {
+  return convexServiceClient.mutation(
+    api.serviceApi.registerRunnerWithToken,
+    asConvexArgs(input),
+  );
 }

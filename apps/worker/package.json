@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@agent-center/config": "workspace:*",
-    "@agent-center/db": "workspace:*",
-    "@agent-center/shared": "workspace:*"
+    "@agent-center/control-plane": "workspace:*",
+    "@agent-center/shared": "workspace:*",
+    "convex": "^1.26.2",
+    "zod": "^4.3.6"
   }
 }

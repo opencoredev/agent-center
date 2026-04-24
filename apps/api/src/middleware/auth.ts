@@ -1,11 +1,10 @@
 import { createHash } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { api } from "@agent-center/control-plane/api";
 import { createMiddleware } from "hono/factory";
 
-import { db, apiKeys, sessions } from "@agent-center/db";
-
 import { ApiError } from "../http/errors";
+import { convexServiceClient } from "../services/convex-service-client";
 import { hashSessionToken } from "../services/session-token-service";
 
 const PUBLIC_PATHS = [
@@ -74,18 +73,13 @@ export const authMiddleware = createMiddleware(async (context, next) => {
   // Strategy 1: API key (prefixed with ac_)
   if (token.startsWith("ac_")) {
     const keyHash = createHash("sha256").update(token).digest("hex");
-    const [apiKey] = await db.select().from(apiKeys).where(eq(apiKeys.keyHash, keyHash)).limit(1);
+    const apiKey = await convexServiceClient.mutation(api.serviceApi.authenticateApiKey, {
+      keyHash,
+    });
 
     if (!apiKey) {
       throw new ApiError(401, "unauthorized", "Invalid API key");
     }
-
-    if (apiKey.expiresAt && apiKey.expiresAt < new Date()) {
-      throw new ApiError(401, "unauthorized", "API key expired");
-    }
-
-    // Update last used (fire-and-forget)
-    void db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, apiKey.id));
 
     if (!apiKey.userId) {
       throw new ApiError(401, "unauthorized", "API key has no owner");
@@ -97,20 +91,12 @@ export const authMiddleware = createMiddleware(async (context, next) => {
 
   // Strategy 2: Session token (prefixed with sess_)
   if (token.startsWith("sess_")) {
-    const [session] = await db
-      .select()
-      .from(sessions)
-      .where(eq(sessions.token, hashSessionToken(token)))
-      .limit(1);
+    const session = await convexServiceClient.mutation(api.serviceApi.authenticateSessionToken, {
+      tokenHash: hashSessionToken(token),
+    });
 
     if (!session) {
       throw new ApiError(401, "unauthorized", "Invalid session");
-    }
-
-    if (session.expiresAt < new Date()) {
-      // Cleanup expired session
-      void db.delete(sessions).where(eq(sessions.id, session.id));
-      throw new ApiError(401, "unauthorized", "Session expired");
     }
 
     context.set("userId", session.userId);

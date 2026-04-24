@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 
 import { host, loadRootEnv, logLevel, nodeEnv, parseEnv, port } from "@agent-center/config";
+import { z } from "zod";
 
 loadRootEnv();
 
@@ -10,12 +11,16 @@ export const runnerEnv = parseEnv(
     RUNNER_HOST: process.env.RUNNER_HOST,
     RUNNER_LOG_LEVEL: process.env.RUNNER_LOG_LEVEL,
     RUNNER_PORT: process.env.PORT || process.env.RUNNER_PORT,
+    CONVEX_URL: process.env.CONVEX_URL || process.env.VITE_CONVEX_URL,
+    AGENT_CENTER_CONVEX_SERVICE_TOKEN: process.env.AGENT_CENTER_CONVEX_SERVICE_TOKEN,
   },
   {
     NODE_ENV: nodeEnv,
     RUNNER_HOST: host.default("127.0.0.1"),
     RUNNER_LOG_LEVEL: logLevel,
     RUNNER_PORT: port.default(3002),
+    CONVEX_URL: z.url(),
+    AGENT_CENTER_CONVEX_SERVICE_TOKEN: z.string().trim().min(1),
   },
 );
 

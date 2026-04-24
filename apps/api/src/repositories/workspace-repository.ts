@@ -1,20 +1,26 @@
-import { db, workspaces } from "@agent-center/db";
-import { desc, eq } from "drizzle-orm";
+import { api } from "@agent-center/control-plane/api";
+
+import { convexServiceClient } from "../services/convex-service-client";
+import { asConvexArgs, asConvexId } from "./convex-repository-utils";
 
 export function listWorkspaces() {
-  return db.select().from(workspaces).orderBy(desc(workspaces.createdAt));
+  return convexServiceClient.query(api.serviceApi.listWorkspaces);
 }
 
 export async function findWorkspaceById(workspaceId: string) {
-  return db.query.workspaces.findFirst({
-    where: eq(workspaces.id, workspaceId),
+  const workspace = await convexServiceClient.query(api.serviceApi.getWorkspaceById, {
+    workspaceId: asConvexId<"workspaces">(workspaceId),
   });
+  return workspace ?? undefined;
 }
 
-export async function createWorkspace(values: typeof workspaces.$inferInsert) {
-  const [workspace] = await db.insert(workspaces).values(values).returning();
+export async function createWorkspace(values: Record<string, unknown>) {
+  const workspace = await convexServiceClient.mutation(
+    api.serviceApi.createWorkspace,
+    asConvexArgs(values),
+  );
 
-  if (workspace === undefined) {
+  if (workspace === null) {
     throw new Error("Failed to create workspace");
   }
 

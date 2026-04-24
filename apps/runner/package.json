@@ -14,13 +14,14 @@
   },
   "dependencies": {
     "@agent-center/config": "workspace:*",
-    "@agent-center/db": "workspace:*",
+    "@agent-center/control-plane": "workspace:*",
     "@agent-center/github": "workspace:*",
     "@agent-center/shared": "workspace:*",
     "@anthropic-ai/claude-agent-sdk": "^0.2.118",
     "@e2b/code-interpreter": "^2.4.0",
-    "drizzle-orm": "^0.45.2",
+    "convex": "^1.26.2",
     "effect": "^3.21.0",
-    "hono": "^4.12.14"
+    "hono": "^4.12.14",
+    "zod": "^4.3.6"
   }
 }

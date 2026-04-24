@@ -18,6 +18,7 @@ import type * as repoConnections from "../repoConnections.js";
 import type * as runs from "../runs.js";
 import type * as runtimeProviders from "../runtimeProviders.js";
 import type * as sandboxes from "../sandboxes.js";
+import type * as serviceApi from "../serviceApi.js";
 import type * as tasks from "../tasks.js";
 import type * as threads from "../threads.js";
 import type * as workspaces from "../workspaces.js";
@@ -40,6 +41,7 @@ const fullApi: ApiFromModules<{
   runs: typeof runs;
   runtimeProviders: typeof runtimeProviders;
   sandboxes: typeof sandboxes;
+  serviceApi: typeof serviceApi;
   tasks: typeof tasks;
   threads: typeof threads;
   workspaces: typeof workspaces;

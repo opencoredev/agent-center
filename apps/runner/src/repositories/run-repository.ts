@@ -1,108 +1,68 @@
-import {
-  db,
-  projects,
-  repoConnections,
-  runEvents,
-  runs,
-  tasks,
-  workspaces,
-} from "../../../../packages/db/src/index.ts";
-import { desc, eq, sql } from "../../../../packages/db/node_modules/drizzle-orm";
-
+import { api } from "@agent-center/control-plane/api";
+import type { Id } from "@agent-center/control-plane/data-model";
 import type { DomainMetadata } from "@agent-center/shared";
 
+import { convexServiceClient } from "../lib/convex-service-client";
+
+type ApiRecord = Record<string, any>;
+
 export interface LoadedRunTarget {
-  project: typeof projects.$inferSelect | null;
-  repoConnection: typeof repoConnections.$inferSelect | null;
-  run: typeof runs.$inferSelect;
-  task: typeof tasks.$inferSelect;
-  workspace: typeof workspaces.$inferSelect;
+  project: ApiRecord | null;
+  repoConnection: ApiRecord | null;
+  run: ApiRecord;
+  task: ApiRecord;
+  workspace: ApiRecord;
+}
+
+function normalizeConvexInput<T extends Record<string, unknown>>(values: T) {
+  return Object.fromEntries(
+    Object.entries(values)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, value instanceof Date ? value.getTime() : value]),
+  ) as any;
 }
 
 export async function findRunById(runId: string) {
-  return db.query.runs.findFirst({
-    where: eq(runs.id, runId),
+  const run = await convexServiceClient.query(api.serviceApi.getRun, {
+    runId: runId as Id<"runs">,
   });
+  return run ?? undefined;
 }
 
 export async function loadRunTarget(runId: string): Promise<LoadedRunTarget | null> {
-  const record = await db.query.runs.findFirst({
-    where: eq(runs.id, runId),
-    with: {
-      repoConnection: true,
-      task: {
-        with: {
-          project: true,
-          repoConnection: true,
-          workspace: true,
-        },
-      },
-    },
+  return convexServiceClient.query(api.serviceApi.getRunTarget, {
+    runId: runId as Id<"runs">,
   });
-
-  if (!record?.task?.workspace) {
-    return null;
-  }
-
-  return {
-    project: record.task.project ?? null,
-    repoConnection: record.repoConnection ?? record.task.repoConnection ?? null,
-    run: record,
-    task: record.task,
-    workspace: record.task.workspace,
-  };
 }
 
 export async function appendRunEvent(
   runId: string,
-  values: Omit<typeof runEvents.$inferInsert, "runId" | "sequence">,
+  values: {
+    eventType: string;
+    level?: string | null;
+    message?: string | null;
+    payload?: unknown;
+    createdAt?: Date | number;
+  },
 ) {
-  const maxAttempts = 5;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      return await db.transaction(async (transaction) => {
-        await transaction.execute(sql`select id from runs where id = ${runId} for update`);
-
-        const latestEvent = await transaction.query.runEvents.findFirst({
-          where: eq(runEvents.runId, runId),
-          orderBy: [desc(runEvents.sequence)],
-        });
-
-        const [event] = await transaction
-          .insert(runEvents)
-          .values({
-            runId,
-            sequence: latestEvent === undefined ? 1 : latestEvent.sequence + 1,
-            ...values,
-          })
-          .returning();
-
-        if (event === undefined) {
-          throw new Error(`Failed to append run event for ${runId}`);
-        }
-
-        return event;
-      });
-    } catch (error) {
-      if (attempt === maxAttempts || !isSequenceConflict(error)) {
-        throw error;
-      }
-    }
-  }
-
-  throw new Error(`Failed to append run event for ${runId}`);
+  return convexServiceClient.mutation(api.serviceApi.appendRunEvent, {
+    runId: runId as Id<"runs">,
+    ...normalizeConvexInput(values),
+  });
 }
 
 export async function updateRun(
   runId: string,
-  values: Partial<typeof runs.$inferInsert> & {
-    updatedAt: Date;
+  values: Record<string, unknown> & {
+    updatedAt: Date | number;
   },
 ) {
-  const [run] = await db.update(runs).set(values).where(eq(runs.id, runId)).returning();
+  const run = await convexServiceClient.mutation(api.serviceApi.updateRun, {
+    runId: runId as Id<"runs">,
+    ...normalizeConvexInput(values),
+  });
 
-  if (run === undefined) {
+  if (run === null) {
     throw new Error(`Failed to update run ${runId}`);
   }
 
@@ -111,13 +71,16 @@ export async function updateRun(
 
 export async function updateTask(
   taskId: string,
-  values: Partial<typeof tasks.$inferInsert> & {
-    updatedAt: Date;
+  values: Record<string, unknown> & {
+    updatedAt: Date | number;
   },
 ) {
-  const [task] = await db.update(tasks).set(values).where(eq(tasks.id, taskId)).returning();
+  const task = await convexServiceClient.mutation(api.serviceApi.updateTask, {
+    taskId: taskId as Id<"tasks">,
+    ...normalizeConvexInput(values),
+  });
 
-  if (task === undefined) {
+  if (task === null) {
     throw new Error(`Failed to update task ${taskId}`);
   }
 
@@ -135,16 +98,7 @@ export async function updateRunMetadata(
   }
 
   return updateRun(runId, {
-    metadata: updater(run.metadata),
+    metadata: updater(run.metadata ?? {}),
     updatedAt: new Date(),
   });
-}
-
-function isSequenceConflict(error: unknown) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "23505"
-  );
 }

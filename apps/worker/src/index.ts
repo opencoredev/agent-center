@@ -1,5 +1,4 @@
 import { SERVICE_NAMES } from "@agent-center/shared";
-import { sql } from "@agent-center/db";
 
 import { workerEnv } from "./env";
 import { startWorkerService } from "./jobs";
@@ -30,7 +29,6 @@ async function shutdown(signal: NodeJS.Signals) {
   shuttingDown = true;
   console.log(`[worker] received ${signal}; shutting down`);
   workerService.stop();
-  await sql.end();
   process.exit(0);
 }
 

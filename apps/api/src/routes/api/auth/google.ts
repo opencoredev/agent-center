@@ -1,12 +1,12 @@
 import { randomBytes } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { api } from "@agent-center/control-plane/api";
+import type { Id } from "@agent-center/control-plane/data-model";
 import { Hono } from "hono";
-
-import { db, users, sessions } from "@agent-center/db";
 
 import { ApiError } from "../../../http/errors";
 import type { ApiEnv } from "../../../http/types";
+import { convexServiceClient } from "../../../services/convex-service-client";
 import { hashSessionToken } from "../../../services/session-token-service";
 
 export const authGoogleRoutes = new Hono<ApiEnv>();
@@ -110,42 +110,25 @@ authGoogleRoutes.get("/google/callback", async (context) => {
     picture?: string;
   };
 
-  // Upsert user
-  let [user] = await db.select().from(users).where(eq(users.email, userInfo.email)).limit(1);
+  const user = await convexServiceClient.mutation(api.serviceApi.upsertGoogleUser, {
+    email: userInfo.email,
+    googleId: userInfo.id,
+    name: userInfo.name,
+    avatarUrl: userInfo.picture,
+  });
 
   if (!user) {
-    [user] = await db
-      .insert(users)
-      .values({
-        email: userInfo.email,
-        name: userInfo.name ?? null,
-        avatarUrl: userInfo.picture ?? null,
-        authProvider: "google",
-        authProviderId: userInfo.id,
-      })
-      .returning();
-  } else if (user.authProvider !== "google") {
-    // Update auth provider if they previously used a different one
-    await db
-      .update(users)
-      .set({
-        authProvider: "google",
-        authProviderId: userInfo.id,
-        name: userInfo.name ?? user.name,
-        avatarUrl: userInfo.picture ?? user.avatarUrl,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, user!.id));
+    throw new ApiError(500, "user_create_failed", "Failed to create user");
   }
 
   // Create session
   const sessionToken = `sess_${randomBytes(32).toString("hex")}`;
   const expiresAt = new Date(Date.now() + SESSION_EXPIRY_MS);
 
-  await db.insert(sessions).values({
-    userId: user!.id,
-    token: hashSessionToken(sessionToken),
-    expiresAt,
+  await convexServiceClient.mutation(api.serviceApi.createSession, {
+    userId: user.id as Id<"users">,
+    tokenHash: hashSessionToken(sessionToken),
+    expiresAt: expiresAt.getTime(),
   });
 
   // Keep bearer tokens out of request URLs and server access logs.

@@ -1,6 +1,8 @@
-import { loadRootEnv, parseEnv } from "@agent-center/config";
+import { api } from "@agent-center/control-plane/api";
+import type { Id } from "@agent-center/control-plane/data-model";
 import type { EventType, RunEventSpec } from "@agent-center/shared";
-import { z } from "zod";
+
+import { convexServiceClient } from "../services/convex-service-client";
 
 interface RunEventRow {
   runId: string;
@@ -9,44 +11,21 @@ interface RunEventRow {
   level: string | null;
   message: string | null;
   payload: RunEventSpec["payload"];
-  createdAt: string | Date;
+  createdAt: number;
 }
-
-loadRootEnv();
-
-const realtimeDbEnv = parseEnv(
-  {
-    DATABASE_URL: process.env.DATABASE_URL,
-  },
-  {
-    DATABASE_URL: z.url(),
-  },
-);
-
-let sqlClient: Bun.SQL | null = null;
 
 export async function listRunEventsAfter(
   runId: string,
   afterSequence: number,
   limit: number,
 ): Promise<RunEventSpec[]> {
-  const rows = await getSqlClient()<RunEventRow[]>`
-    select
-      run_id as "runId",
-      event_type as "eventType",
-      sequence,
-      level,
-      message,
-      payload,
-      created_at as "createdAt"
-    from run_events
-    where run_id = ${runId}
-      and sequence > ${afterSequence}
-    order by sequence asc
-    limit ${limit}
-  `;
+  const rows = await convexServiceClient.query(api.serviceApi.listRunEventsAfter, {
+    runId: runId as Id<"runs">,
+    afterSequence,
+    limit,
+  });
 
-  return rows.map((row) => ({
+  return (rows as unknown as RunEventRow[]).map((row) => ({
     runId: row.runId,
     eventType: row.eventType,
     sequence: row.sequence,
@@ -57,16 +36,6 @@ export async function listRunEventsAfter(
   }));
 }
 
-function toISOString(value: string | Date): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
-}
-
-function getSqlClient() {
-  if (sqlClient === null) {
-    sqlClient = new Bun.SQL(realtimeDbEnv.DATABASE_URL, {
-      max: 1,
-    });
-  }
-
-  return sqlClient;
+function toISOString(value: number): string {
+  return new Date(value).toISOString();
 }

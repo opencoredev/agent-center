@@ -1,32 +1,23 @@
-import {
-  automations,
-  projects,
-  repoConnections,
-  runnerRegistrationTokens,
-  runners,
-  runEvents,
-  runs,
-  tasks,
-  workspaces,
-} from "@agent-center/db";
+type TimestampValue = Date | number | string;
 
-function toIsoString(value: Date) {
-  return value.toISOString();
+type ApiRecord = Record<string, any>;
+type WorkspaceRecord = ApiRecord;
+type ProjectRecord = ApiRecord;
+type RepoConnectionRecord = ApiRecord;
+type RunnerRecord = ApiRecord;
+type RunnerRegistrationTokenRecord = ApiRecord;
+type TaskRecord = ApiRecord;
+type RunRecord = ApiRecord;
+type RunEventRecord = ApiRecord;
+type AutomationRecord = ApiRecord;
+
+function toIsoString(value: TimestampValue) {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-function toNullableIsoString(value: Date | null) {
-  return value === null ? null : value.toISOString();
+function toNullableIsoString(value: TimestampValue | null | undefined) {
+  return value == null ? null : toIsoString(value);
 }
-
-type WorkspaceRecord = typeof workspaces.$inferSelect;
-type ProjectRecord = typeof projects.$inferSelect;
-type RepoConnectionRecord = typeof repoConnections.$inferSelect;
-type RunnerRecord = typeof runners.$inferSelect;
-type RunnerRegistrationTokenRecord = typeof runnerRegistrationTokens.$inferSelect;
-type TaskRecord = typeof tasks.$inferSelect;
-type RunRecord = typeof runs.$inferSelect;
-type RunEventRecord = typeof runEvents.$inferSelect;
-type AutomationRecord = typeof automations.$inferSelect;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)

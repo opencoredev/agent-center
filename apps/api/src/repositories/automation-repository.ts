@@ -1,5 +1,7 @@
-import { db, automations } from "@agent-center/db";
-import { and, desc, eq, type SQL } from "drizzle-orm";
+import { api } from "@agent-center/control-plane/api";
+
+import { convexServiceClient } from "../services/convex-service-client";
+import { asConvexArgs, asConvexId } from "./convex-repository-utils";
 
 export interface AutomationListFilters {
   workspaceId?: string;
@@ -8,66 +10,50 @@ export interface AutomationListFilters {
 }
 
 export function listAutomations(filters: AutomationListFilters) {
-  const conditions: SQL<unknown>[] = [];
-
-  if (filters.workspaceId !== undefined) {
-    conditions.push(eq(automations.workspaceId, filters.workspaceId));
-  }
-
-  if (filters.projectId !== undefined) {
-    conditions.push(eq(automations.projectId, filters.projectId));
-  }
-
-  if (filters.enabled !== undefined) {
-    conditions.push(eq(automations.enabled, filters.enabled));
-  }
-
-  if (conditions.length > 0) {
-    return db
-      .select()
-      .from(automations)
-      .where(and(...conditions))
-      .orderBy(desc(automations.createdAt));
-  }
-
-  return db.select().from(automations).orderBy(desc(automations.createdAt));
+  return convexServiceClient.query(api.serviceApi.listAutomations, {
+    workspaceId: filters.workspaceId
+      ? asConvexId<"workspaces">(filters.workspaceId)
+      : undefined,
+    projectId: filters.projectId ? asConvexId<"projects">(filters.projectId) : undefined,
+    enabled: filters.enabled,
+  });
 }
 
 export async function findAutomationById(automationId: string) {
-  return db.query.automations.findFirst({
-    where: eq(automations.id, automationId),
+  const automation = await convexServiceClient.query(api.serviceApi.getAutomation, {
+    automationId: asConvexId<"automations">(automationId),
   });
+  return automation ?? undefined;
 }
 
 export async function findAutomationByWorkspaceAndId(workspaceId: string, automationId: string) {
-  return db.query.automations.findFirst({
-    where: and(eq(automations.workspaceId, workspaceId), eq(automations.id, automationId)),
+  const automation = await convexServiceClient.query(api.serviceApi.getAutomationByWorkspaceAndId, {
+    workspaceId: asConvexId<"workspaces">(workspaceId),
+    automationId: asConvexId<"automations">(automationId),
   });
+  return automation ?? undefined;
 }
 
-export async function createAutomation(values: typeof automations.$inferInsert) {
-  const [automation] = await db.insert(automations).values(values).returning();
+export async function createAutomation(values: Record<string, unknown>) {
+  const automation = await convexServiceClient.mutation(
+    api.serviceApi.createAutomation,
+    asConvexArgs(values),
+  );
 
-  if (automation === undefined) {
+  if (automation === null) {
     throw new Error("Failed to create automation");
   }
 
   return automation;
 }
 
-export async function updateAutomation(
-  automationId: string,
-  values: Partial<typeof automations.$inferInsert> & {
-    updatedAt: Date;
-  },
-) {
-  const [automation] = await db
-    .update(automations)
-    .set(values)
-    .where(eq(automations.id, automationId))
-    .returning();
+export async function updateAutomation(automationId: string, values: Record<string, unknown>) {
+  const automation = await convexServiceClient.mutation(api.serviceApi.updateAutomation, {
+    automationId: asConvexId<"automations">(automationId),
+    ...asConvexArgs(values),
+  });
 
-  if (automation === undefined) {
+  if (automation === null) {
     throw new Error(`Failed to update automation ${automationId}`);
   }
 

@@ -4,8 +4,18 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   AGENT_PROVIDERS,
   PERMISSION_MODES,
+  REPO_AUTH_TYPES,
+  REPO_PROVIDERS,
+  RUN_STATUSES,
   SANDBOX_SIZES,
+  TASK_STATUSES,
 } from "./constants";
+
+declare const process: {
+  env: {
+    AGENT_CENTER_CONVEX_SERVICE_TOKEN?: string;
+  };
+};
 
 export const metadataValidator = v.any();
 export const executionCommandValidator = v.object({
@@ -37,6 +47,17 @@ export const executionConfigValidator = v.object({
   commands: v.array(executionCommandValidator),
   agentProvider: v.optional(v.union(...AGENT_PROVIDERS.map((value) => v.literal(value)))),
   agentModel: v.optional(v.string()),
+  agentReasoningEffort: v.optional(
+    v.union(
+      v.literal("low"),
+      v.literal("medium"),
+      v.literal("high"),
+      v.literal("xhigh"),
+      v.literal("max"),
+      v.literal("ultrathink"),
+    ),
+  ),
+  agentThinkingEnabled: v.optional(v.boolean()),
   agentPrompt: v.optional(v.string()),
   runtime: v.optional(executionRuntimeValidator),
   workingDirectory: v.optional(v.string()),
@@ -44,8 +65,36 @@ export const executionConfigValidator = v.object({
   prTitle: v.optional(v.string()),
   prBody: v.optional(v.string()),
 });
+export const automationConfigValidator = v.object({
+  commands: v.array(executionCommandValidator),
+  agentProvider: v.optional(v.union(...AGENT_PROVIDERS.map((value) => v.literal(value)))),
+  agentModel: v.optional(v.string()),
+  agentReasoningEffort: v.optional(
+    v.union(
+      v.literal("low"),
+      v.literal("medium"),
+      v.literal("high"),
+      v.literal("xhigh"),
+      v.literal("max"),
+      v.literal("ultrathink"),
+    ),
+  ),
+  agentThinkingEnabled: v.optional(v.boolean()),
+  agentPrompt: v.optional(v.string()),
+  runtime: v.optional(executionRuntimeValidator),
+  workingDirectory: v.optional(v.string()),
+  commitMessage: v.optional(v.string()),
+  prTitle: v.optional(v.string()),
+  prBody: v.optional(v.string()),
+  branchPattern: v.optional(v.string()),
+  targetBranchFormat: v.optional(v.string()),
+});
 export const sandboxSizeValidator = v.union(...SANDBOX_SIZES.map((value) => v.literal(value)));
 export const permissionModeValidator = v.union(...PERMISSION_MODES.map((value) => v.literal(value)));
+export const taskStatusValidator = v.union(...TASK_STATUSES.map((value) => v.literal(value)));
+export const runStatusValidator = v.union(...RUN_STATUSES.map((value) => v.literal(value)));
+export const repoProviderValidator = v.union(...REPO_PROVIDERS.map((value) => v.literal(value)));
+export const repoAuthTypeValidator = v.union(...REPO_AUTH_TYPES.map((value) => v.literal(value)));
 
 export function now() {
   return Date.now();
@@ -89,6 +138,16 @@ export function workspaceAuthorizationError() {
 
 export function notFoundError(resource: string) {
   return new ConvexError(`${resource} not found`);
+}
+
+export function requireServiceToken(serviceToken: string) {
+  const expectedToken = process.env.AGENT_CENTER_CONVEX_SERVICE_TOKEN;
+  if (!expectedToken) {
+    throw new ConvexError("Convex service token is not configured");
+  }
+  if (serviceToken !== expectedToken) {
+    throw new ConvexError("Invalid Convex service token");
+  }
 }
 
 export async function requireAuthenticatedIdentity(ctx: AuthenticatedCtx) {

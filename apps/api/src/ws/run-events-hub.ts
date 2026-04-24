@@ -7,8 +7,11 @@ import {
   type RealtimeServerMessage,
   type RunEventMessage,
 } from "@agent-center/shared";
+import { api } from "@agent-center/control-plane/api";
+import type { Id } from "@agent-center/control-plane/data-model";
 import type { WSContext } from "hono/ws";
 
+import { convexServiceClient } from "../services/convex-service-client";
 import { listRunEventsAfter } from "./run-events-repository";
 
 const POLL_INTERVAL_MS = Number(process.env.RUN_EVENTS_POLL_INTERVAL_MS ?? 1_000);
@@ -51,15 +54,11 @@ export class RunEventsHub {
         return;
       }
 
-      const [{ db, workspaces }, { eq }] = await Promise.all([
-        import("@agent-center/db"),
-        import("drizzle-orm"),
-      ]);
-      const workspace = await db.query.workspaces.findFirst({
-        where: eq(workspaces.ownerId, userId),
+      const hasWorkspace = await convexServiceClient.query(api.serviceApi.hasWorkspaceForUser, {
+        userId: userId as Id<"users">,
       });
 
-      if (workspace === undefined) {
+      if (!hasWorkspace) {
         throw new Error("No accessible workspace");
       }
     },

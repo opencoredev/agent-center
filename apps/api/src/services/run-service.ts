@@ -942,13 +942,13 @@ export const runService = {
 
     const run = await createRunRecord({
       taskId: task.id,
-      repoConnectionId: task.repoConnectionId,
+      repoConnectionId: task.repoConnectionId ?? null,
       prompt: input.prompt ?? task.prompt,
-      baseBranch: input.baseBranch ?? task.baseBranch,
-      branchName: input.branchName ?? task.branchName,
+      baseBranch: input.baseBranch ?? task.baseBranch ?? null,
+      branchName: input.branchName ?? task.branchName ?? null,
       sandboxSize: input.sandboxSize ?? task.sandboxSize,
       permissionMode: input.permissionMode ?? task.permissionMode,
-      policy: input.policy ?? task.policy,
+      policy: input.policy ?? task.policy ?? {},
       config: nextConfig,
       metadata: mergeMetadata(withoutControlMetadata(task.metadata), input.metadata),
       workspacePath: reusableWorkspacePath,

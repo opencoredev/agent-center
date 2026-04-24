@@ -1,71 +1,56 @@
-import { db, repoConnections } from "@agent-center/db";
-import { and, desc, eq, ilike, sql, type SQL } from "drizzle-orm";
+import { api } from "@agent-center/control-plane/api";
+import type { RepoProvider } from "@agent-center/shared";
+
+import { convexServiceClient } from "../services/convex-service-client";
+import { asConvexArgs, asConvexId } from "./convex-repository-utils";
 
 export interface RepoConnectionListFilters {
   workspaceId?: string;
   projectId?: string;
-  provider?: typeof repoConnections.$inferSelect.provider;
+  provider?: RepoProvider;
 }
 
 export function listRepoConnections(filters: RepoConnectionListFilters) {
-  const conditions: SQL<unknown>[] = [];
-
-  if (filters.workspaceId !== undefined) {
-    conditions.push(eq(repoConnections.workspaceId, filters.workspaceId));
-  }
-
-  if (filters.projectId !== undefined) {
-    conditions.push(eq(repoConnections.projectId, filters.projectId));
-  }
-
-  if (filters.provider !== undefined) {
-    conditions.push(eq(repoConnections.provider, filters.provider));
-  }
-
-  if (conditions.length > 0) {
-    return db
-      .select()
-      .from(repoConnections)
-      .where(and(...conditions))
-      .orderBy(desc(repoConnections.createdAt));
-  }
-
-  return db.select().from(repoConnections).orderBy(desc(repoConnections.createdAt));
+  return convexServiceClient.query(api.serviceApi.listRepoConnections, {
+    workspaceId: filters.workspaceId
+      ? asConvexId<"workspaces">(filters.workspaceId)
+      : undefined,
+    projectId: filters.projectId ? asConvexId<"projects">(filters.projectId) : undefined,
+    provider: filters.provider,
+  });
 }
 
 export async function findRepoConnectionById(repoConnectionId: string) {
-  return db.query.repoConnections.findFirst({
-    where: eq(repoConnections.id, repoConnectionId),
+  const repoConnection = await convexServiceClient.query(api.serviceApi.getRepoConnectionById, {
+    repoConnectionId: asConvexId<"repoConnections">(repoConnectionId),
   });
+  return repoConnection ?? undefined;
 }
 
 export async function findRepoConnectionByWorkspaceAndId(
   workspaceId: string,
   repoConnectionId: string,
 ) {
-  return db.query.repoConnections.findFirst({
-    where: and(
-      eq(repoConnections.workspaceId, workspaceId),
-      eq(repoConnections.id, repoConnectionId),
-    ),
-  });
+  const repoConnection = await convexServiceClient.query(
+    api.serviceApi.getRepoConnectionByWorkspaceAndId,
+    {
+      workspaceId: asConvexId<"workspaces">(workspaceId),
+      repoConnectionId: asConvexId<"repoConnections">(repoConnectionId),
+    },
+  );
+  return repoConnection ?? undefined;
 }
 
 export async function findRepoConnectionByWorkspaceAndRepo(
   workspaceId: string,
-  provider: typeof repoConnections.$inferSelect.provider,
+  provider: RepoProvider,
   owner: string,
   repo: string,
 ) {
-  return db.query.repoConnections.findFirst({
-    where: and(
-      eq(repoConnections.workspaceId, workspaceId),
-      eq(repoConnections.provider, provider),
-      eq(repoConnections.owner, owner),
-      eq(repoConnections.repo, repo),
-    ),
-    orderBy: desc(repoConnections.createdAt),
-  });
+  const repoConnections = await listRepoConnections({ workspaceId, provider });
+  return repoConnections.find(
+    (repoConnection) => repoConnection.owner === owner && repoConnection.repo === repo,
+  );
 }
 
 export async function findGitHubAppRepoConnectionByRepository(input: {
@@ -73,22 +58,20 @@ export async function findGitHubAppRepoConnectionByRepository(input: {
   repo: string;
   installationId: number;
 }) {
-  return db.query.repoConnections.findFirst({
-    where: and(
-      eq(repoConnections.provider, "github"),
-      eq(repoConnections.authType, "github_app_installation"),
-      ilike(repoConnections.owner, input.owner),
-      ilike(repoConnections.repo, input.repo),
-      sql`(${repoConnections.connectionMetadata} ->> 'installationId')::bigint = ${input.installationId}`,
-    ),
-    orderBy: desc(repoConnections.createdAt),
-  });
+  const repoConnection = await convexServiceClient.query(
+    api.serviceApi.getGitHubAppRepoConnectionByRepository,
+    input,
+  );
+  return repoConnection ?? undefined;
 }
 
-export async function createRepoConnection(values: typeof repoConnections.$inferInsert) {
-  const [repoConnection] = await db.insert(repoConnections).values(values).returning();
+export async function createRepoConnection(values: Record<string, unknown>) {
+  const repoConnection = await convexServiceClient.mutation(
+    api.serviceApi.createRepoConnection,
+    asConvexArgs(values),
+  );
 
-  if (repoConnection === undefined) {
+  if (repoConnection === null) {
     throw new Error("Failed to create repo connection");
   }
 
@@ -97,15 +80,14 @@ export async function createRepoConnection(values: typeof repoConnections.$infer
 
 export async function updateRepoConnection(
   repoConnectionId: string,
-  values: Partial<typeof repoConnections.$inferInsert>,
+  values: Record<string, unknown>,
 ) {
-  const [repoConnection] = await db
-    .update(repoConnections)
-    .set(values)
-    .where(eq(repoConnections.id, repoConnectionId))
-    .returning();
+  const repoConnection = await convexServiceClient.mutation(api.serviceApi.updateRepoConnection, {
+    repoConnectionId: asConvexId<"repoConnections">(repoConnectionId),
+    ...asConvexArgs(values),
+  });
 
-  if (repoConnection === undefined) {
+  if (repoConnection === null) {
     throw new Error(`Failed to update repo connection ${repoConnectionId}`);
   }
 
@@ -113,12 +95,11 @@ export async function updateRepoConnection(
 }
 
 export async function deleteRepoConnection(repoConnectionId: string) {
-  const [repoConnection] = await db
-    .delete(repoConnections)
-    .where(eq(repoConnections.id, repoConnectionId))
-    .returning();
+  const repoConnection = await convexServiceClient.mutation(api.serviceApi.deleteRepoConnection, {
+    repoConnectionId: asConvexId<"repoConnections">(repoConnectionId),
+  });
 
-  if (repoConnection === undefined) {
+  if (repoConnection === null) {
     throw new Error(`Failed to delete repo connection ${repoConnectionId}`);
   }
 

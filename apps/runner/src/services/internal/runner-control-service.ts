@@ -117,9 +117,9 @@ export class RunnerControlService {
       paused: run.status === "paused",
       phase: "inactive",
       runId: run.id,
-      startedAt: run.startedAt?.toISOString() ?? run.createdAt.toISOString(),
+      startedAt: new Date(run.startedAt ?? run.createdAt).toISOString(),
       status: run.status,
-      workspacePath: run.workspacePath,
+      workspacePath: run.workspacePath ?? null,
     };
   }
 

@@ -7,23 +7,17 @@
       "@agent-center/config": [
         "../../packages/config/src/index.ts"
       ],
-      "@agent-center/db": [
-        "../../packages/db/src/index.ts"
+      "@agent-center/control-plane/api": [
+        "../control-plane/convex/_generated/api.d.ts"
+      ],
+      "@agent-center/control-plane/data-model": [
+        "../control-plane/convex/_generated/dataModel.d.ts"
       ],
       "@agent-center/shared": [
         "../../packages/shared/src/index.ts"
       ],
       "dotenv": [
         "../../node_modules/.bun/node_modules/dotenv"
-      ],
-      "drizzle-orm": [
-        "../../node_modules/.bun/node_modules/drizzle-orm"
-      ],
-      "drizzle-orm/*": [
-        "../../node_modules/.bun/node_modules/drizzle-orm/*"
-      ],
-      "postgres": [
-        "../../node_modules/.bun/node_modules/postgres"
       ],
       "zod": [
         "../../node_modules/.bun/node_modules/zod"

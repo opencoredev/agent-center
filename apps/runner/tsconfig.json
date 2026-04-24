@@ -1,5 +1,17 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@agent-center/control-plane/api": [
+        "../control-plane/convex/_generated/api.d.ts"
+      ],
+      "@agent-center/control-plane/data-model": [
+        "../control-plane/convex/_generated/dataModel.d.ts"
+      ]
+    }
+  },
   "include": [
     "src/**/*.ts"
   ]

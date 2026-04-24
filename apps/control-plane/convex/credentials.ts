@@ -11,7 +11,7 @@ export const listByWorkspace = query({
     v.object({
       _id: v.id("credentials"),
       _creationTime: v.number(),
-      workspaceId: v.id("workspaces"),
+      workspaceId: v.optional(v.id("workspaces")),
       provider: v.union(...CREDENTIAL_PROVIDERS.map((value) => v.literal(value))),
       source: v.union(...CREDENTIAL_SOURCES.map((value) => v.literal(value))),
       profileEmail: v.optional(v.string()),

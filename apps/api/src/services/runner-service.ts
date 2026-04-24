@@ -1,9 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, eq, gt, isNull } from "drizzle-orm";
-
-import { db, runnerRegistrationTokens, runners } from "@agent-center/db";
-
 import { ApiError, notFoundError } from "../http/errors";
 import { findWorkspaceById } from "../repositories/workspace-repository";
 import {
@@ -14,6 +10,7 @@ import {
   findRunnerRegistrationTokenById,
   listRunnerRegistrationTokens,
   listRunners,
+  registerRunnerWithToken,
   updateRunner,
   updateRunnerRegistrationToken,
 } from "../repositories/runner-repository";
@@ -170,51 +167,28 @@ export const runnerService = {
     const authToken = createRunnerAuthToken();
     const now = new Date();
 
-    const result = await db.transaction(async (tx) => {
-      const [consumedToken] = await tx
-        .update(runnerRegistrationTokens)
-        .set({
-          consumedAt: now,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(runnerRegistrationTokens.id, registrationToken.id),
-            isNull(runnerRegistrationTokens.revokedAt),
-            isNull(runnerRegistrationTokens.consumedAt),
-            gt(runnerRegistrationTokens.expiresAt, now),
-          ),
-        )
-        .returning();
-
-      if (consumedToken === undefined) {
-        throw new ApiError(
-          409,
-          "runner_registration_token_already_used",
-          "Runner registration token has already been consumed",
-        );
-      }
-
-      const [runner] = await tx
-        .insert(runners)
-        .values({
-          workspaceId: consumedToken.workspaceId,
-          name: consumedToken.name,
-          authKeyHash: authToken.tokenHash,
-          authKeyPrefix: authToken.tokenPrefix,
-          createdByUserId: consumedToken.createdByUserId,
-          lastSeenAt: now,
-        })
-        .returning();
-
-      if (runner === undefined) {
-        throw new Error("Failed to create runner");
-      }
-
-      return {
-        runner,
-      };
+    const result = await registerRunnerWithToken({
+      tokenHash,
+      authKeyHash: authToken.tokenHash,
+      authKeyPrefix: authToken.tokenPrefix,
+      lastSeenAt: now,
     });
+
+    if (result.status === "already_used") {
+      throw new ApiError(
+        409,
+        "runner_registration_token_already_used",
+        "Runner registration token has already been consumed",
+      );
+    }
+
+    if (result.status !== "registered" || result.runner === null) {
+      throw new ApiError(
+        401,
+        "invalid_runner_registration_token",
+        "Runner registration token is invalid, expired, or already used",
+      );
+    }
 
     return {
       authToken: authToken.token,

@@ -341,7 +341,7 @@ export const githubWebhookService = {
     }
 
     const project =
-      repoConnection.projectId !== null
+      repoConnection.projectId != null
         ? await projectService.assertWithinWorkspace(repoConnection.workspaceId, repoConnection.projectId)
         : await projectService.findOrCreateRepositoryProject({
             workspaceId: repoConnection.workspaceId,

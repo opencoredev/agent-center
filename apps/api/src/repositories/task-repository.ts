@@ -1,70 +1,59 @@
-import { db, tasks } from "@agent-center/db";
-import { and, desc, eq, sql, type SQL } from "drizzle-orm";
+import { api } from "@agent-center/control-plane/api";
+import type { TaskStatus } from "@agent-center/shared";
+
+import { convexServiceClient } from "../services/convex-service-client";
+import { asConvexArgs, asConvexId } from "./convex-repository-utils";
 
 export interface TaskListFilters {
   workspaceId?: string;
   projectId?: string;
-  status?: typeof tasks.$inferSelect.status;
+  status?: TaskStatus;
 }
 
 export function listTasks(filters: TaskListFilters) {
-  const conditions: SQL<unknown>[] = [];
-
-  if (filters.workspaceId !== undefined) {
-    conditions.push(eq(tasks.workspaceId, filters.workspaceId));
-  }
-
-  if (filters.projectId !== undefined) {
-    conditions.push(eq(tasks.projectId, filters.projectId));
-  }
-
-  if (filters.status !== undefined) {
-    conditions.push(eq(tasks.status, filters.status));
-  }
-
-  if (conditions.length > 0) {
-    return db
-      .select()
-      .from(tasks)
-      .where(and(...conditions))
-      .orderBy(desc(tasks.createdAt));
-  }
-
-  return db.select().from(tasks).orderBy(desc(tasks.createdAt));
+  return convexServiceClient.query(api.serviceApi.listTasks, {
+    workspaceId: filters.workspaceId
+      ? asConvexId<"workspaces">(filters.workspaceId)
+      : undefined,
+    projectId: filters.projectId ? asConvexId<"projects">(filters.projectId) : undefined,
+    status: filters.status,
+  });
 }
 
 export async function findTaskById(taskId: string) {
-  return db.query.tasks.findFirst({
-    where: eq(tasks.id, taskId),
+  const task = await convexServiceClient.query(api.serviceApi.getTask, {
+    taskId: asConvexId<"tasks">(taskId),
   });
+  return task ?? undefined;
 }
 
 export async function findTaskByGitHubDeliveryId(deliveryId: string) {
-  return db.query.tasks.findFirst({
-    where: sql`${tasks.metadata} -> 'github' ->> 'deliveryId' = ${deliveryId}`,
-    orderBy: desc(tasks.createdAt),
+  const task = await convexServiceClient.query(api.serviceApi.getTaskByGitHubDeliveryId, {
+    deliveryId,
   });
+  return task ?? undefined;
 }
 
-export async function createTask(values: typeof tasks.$inferInsert) {
-  const [task] = await db.insert(tasks).values(values).returning();
+export async function createTask(values: Record<string, unknown>) {
+  const task = await convexServiceClient.mutation(
+    api.serviceApi.createTask,
+    asConvexArgs(values),
+  );
 
-  if (task === undefined) {
+  if (task === null) {
     throw new Error("Failed to create task");
   }
 
   return task;
 }
 
-export async function updateTask(
-  taskId: string,
-  values: Partial<typeof tasks.$inferInsert> & {
-    updatedAt: Date;
-  },
-) {
-  const [task] = await db.update(tasks).set(values).where(eq(tasks.id, taskId)).returning();
+export async function updateTask(taskId: string, values: Record<string, unknown>) {
+  const task = await convexServiceClient.mutation(api.serviceApi.updateTask, {
+    taskId: asConvexId<"tasks">(taskId),
+    ...asConvexArgs(values),
+  });
 
-  if (task === undefined) {
+  if (task === null) {
     throw new Error(`Failed to update task ${taskId}`);
   }
 
@@ -72,9 +61,11 @@ export async function updateTask(
 }
 
 export async function deleteTask(taskId: string) {
-  const [task] = await db.delete(tasks).where(eq(tasks.id, taskId)).returning();
+  const task = await convexServiceClient.mutation(api.serviceApi.deleteTask, {
+    taskId: asConvexId<"tasks">(taskId),
+  });
 
-  if (task === undefined) {
+  if (task === null) {
     throw new Error(`Failed to delete task ${taskId}`);
   }
 

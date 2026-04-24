@@ -128,15 +128,15 @@ export const automationService = {
       );
     }
 
-    if (nextProjectId !== null) {
+    if (nextProjectId != null) {
       await projectService.assertWithinWorkspace(currentAutomation.workspaceId, nextProjectId);
     }
 
-    if (nextRepoConnectionId !== null) {
+    if (nextRepoConnectionId != null) {
       await repoConnectionService.assertWithinWorkspace(
         currentAutomation.workspaceId,
         nextRepoConnectionId,
-        nextProjectId,
+        nextProjectId ?? null,
       );
     }
 

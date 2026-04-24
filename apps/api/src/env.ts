@@ -20,6 +20,8 @@ export const apiEnv = parseEnv(
     GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET,
     GITHUB_APP_CALLBACK_URL: process.env.GITHUB_APP_CALLBACK_URL,
     GITHUB_APP_SETUP_URL: process.env.GITHUB_APP_SETUP_URL,
+    CONVEX_URL: process.env.CONVEX_URL || process.env.VITE_CONVEX_URL,
+    AGENT_CENTER_CONVEX_SERVICE_TOKEN: process.env.AGENT_CENTER_CONVEX_SERVICE_TOKEN,
   },
   {
     API_HOST: host.default("0.0.0.0"),
@@ -40,5 +42,7 @@ export const apiEnv = parseEnv(
     GITHUB_WEBHOOK_SECRET: z.string().trim().optional(),
     GITHUB_APP_CALLBACK_URL: z.string().trim().optional(),
     GITHUB_APP_SETUP_URL: z.string().trim().optional(),
+    CONVEX_URL: z.url(),
+    AGENT_CENTER_CONVEX_SERVICE_TOKEN: z.string().trim().min(1),
   },
 );

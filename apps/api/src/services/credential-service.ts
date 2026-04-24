@@ -1,10 +1,10 @@
 import type { CredentialStatus, ResolvedCredential } from "@agent-center/shared";
 import { decrypt, encrypt } from "@agent-center/shared";
-import { db, credentials } from "@agent-center/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { api } from "@agent-center/control-plane/api";
 
 import { ApiError } from "../http/errors";
 import { apiEnv } from "../env";
+import { convexServiceClient } from "./convex-service-client";
 
 type Provider = "claude" | "openai";
 
@@ -19,13 +19,10 @@ function getEncryptionKey(): string {
 // ── Generic helpers (shared by all providers) ───────────────────────────────
 
 async function getCredentials(provider: Provider, userId: string): Promise<CredentialStatus> {
-  const rows = await db
-    .select()
-    .from(credentials)
-    .where(and(eq(credentials.provider, provider), eq(credentials.userId, userId)))
-    .limit(1);
-
-  const row = rows[0];
+  const row = await convexServiceClient.query(api.serviceApi.getCredential, {
+    provider,
+    userId,
+  });
 
   if (!row) {
     return {
@@ -40,9 +37,9 @@ async function getCredentials(provider: Provider, userId: string): Promise<Crede
   return {
     connected: true,
     source: row.source as "api_key" | "oauth",
-    email: row.profileEmail,
-    expiresAt: row.tokenExpiresAt ? row.tokenExpiresAt.toISOString() : null,
-    subscriptionType: row.subscriptionType,
+    email: row.profileEmail ?? null,
+    expiresAt: row.tokenExpiresAt ? new Date(row.tokenExpiresAt).toISOString() : null,
+    subscriptionType: row.subscriptionType ?? null,
   };
 }
 
@@ -54,30 +51,15 @@ async function storeProviderApiKey(
   const key = getEncryptionKey();
   const encryptedApiKey = encrypt(apiKey, key);
 
-  const existing = await db
-    .select({ id: credentials.id })
-    .from(credentials)
-    .where(and(eq(credentials.provider, provider), eq(credentials.userId, userId)))
-    .limit(1);
-
-  const values = {
+  await convexServiceClient.mutation(api.serviceApi.upsertCredential, {
+    provider,
+    userId,
     source: "api_key" as const,
     encryptedApiKey,
     encryptedAccessToken: null,
     encryptedRefreshToken: null,
     tokenExpiresAt: null,
-    updatedAt: new Date(),
-  };
-
-  if (existing[0]) {
-    await db.update(credentials).set(values).where(eq(credentials.id, existing[0].id));
-  } else {
-    await db.insert(credentials).values({
-      userId,
-      provider,
-      ...values,
-    });
-  }
+  });
 }
 
 async function resolveProviderCredential(
@@ -87,13 +69,10 @@ async function resolveProviderCredential(
   errorMessage: string,
   userId: string,
 ): Promise<ResolvedCredential> {
-  const rows = await db
-    .select()
-    .from(credentials)
-    .where(and(eq(credentials.provider, provider), eq(credentials.userId, userId)))
-    .limit(1);
-
-  const row = rows[0];
+  const row = await convexServiceClient.query(api.serviceApi.getCredential, {
+    provider,
+    userId,
+  });
 
   if (row?.source === "api_key" && row.encryptedApiKey) {
     const key = getEncryptionKey();
@@ -112,9 +91,10 @@ async function resolveProviderCredential(
 }
 
 async function deleteProviderCredentials(provider: Provider, userId: string): Promise<void> {
-  await db
-    .delete(credentials)
-    .where(and(eq(credentials.provider, provider), eq(credentials.userId, userId)));
+  await convexServiceClient.mutation(api.serviceApi.deleteCredential, {
+    provider,
+    userId,
+  });
 }
 
 // ── Claude ──────────────────────────────────────────────────────────────────
@@ -132,22 +112,12 @@ async function updateClaudeProfile(
   subscriptionType: string | null,
   userId: string,
 ): Promise<void> {
-  const existing = await db
-    .select({ id: credentials.id })
-    .from(credentials)
-    .where(and(eq(credentials.provider, "claude"), eq(credentials.userId, userId)))
-    .limit(1);
-
-  if (existing[0]) {
-    await db
-      .update(credentials)
-      .set({
-        profileEmail: email,
-        subscriptionType,
-        updatedAt: new Date(),
-      })
-      .where(eq(credentials.id, existing[0].id));
-  }
+  await convexServiceClient.mutation(api.serviceApi.patchCredentialProfile, {
+    provider: "claude",
+    userId,
+    profileEmail: email,
+    subscriptionType,
+  });
 }
 
 async function resolveClaudeCredential(userId: string): Promise<ResolvedCredential> {
@@ -187,41 +157,23 @@ async function storeOpenAITokens(
 
   const key = getEncryptionKey();
 
-  const existing = await db
-    .select({ id: credentials.id })
-    .from(credentials)
-    .where(and(eq(credentials.provider, "openai"), eq(credentials.userId, userId)))
-    .limit(1);
-
-  const values = {
+  await convexServiceClient.mutation(api.serviceApi.upsertCredential, {
+    provider: "openai",
+    userId,
     source: "oauth" as const,
     encryptedAccessToken: encrypt(accessToken, key),
     encryptedRefreshToken: encrypt(refreshToken, key),
     encryptedApiKey: null,
     metadata: idToken ? { idToken } : {},
-    tokenExpiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000) : null,
-    updatedAt: new Date(),
-  };
-
-  if (existing[0]) {
-    await db.update(credentials).set(values).where(eq(credentials.id, existing[0].id));
-  } else {
-    await db.insert(credentials).values({
-      userId,
-      provider: "openai",
-      ...values,
-    });
-  }
+    tokenExpiresAt: expiresIn ? Date.now() + expiresIn * 1000 : null,
+  });
 }
 
 async function resolveOpenAICredential(userId: string): Promise<ResolvedCredential> {
-  const rows = await db
-    .select()
-    .from(credentials)
-    .where(and(eq(credentials.provider, "openai"), eq(credentials.userId, userId)))
-    .limit(1);
-
-  const row = rows[0];
+  const row = await convexServiceClient.query(api.serviceApi.getCredential, {
+    provider: "openai",
+    userId,
+  });
 
   if (row?.source === "api_key" && row.encryptedApiKey) {
     const key = getEncryptionKey();
@@ -315,13 +267,10 @@ async function resolveGlobalProviderCredential(
     });
   }
 
-  const rows = await db
-    .select()
-    .from(credentials)
-    .where(and(eq(credentials.provider, provider), isNull(credentials.userId)))
-    .limit(1);
-
-  const row = rows[0];
+  const row = await convexServiceClient.query(api.serviceApi.getCredential, {
+    provider,
+    userId: null,
+  });
 
   if (row?.source === "api_key" && row.encryptedApiKey) {
     const key = getEncryptionKey();

@@ -1,6 +1,7 @@
 import os from "node:os";
 
 import { loadRootEnv, logLevel, nodeEnv, parseEnv } from "@agent-center/config";
+import { z } from "zod";
 
 loadRootEnv();
 
@@ -8,10 +9,14 @@ const baseWorkerEnv = parseEnv(
   {
     NODE_ENV: process.env.NODE_ENV,
     WORKER_LOG_LEVEL: process.env.WORKER_LOG_LEVEL,
+    CONVEX_URL: process.env.CONVEX_URL || process.env.VITE_CONVEX_URL,
+    AGENT_CENTER_CONVEX_SERVICE_TOKEN: process.env.AGENT_CENTER_CONVEX_SERVICE_TOKEN,
   },
   {
     NODE_ENV: nodeEnv,
     WORKER_LOG_LEVEL: logLevel,
+    CONVEX_URL: z.url(),
+    AGENT_CENTER_CONVEX_SERVICE_TOKEN: z.string().trim().min(1),
   },
 );
 

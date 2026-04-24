@@ -9,3 +9,4 @@ export * as sandboxes from "./sandboxes";
 export * as threads from "./threads";
 export * as tasks from "./tasks";
 export * as runs from "./runs";
+export * as serviceApi from "./serviceApi";
