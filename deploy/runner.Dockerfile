@@ -33,6 +33,7 @@ COPY --from=runtime-deps /app/apps ./apps
 COPY --from=runtime-deps /app/packages ./packages
 COPY package.json bun.lock tsconfig.base.json turbo.json ./
 COPY packages ./packages
+COPY apps/control-plane ./apps/control-plane
 COPY apps/runner ./apps/runner
 
 EXPOSE 3002
