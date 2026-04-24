@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { buildChildProcessEnv } from "./command-executor";
+
 export interface CodexExecutionRequest {
   cwd: string;
   model?: string;
@@ -62,11 +64,10 @@ async function runCodexAgent(
     const subprocess = Bun.spawn({
       cmd,
       cwd: request.cwd,
-      env: {
-        ...process.env,
+      env: buildChildProcessEnv({
         ...request.env,
         ...authSetup.env,
-      },
+      }),
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
@@ -249,7 +250,11 @@ async function pipeStream(
 
 export function parseCodexJsonLine(
   line: string,
-): { type: "log" | "error" | "assistant_message_delta"; message: string; payload?: Record<string, unknown> } | null {
+): {
+  type: "log" | "error" | "assistant_message_delta";
+  message: string;
+  payload?: Record<string, unknown>;
+} | null {
   try {
     const parsed = JSON.parse(line) as Record<string, unknown>;
     const item =

@@ -11,6 +11,7 @@ export interface BackendCommandRequest {
   control: CommandExecutionController;
   cwd: string;
   env?: Record<string, string>;
+  workspaceHandle?: WorkspaceHandle;
   onStdoutLine?: (line: string) => Promise<void> | void;
   onStderrLine?: (line: string) => Promise<void> | void;
   timeoutMs?: number;
@@ -25,5 +26,8 @@ export interface ExecutionBackend {
   readonly name: string;
   createWorkspace(runId: string): Promise<WorkspaceHandle>;
   executeCommand(request: BackendCommandRequest): Promise<CommandExecutionResult>;
-  cleanup(handle: WorkspaceHandle, status: "cancelled" | "completed" | "failed"): Promise<CleanupResult>;
+  cleanup(
+    handle: WorkspaceHandle,
+    status: "cancelled" | "completed" | "failed",
+  ): Promise<CleanupResult>;
 }

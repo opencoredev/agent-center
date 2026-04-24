@@ -2,11 +2,15 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { RUN_STATUSES } from "./constants";
 import {
+  assertSameWorkspace,
   executionConfigValidator,
   executionPolicyValidator,
   metadataValidator,
+  notFoundError,
   now,
   permissionModeValidator,
+  requireOwnedWorkspace,
+  requireOwnedWorkspaceDocument,
   sandboxSizeValidator,
 } from "./lib";
 
@@ -16,6 +20,7 @@ export const listByTask = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspaceDocument(ctx, "tasks", args.taskId);
     return await ctx.db
       .query("runs")
       .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
@@ -42,6 +47,26 @@ export const create = mutation({
   },
   returns: v.id("runs"),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspace(ctx, args.workspaceId);
+    const task = await requireOwnedWorkspaceDocument(ctx, "tasks", args.taskId);
+    assertSameWorkspace(task.workspaceId, args.workspaceId);
+    if (args.threadId !== undefined) {
+      const thread = await requireOwnedWorkspaceDocument(ctx, "threads", args.threadId);
+      assertSameWorkspace(thread.workspaceId, args.workspaceId);
+    }
+    if (args.sandboxId !== undefined) {
+      const sandbox = await requireOwnedWorkspaceDocument(ctx, "sandboxes", args.sandboxId);
+      assertSameWorkspace(sandbox.workspaceId, args.workspaceId);
+    }
+    if (args.repoConnectionId !== undefined) {
+      const repoConnection = await requireOwnedWorkspaceDocument(
+        ctx,
+        "repoConnections",
+        args.repoConnectionId,
+      );
+      assertSameWorkspace(repoConnection.workspaceId, args.workspaceId);
+    }
+
     const timestamp = now();
     const existingRuns = await ctx.db
       .query("runs")
@@ -81,8 +106,7 @@ export const updateStatus = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const current = await ctx.db.get(args.runId);
-    if (!current) return null;
+    const current = await requireOwnedWorkspaceDocument(ctx, "runs", args.runId);
 
     const completedAt =
       args.status === "completed" || args.status === "failed" || args.status === "cancelled"
@@ -111,10 +135,7 @@ export const appendEvent = mutation({
   },
   returns: v.number(),
   handler: async (ctx, args) => {
-    const run = await ctx.db.get(args.runId);
-    if (!run) {
-      return 0;
-    }
+    const run = await requireOwnedWorkspaceDocument(ctx, "runs", args.runId);
 
     const sequence = run.nextEventSequence ?? 1;
 
@@ -141,6 +162,11 @@ export const listEvents = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (!run) {
+      throw notFoundError("runs");
+    }
+    await requireOwnedWorkspace(ctx, run.workspaceId);
     return await ctx.db
       .query("runEvents")
       .withIndex("by_run_sequence", (q) => q.eq("runId", args.runId))

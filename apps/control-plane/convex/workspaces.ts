@@ -1,6 +1,12 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { metadataValidator, now, normalizeSlug } from "./lib";
+import {
+  metadataValidator,
+  now,
+  normalizeSlug,
+  requireAuthenticatedIdentity,
+  requireOwnedWorkspace,
+} from "./lib";
 
 export const list = query({
   args: {},
@@ -17,7 +23,12 @@ export const list = query({
     }),
   ),
   handler: async (ctx) => {
-    return await ctx.db.query("workspaces").collect();
+    const identity = await requireAuthenticatedIdentity(ctx);
+    const workspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_ownerIdentity", (q) => q.eq("ownerIdentity", identity.tokenIdentifier))
+      .collect();
+    return workspaces.map(({ ownerIdentity: _ownerIdentity, ...workspace }) => workspace);
   },
 });
 
@@ -30,12 +41,14 @@ export const create = mutation({
   },
   returns: v.id("workspaces"),
   handler: async (ctx, args) => {
+    const identity = await requireAuthenticatedIdentity(ctx);
     const baseSlug = args.slug ?? args.name;
     const slug = normalizeSlug(baseSlug);
     const timestamp = now();
     return await ctx.db.insert("workspaces", {
       slug,
       name: args.name,
+      ownerIdentity: identity.tokenIdentifier,
       description: args.description,
       metadata: args.metadata,
       createdAt: timestamp,
@@ -53,8 +66,7 @@ export const update = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (!workspace) return null;
+    const workspace = await requireOwnedWorkspace(ctx, args.workspaceId);
 
     await ctx.db.patch(args.workspaceId, {
       name: args.name ?? workspace.name,

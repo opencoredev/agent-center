@@ -1,7 +1,7 @@
 import type { CredentialStatus, ResolvedCredential } from "@agent-center/shared";
 import { decrypt, encrypt } from "@agent-center/shared";
 import { db, credentials } from "@agent-center/db";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { ApiError } from "../http/errors";
 import { apiEnv } from "../env";
@@ -18,11 +18,11 @@ function getEncryptionKey(): string {
 
 // ── Generic helpers (shared by all providers) ───────────────────────────────
 
-async function getCredentials(provider: Provider): Promise<CredentialStatus> {
+async function getCredentials(provider: Provider, userId: string): Promise<CredentialStatus> {
   const rows = await db
     .select()
     .from(credentials)
-    .where(eq(credentials.provider, provider))
+    .where(and(eq(credentials.provider, provider), eq(credentials.userId, userId)))
     .limit(1);
 
   const row = rows[0];
@@ -46,14 +46,18 @@ async function getCredentials(provider: Provider): Promise<CredentialStatus> {
   };
 }
 
-async function storeProviderApiKey(provider: Provider, apiKey: string): Promise<void> {
+async function storeProviderApiKey(
+  provider: Provider,
+  apiKey: string,
+  userId: string,
+): Promise<void> {
   const key = getEncryptionKey();
   const encryptedApiKey = encrypt(apiKey, key);
 
   const existing = await db
     .select({ id: credentials.id })
     .from(credentials)
-    .where(eq(credentials.provider, provider))
+    .where(and(eq(credentials.provider, provider), eq(credentials.userId, userId)))
     .limit(1);
 
   const values = {
@@ -69,6 +73,7 @@ async function storeProviderApiKey(provider: Provider, apiKey: string): Promise<
     await db.update(credentials).set(values).where(eq(credentials.id, existing[0].id));
   } else {
     await db.insert(credentials).values({
+      userId,
       provider,
       ...values,
     });
@@ -80,11 +85,12 @@ async function resolveProviderCredential(
   envFallbackKey: string,
   errorCode: string,
   errorMessage: string,
+  userId: string,
 ): Promise<ResolvedCredential> {
   const rows = await db
     .select()
     .from(credentials)
-    .where(eq(credentials.provider, provider))
+    .where(and(eq(credentials.provider, provider), eq(credentials.userId, userId)))
     .limit(1);
 
   const row = rows[0];
@@ -105,28 +111,31 @@ async function resolveProviderCredential(
   throw new ApiError(422, errorCode, errorMessage);
 }
 
-async function deleteProviderCredentials(provider: Provider): Promise<void> {
-  await db.delete(credentials).where(eq(credentials.provider, provider));
+async function deleteProviderCredentials(provider: Provider, userId: string): Promise<void> {
+  await db
+    .delete(credentials)
+    .where(and(eq(credentials.provider, provider), eq(credentials.userId, userId)));
 }
 
 // ── Claude ──────────────────────────────────────────────────────────────────
 
-async function getClaudeCredentials(): Promise<CredentialStatus> {
-  return getCredentials("claude");
+async function getClaudeCredentials(userId: string): Promise<CredentialStatus> {
+  return getCredentials("claude", userId);
 }
 
-async function storeClaudeApiKey(apiKey: string): Promise<void> {
-  return storeProviderApiKey("claude", apiKey);
+async function storeClaudeApiKey(apiKey: string, userId: string): Promise<void> {
+  return storeProviderApiKey("claude", apiKey, userId);
 }
 
 async function updateClaudeProfile(
   email: string | null,
   subscriptionType: string | null,
+  userId: string,
 ): Promise<void> {
   const existing = await db
     .select({ id: credentials.id })
     .from(credentials)
-    .where(eq(credentials.provider, "claude"))
+    .where(and(eq(credentials.provider, "claude"), eq(credentials.userId, userId)))
     .limit(1);
 
   if (existing[0]) {
@@ -141,27 +150,28 @@ async function updateClaudeProfile(
   }
 }
 
-async function resolveClaudeCredential(): Promise<ResolvedCredential> {
+async function resolveClaudeCredential(userId: string): Promise<ResolvedCredential> {
   return resolveProviderCredential(
     "claude",
     "ANTHROPIC_API_KEY",
     "no_claude_credentials",
     "No Claude credentials configured. Sign in with your Claude subscription or set an API key.",
+    userId,
   );
 }
 
-async function deleteClaudeCredentials(): Promise<void> {
-  return deleteProviderCredentials("claude");
+async function deleteClaudeCredentials(userId: string): Promise<void> {
+  return deleteProviderCredentials("claude", userId);
 }
 
 // ── OpenAI ──────────────────────────────────────────────────────────────────
 
-async function getOpenAICredentials(): Promise<CredentialStatus> {
-  return getCredentials("openai");
+async function getOpenAICredentials(userId: string): Promise<CredentialStatus> {
+  return getCredentials("openai", userId);
 }
 
-async function storeOpenAIApiKey(apiKey: string): Promise<void> {
-  return storeProviderApiKey("openai", apiKey);
+async function storeOpenAIApiKey(apiKey: string, userId: string): Promise<void> {
+  return storeProviderApiKey("openai", apiKey, userId);
 }
 
 async function storeOpenAITokens(
@@ -169,13 +179,18 @@ async function storeOpenAITokens(
   refreshToken: string,
   expiresIn?: number,
   idToken?: string | null,
+  userId?: string,
 ): Promise<void> {
+  if (!userId) {
+    throw new ApiError(401, "unauthorized", "User authentication required");
+  }
+
   const key = getEncryptionKey();
 
   const existing = await db
     .select({ id: credentials.id })
     .from(credentials)
-    .where(eq(credentials.provider, "openai"))
+    .where(and(eq(credentials.provider, "openai"), eq(credentials.userId, userId)))
     .limit(1);
 
   const values = {
@@ -192,17 +207,18 @@ async function storeOpenAITokens(
     await db.update(credentials).set(values).where(eq(credentials.id, existing[0].id));
   } else {
     await db.insert(credentials).values({
+      userId,
       provider: "openai",
       ...values,
     });
   }
 }
 
-async function resolveOpenAICredential(): Promise<ResolvedCredential> {
+async function resolveOpenAICredential(userId: string): Promise<ResolvedCredential> {
   const rows = await db
     .select()
     .from(credentials)
-    .where(eq(credentials.provider, "openai"))
+    .where(and(eq(credentials.provider, "openai"), eq(credentials.userId, userId)))
     .limit(1);
 
   const row = rows[0];
@@ -246,16 +262,16 @@ async function resolveOpenAICredential(): Promise<ResolvedCredential> {
   );
 }
 
-async function deleteOpenAICredentials(): Promise<void> {
-  return deleteProviderCredentials("openai");
+async function deleteOpenAICredentials(userId: string): Promise<void> {
+  return deleteProviderCredentials("openai", userId);
 }
 
-async function resolveCredential(): Promise<ResolvedCredential> {
-  return resolveClaudeCredential();
+async function resolveCredential(userId: string): Promise<ResolvedCredential> {
+  return resolveClaudeCredential(userId);
 }
 
-async function resolveCodexCredential(): Promise<ResolvedCredential> {
-  return resolveOpenAICredential();
+async function resolveCodexCredential(userId: string): Promise<ResolvedCredential> {
+  return resolveOpenAICredential(userId);
 }
 
 function resolveRunnerEnvCredential(
@@ -278,9 +294,87 @@ function resolveRunnerEnvCredential(
   });
 }
 
+async function resolveGlobalProviderCredential(
+  provider: Provider,
+  workspaceId: string,
+  envFallbackKey: string,
+  errorCode: string,
+  errorMessage: string,
+): Promise<ResolvedCredential> {
+  const envApiKey = process.env[envFallbackKey];
+  if (envApiKey) {
+    return { type: "api_key", value: envApiKey };
+  }
+
+  if (process.env.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS !== "true") {
+    throw new ApiError(422, errorCode, errorMessage, {
+      provider,
+      workspaceId,
+      requiresWorkspaceScopedCredential: true,
+      workspaceScopedCredentialLookupImplemented: false,
+    });
+  }
+
+  const rows = await db
+    .select()
+    .from(credentials)
+    .where(and(eq(credentials.provider, provider), isNull(credentials.userId)))
+    .limit(1);
+
+  const row = rows[0];
+
+  if (row?.source === "api_key" && row.encryptedApiKey) {
+    const key = getEncryptionKey();
+    return {
+      type: "api_key",
+      value: decrypt(row.encryptedApiKey, key),
+    };
+  }
+
+  if (
+    provider === "openai" &&
+    row?.source === "oauth" &&
+    row.encryptedAccessToken &&
+    row.encryptedRefreshToken
+  ) {
+    const key = getEncryptionKey();
+    const accessToken = decrypt(row.encryptedAccessToken, key);
+    const refreshToken = decrypt(row.encryptedRefreshToken, key);
+    const metadata = row.metadata as { idToken?: unknown } | null;
+    const idToken = typeof metadata?.idToken === "string" ? metadata.idToken : undefined;
+
+    return {
+      type: "auth_json",
+      value: JSON.stringify({
+        tokens: {
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          ...(idToken ? { id_token: idToken } : {}),
+        },
+      }),
+    };
+  }
+
+  throw new ApiError(422, errorCode, errorMessage, {
+    provider,
+    workspaceId,
+    requiresWorkspaceScopedCredential: true,
+    workspaceScopedCredentialLookupImplemented: false,
+  });
+}
+
 async function resolveRunnerClaudeCredential(workspaceId: string): Promise<ResolvedCredential> {
-  if (apiEnv.NODE_ENV !== "production" || process.env.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS === "true") {
-    return resolveClaudeCredential();
+  if (
+    apiEnv.NODE_ENV !== "production" ||
+    process.env.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS === "true"
+  ) {
+    return resolveGlobalProviderCredential(
+      "claude",
+      workspaceId,
+      "ANTHROPIC_API_KEY",
+      "no_runner_claude_credentials",
+      "No runner-safe Claude credentials configured. Production runners currently support env-backed credentials only for this workspace.",
+    );
   }
 
   return resolveRunnerEnvCredential(
@@ -293,8 +387,17 @@ async function resolveRunnerClaudeCredential(workspaceId: string): Promise<Resol
 }
 
 async function resolveRunnerOpenAICredential(workspaceId: string): Promise<ResolvedCredential> {
-  if (apiEnv.NODE_ENV !== "production" || process.env.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS === "true") {
-    return resolveOpenAICredential();
+  if (
+    apiEnv.NODE_ENV !== "production" ||
+    process.env.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS === "true"
+  ) {
+    return resolveGlobalProviderCredential(
+      "openai",
+      workspaceId,
+      "OPENAI_API_KEY",
+      "no_runner_openai_credentials",
+      "No runner-safe OpenAI credentials configured. Production runners currently support env-backed credentials only for this workspace.",
+    );
   }
 
   return resolveRunnerEnvCredential(

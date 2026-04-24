@@ -1,17 +1,15 @@
-import {
-  AgentCenterApiError,
-  AgentCenterHttpClient,
-} from '@agent-center/sdk-ts';
-import { getApiUrl } from './config';
+import { AgentCenterApiError, AgentCenterHttpClient } from "@agent-center/sdk-ts";
+import { getToken } from "./auth";
+import { getApiUrl } from "./config";
 
 function createHttpClient() {
   return new AgentCenterHttpClient({
     baseUrl: getApiUrl(),
     fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const token = localStorage.getItem('agent_center_token');
+      const token = getToken();
       const headers = new Headers(init?.headers);
       if (token) {
-        headers.set('Authorization', `Bearer ${token}`);
+        headers.set("Authorization", `Bearer ${token}`);
       }
 
       return fetch(input, {
@@ -27,12 +25,12 @@ function normalizeSdkPath(path: string) {
 }
 
 export async function apiFetch(path: string, options?: RequestInit): Promise<Response> {
-  const token = localStorage.getItem('agent_center_token');
+  const token = getToken();
   const headers = new Headers(options?.headers);
-  headers.set('Content-Type', 'application/json');
+  headers.set("Content-Type", "application/json");
 
   if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
+    headers.set("Authorization", `Bearer ${token}`);
   }
 
   return fetch(`${getApiUrl()}${path}`, {
@@ -43,19 +41,19 @@ export async function apiFetch(path: string, options?: RequestInit): Promise<Res
 
 function formatApiError(error: AgentCenterApiError) {
   if (error.status === 401) {
-    return 'Your session expired. Sign in again to continue.';
+    return "Your session expired. Sign in again to continue.";
   }
 
-  if (error.code === 'project_not_found') {
-    return 'The selected repository points to a project that no longer exists. Reconnect it in Settings -> Repositories.';
+  if (error.code === "project_not_found") {
+    return "The selected repository points to a project that no longer exists. Reconnect it in Settings -> Repositories.";
   }
 
-  if (error.code === 'repo_connection_not_found') {
-    return 'The selected repository no longer exists. Pick another repository or reconnect it in Settings -> Repositories.';
+  if (error.code === "repo_connection_not_found") {
+    return "The selected repository no longer exists. Pick another repository or reconnect it in Settings -> Repositories.";
   }
 
-  if (error.code === 'repo_connection_project_mismatch') {
-    return 'This repository is attached to a different project. Reconnect it in Settings -> Repositories.';
+  if (error.code === "repo_connection_project_mismatch") {
+    return "This repository is attached to a different project. Reconnect it in Settings -> Repositories.";
   }
 
   return error.message;
@@ -64,7 +62,7 @@ function formatApiError(error: AgentCenterApiError) {
 function normalizeClientError(error: unknown) {
   if (error instanceof AgentCenterApiError) {
     if (error.status === 401) {
-      window.location.href = '/login';
+      window.location.href = "/login";
     }
     return new Error(formatApiError(error));
   }
@@ -73,13 +71,13 @@ function normalizeClientError(error: unknown) {
     return error;
   }
 
-  return new Error('Request failed. Try again.');
+  return new Error("Request failed. Try again.");
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
   try {
     return await createHttpClient().request<T>({
-      method: 'GET',
+      method: "GET",
       path: normalizeSdkPath(path),
     });
   } catch (error) {
@@ -90,7 +88,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   try {
     return await createHttpClient().request<T>({
-      method: 'POST',
+      method: "POST",
       path: normalizeSdkPath(path),
       body,
     });
@@ -102,7 +100,7 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 export async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
   try {
     return await createHttpClient().request<T>({
-      method: 'PATCH',
+      method: "PATCH",
       path: normalizeSdkPath(path),
       body,
     });
@@ -114,7 +112,7 @@ export async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
 export async function apiDelete<T>(path: string): Promise<T> {
   try {
     return await createHttpClient().request<T>({
-      method: 'DELETE',
+      method: "DELETE",
       path: normalizeSdkPath(path),
     });
   } catch (error) {

@@ -1,12 +1,17 @@
 # ── Development: just Postgres ────────────────────────────────────────────
 # Run with: docker compose up postgres
 #
-# ── Self-hosted (full stack): ─────────────────────────────────────────────
-# Run with: docker compose --profile full up
+# ── Self-hosted deployment: ───────────────────────────────────────────────
+# Copy .env.example to .env, fill the required deployment values, then run:
+#   docker compose --profile full up --build
 #
 # Open http://localhost:3100 in your browser.
 
+x-deploy-db-url: &deploy-db-url "postgres://${POSTGRES_USER:-agent_center}:${POSTGRES_PASSWORD:-}@postgres-deploy:5432/${POSTGRES_DB:-agent_center}"
+
 services:
+  # Local development database. This intentionally preserves the existing
+  # postgres/postgres dev default and host port for bun run db:up.
   postgres:
     image: postgres:16-alpine
     container_name: agent-center-postgres
@@ -24,42 +29,115 @@ services:
       interval: 3s
       timeout: 3s
       retries: 10
+    profiles: [dev]
+
+  postgres-deploy:
+    image: postgres:16-alpine
+    command: postgres -c wal_level=logical -c max_replication_slots=5 -c max_wal_senders=5
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agent_center}
+      POSTGRES_USER: ${POSTGRES_USER:-agent_center}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    expose:
+      - "5432"
+    volumes:
+      - postgres_deploy_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-agent_center} -d ${POSTGRES_DB:-agent_center}",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    profiles: [full]
 
   zero-cache:
     image: rocicorp/zero:latest
     container_name: agent-center-zero
     depends_on:
-      postgres:
+      postgres-deploy:
         condition: service_healthy
-    ports:
-      - "${ZERO_PORT:-4848}:4848"
+    expose:
+      - "4848"
     environment:
-      ZERO_UPSTREAM_DB: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
-      ZERO_CVR_DB: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
-      ZERO_CHANGE_DB: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
+      ZERO_UPSTREAM_DB: *deploy-db-url
+      ZERO_CVR_DB: *deploy-db-url
+      ZERO_CHANGE_DB: *deploy-db-url
       ZERO_REPLICA_FILE: /tmp/zero-cache.db
       ZERO_NUM_SYNC_WORKERS: 4
+    profiles: [full]
+
+  migrate:
+    build:
+      context: .
+      dockerfile: deploy/api.Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+        VITE_AUTH_ENABLED: ${VITE_AUTH_ENABLED:-true}
+        VITE_ZERO_ENABLED: ${VITE_ZERO_ENABLED:-false}
+        VITE_ZERO_CACHE_URL: ${VITE_ZERO_CACHE_URL:-}
+    depends_on:
+      postgres-deploy:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: *deploy-db-url
+      NODE_ENV: production
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    command:
+      - sh
+      - -ec
+      - |
+        test -n "$${POSTGRES_PASSWORD:-}" || { echo "POSTGRES_PASSWORD is required for deployment"; exit 1; }
+        exec bun packages/db/src/migrate.ts
+    restart: "no"
+    profiles: [full]
 
   api:
     build:
       context: .
       dockerfile: deploy/api.Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+        VITE_AUTH_ENABLED: ${VITE_AUTH_ENABLED:-true}
+        VITE_ZERO_ENABLED: ${VITE_ZERO_ENABLED:-false}
+        VITE_ZERO_CACHE_URL: ${VITE_ZERO_CACHE_URL:-}
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "${API_PORT:-3100}:3100"
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
+      DATABASE_URL: *deploy-db-url
       API_HOST: "0.0.0.0"
       API_PORT: "3100"
       NODE_ENV: production
+      DEPLOY_MODE: self-hosted
       SERVE_FRONTEND: "true"
-      FRONTEND_DIST_PATH: apps/web/dist
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-changeme}
+      FRONTEND_DIST_PATH: /app/apps/web/dist
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
+      AUTH_DISABLED: ""
       AUTH_USERNAME: ${AUTH_USERNAME:-}
       AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+    command:
+      - sh
+      - -ec
+      - |
+        test -n "$${CREDENTIAL_ENCRYPTION_KEY:-}" || { echo "CREDENTIAL_ENCRYPTION_KEY is required"; exit 1; }
+        test -n "$${AUTH_USERNAME:-}" || { echo "AUTH_USERNAME is required for deployment"; exit 1; }
+        test -n "$${AUTH_PASSWORD:-}" || { echo "AUTH_PASSWORD is required for deployment"; exit 1; }
+        exec bun apps/api/src/index.ts
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bun -e \"const r = await fetch('http://127.0.0.1:3100/health'); process.exit(r.ok ? 0 : 1)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
     profiles: [full]
 
   worker:
@@ -67,13 +145,32 @@ services:
       context: .
       dockerfile: deploy/worker.Dockerfile
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
+      DATABASE_URL: *deploy-db-url
       NODE_ENV: production
+      PORT: "3001"
       WORKER_ID: docker-worker
       RUNNER_INTERNAL_BASE_URL: http://runner:3002
+      RUNNER_INTERNAL_TOKEN: ${RUNNER_INTERNAL_TOKEN:-}
+    command:
+      - sh
+      - -ec
+      - |
+        test -n "$${RUNNER_INTERNAL_TOKEN:-}" || { echo "RUNNER_INTERNAL_TOKEN is required"; exit 1; }
+        exec bun apps/worker/src/index.ts
+    expose:
+      - "3001"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bun -e \"const r = await fetch('http://127.0.0.1:3001/health'); process.exit(r.ok ? 0 : 1)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
     profiles: [full]
 
   runner:
@@ -81,20 +178,43 @@ services:
       context: .
       dockerfile: deploy/runner.Dockerfile
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/agent_center
+      DATABASE_URL: *deploy-db-url
       NODE_ENV: production
       RUNNER_HOST: "0.0.0.0"
       RUNNER_PORT: "3002"
       RUNNER_API_URL: http://api:3100
+      RUNNER_INTERNAL_TOKEN: ${RUNNER_INTERNAL_TOKEN:-}
+      RUNNER_REGISTRATION_TOKEN: ${RUNNER_REGISTRATION_TOKEN:-}
+      RUNNER_STATE_PATH: /app/.agent-center/runner-state.json
+      RUNNER_WORKSPACE_ROOT: /app/.agent-center/runner-workspaces
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       E2B_API_KEY: ${E2B_API_KEY:-}
+    command:
+      - sh
+      - -ec
+      - |
+        test -n "$${RUNNER_INTERNAL_TOKEN:-}" || { echo "RUNNER_INTERNAL_TOKEN is required"; exit 1; }
+        test -n "$${RUNNER_REGISTRATION_TOKEN:-}" || test -s "$${RUNNER_STATE_PATH:-/app/.agent-center/runner-state.json}" || { echo "RUNNER_REGISTRATION_TOKEN is required for first runner boot"; exit 1; }
+        exec bun apps/runner/src/index.ts
+    expose:
+      - "3002"
     volumes:
-      - runner_workspaces:/app/.agent-center/runner-workspaces
+      - runner_data:/app/.agent-center
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bun -e \"const r = await fetch('http://127.0.0.1:3002/health'); process.exit(r.ok ? 0 : 1)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
     profiles: [full]
 
 volumes:
   postgres_data:
-  runner_workspaces:
+  postgres_deploy_data:
+  runner_data:

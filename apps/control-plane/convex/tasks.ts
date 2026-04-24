@@ -2,11 +2,14 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { TASK_STATUSES } from "./constants";
 import {
+  assertSameWorkspace,
   executionConfigValidator,
   executionPolicyValidator,
   metadataValidator,
   now,
   permissionModeValidator,
+  requireOwnedWorkspace,
+  requireOwnedWorkspaceDocument,
   sandboxSizeValidator,
 } from "./lib";
 
@@ -16,6 +19,7 @@ export const listByWorkspace = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspace(ctx, args.workspaceId);
     return await ctx.db
       .query("tasks")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -41,6 +45,24 @@ export const create = mutation({
   },
   returns: v.id("tasks"),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspace(ctx, args.workspaceId);
+    if (args.projectId !== undefined) {
+      const project = await requireOwnedWorkspaceDocument(ctx, "projects", args.projectId);
+      assertSameWorkspace(project.workspaceId, args.workspaceId);
+    }
+    if (args.repoConnectionId !== undefined) {
+      const repoConnection = await requireOwnedWorkspaceDocument(
+        ctx,
+        "repoConnections",
+        args.repoConnectionId,
+      );
+      assertSameWorkspace(repoConnection.workspaceId, args.workspaceId);
+    }
+    if (args.threadId !== undefined) {
+      const thread = await requireOwnedWorkspaceDocument(ctx, "threads", args.threadId);
+      assertSameWorkspace(thread.workspaceId, args.workspaceId);
+    }
+
     const timestamp = now();
     return await ctx.db.insert("tasks", {
       workspaceId: args.workspaceId,
@@ -71,6 +93,7 @@ export const updateStatus = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspaceDocument(ctx, "tasks", args.taskId);
     await ctx.db.patch(args.taskId, {
       status: args.status,
       ...(args.metadata !== undefined ? { metadata: args.metadata } : {}),

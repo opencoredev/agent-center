@@ -6,6 +6,7 @@ import { createMiddleware } from "hono/factory";
 import { db, apiKeys, sessions } from "@agent-center/db";
 
 import { ApiError } from "../http/errors";
+import { hashSessionToken } from "../services/session-token-service";
 
 const PUBLIC_PATHS = [
   "/api/auth/login",
@@ -45,8 +46,8 @@ function isFrontendPath(path: string): boolean {
  * Internal routes use their own dedicated auth middleware and are allowed to
  * continue through this layer untouched.
  *
- * When AUTH_USERNAME/AUTH_PASSWORD are not set and DEPLOY_MODE is 'self-hosted'
- * (default), user auth is disabled entirely.
+ * Auth fails closed by default. For local development only, set
+ * AUTH_DISABLED=true to bypass API auth.
  */
 export const authMiddleware = createMiddleware(async (context, next) => {
   const path = new URL(context.req.url).pathname;
@@ -56,12 +57,10 @@ export const authMiddleware = createMiddleware(async (context, next) => {
     return next();
   }
 
-  const deployMode = process.env.DEPLOY_MODE || "self-hosted";
-  const authUsername = process.env.AUTH_USERNAME;
-  const authPassword = process.env.AUTH_PASSWORD;
+  const isDevelopmentAuthDisabled =
+    process.env.AUTH_DISABLED === "true" && process.env.NODE_ENV !== "production";
 
-  // Self-hosted with no auth configured → auth disabled
-  if (deployMode === "self-hosted" && !authUsername && !authPassword) {
+  if (isDevelopmentAuthDisabled) {
     return next();
   }
 
@@ -88,15 +87,21 @@ export const authMiddleware = createMiddleware(async (context, next) => {
     // Update last used (fire-and-forget)
     void db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, apiKey.id));
 
-    if (apiKey.userId) {
-      context.set("userId", apiKey.userId);
+    if (!apiKey.userId) {
+      throw new ApiError(401, "unauthorized", "API key has no owner");
     }
+
+    context.set("userId", apiKey.userId);
     return next();
   }
 
   // Strategy 2: Session token (prefixed with sess_)
   if (token.startsWith("sess_")) {
-    const [session] = await db.select().from(sessions).where(eq(sessions.token, token)).limit(1);
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.token, hashSessionToken(token)))
+      .limit(1);
 
     if (!session) {
       throw new ApiError(401, "unauthorized", "Invalid session");

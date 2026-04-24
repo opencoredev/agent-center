@@ -14,11 +14,13 @@ export function startWorkerService(options: {
   runPollMs: number;
   runnerBaseUrl: string;
   runnerDispatchTimeoutMs: number;
+  runnerInternalToken: string;
   workerId: string;
 }): WorkerServiceController {
   const runnerClient = createRunnerClient({
     baseUrl: options.runnerBaseUrl,
     dispatchTimeoutMs: options.runnerDispatchTimeoutMs,
+    internalAuthToken: options.runnerInternalToken,
   });
   const runWorker = createRunWorker({
     batchSize: options.runBatchSize,

@@ -4,20 +4,17 @@ import type { ExecutionCommand, RunStatus } from "@agent-center/shared";
 import { Effect } from "effect";
 
 import { getRunnerErrorMessage } from "../../effect/errors";
-import type {
-  ActiveRunSnapshot,
-  RunControlResponse,
-} from "../../internal/protocol";
+import type { ActiveRunSnapshot, RunControlResponse } from "../../internal/protocol";
 import { ensureRunnerApiToken } from "../../lib/runner-bootstrap";
-import { getControlIntent, type ControlAction, type ControlIntentPayload } from "../../lib/metadata";
+import {
+  getControlIntent,
+  type ControlAction,
+  type ControlIntentPayload,
+} from "../../lib/metadata";
 import { resolveInsideWorkspace } from "../../lib/path";
 import type { LoadedRunTarget } from "../../repositories/run-repository";
 import { findRunById } from "../../repositories/run-repository";
-import type {
-  CommandExecutionController,
-  ControlledSubprocess,
-} from "./command-executor";
-import { CommandExecutor } from "./command-executor";
+import type { CommandExecutionController, ControlledSubprocess } from "./command-executor";
 import type { ExecutionBackend, WorkspaceHandle } from "./backends/types";
 import { type ClaudeExecutionHandle, startClaudeAgent } from "./claude-executor";
 import { type CodexExecutionHandle, startCodexAgent } from "./codex-executor";
@@ -27,12 +24,15 @@ import { RunPersistence } from "./persistence";
 import { runFlow } from "./run-flow";
 import { GitService } from "../git/git-service";
 import { markGitHubIssueHandled } from "../github/issue-progress";
-import { InternalApiAuthError, InternalApiError, fetchInternalApiJson } from "../../lib/internal-api";
+import {
+  InternalApiAuthError,
+  InternalApiError,
+  fetchInternalApiJson,
+} from "../../lib/internal-api";
 import { runnerRuntimeEnv } from "../../env";
 
 interface RunSessionOptions {
   backend: ExecutionBackend;
-  commandExecutor: CommandExecutor;
   controlPollIntervalMs: number;
   gitService: GitService;
   target: LoadedRunTarget;
@@ -47,7 +47,6 @@ function controlKey(action: ControlAction, payload: ControlIntentPayload) {
 export class RunSession implements CommandExecutionController {
   readonly runId: string;
   #backend: ExecutionBackend;
-  #commandExecutor: CommandExecutor;
   #controlPollIntervalMs: number;
   #currentCommand: string | null = null;
   #currentProcess: ControlledSubprocess | null = null;
@@ -69,17 +68,14 @@ export class RunSession implements CommandExecutionController {
   #codexHandle: CodexExecutionHandle | null = null;
   #controlPoller: ReturnType<typeof setInterval> | null = null;
   #disposed = false;
-  #resolvedCodexCredential:
-    | {
-        authJson: string | null;
-        openAiApiKey: string | null;
-      }
-    | null = null;
+  #resolvedCodexCredential: {
+    authJson: string | null;
+    openAiApiKey: string | null;
+  } | null = null;
 
   constructor(options: RunSessionOptions) {
     this.runId = options.target.run.id;
     this.#backend = options.backend;
-    this.#commandExecutor = options.commandExecutor;
     this.#controlPollIntervalMs = options.controlPollIntervalMs;
     this.#currentStatus = options.target.run.status;
     this.#gitService = options.gitService;
@@ -136,7 +132,10 @@ export class RunSession implements CommandExecutionController {
     this.#signalProcess(signal);
   }
 
-  async requestPause(input: { reason?: string | null; source: string }): Promise<RunControlResponse> {
+  async requestPause(input: {
+    reason?: string | null;
+    source: string;
+  }): Promise<RunControlResponse> {
     if (TERMINAL_STATUSES.has(this.#currentStatus)) {
       throw new Error(`Run ${this.runId} is already ${this.#currentStatus}`);
     }
@@ -153,7 +152,10 @@ export class RunSession implements CommandExecutionController {
     };
   }
 
-  async requestResume(input: { reason?: string | null; source: string }): Promise<RunControlResponse> {
+  async requestResume(input: {
+    reason?: string | null;
+    source: string;
+  }): Promise<RunControlResponse> {
     if (TERMINAL_STATUSES.has(this.#currentStatus)) {
       throw new Error(`Run ${this.runId} is already ${this.#currentStatus}`);
     }
@@ -170,7 +172,10 @@ export class RunSession implements CommandExecutionController {
     };
   }
 
-  async requestCancel(input: { reason?: string | null; source: string }): Promise<RunControlResponse> {
+  async requestCancel(input: {
+    reason?: string | null;
+    source: string;
+  }): Promise<RunControlResponse> {
     if (TERMINAL_STATUSES.has(this.#currentStatus)) {
       throw new Error(`Run ${this.runId} is already ${this.#currentStatus}`);
     }
@@ -193,6 +198,7 @@ export class RunSession implements CommandExecutionController {
     try {
       const agentProvider = this.#target.run.config.agentProvider ?? "none";
       const commands = this.#resolveCommands();
+      this.#assertExecutionBackendSupportsRun(agentProvider);
 
       await Effect.runPromise(
         runFlow({
@@ -361,11 +367,16 @@ export class RunSession implements CommandExecutionController {
       },
     });
 
-    const result = await this.#commandExecutor.execute({
+    if (!this.#workspaceHandle) {
+      throw new Error("Workspace handle was not prepared before command execution");
+    }
+
+    const result = await this.#backend.executeCommand({
       command: command.command,
       control: this,
       cwd,
       env: command.env,
+      workspaceHandle: this.#workspaceHandle,
       onStderrLine: async (line) => {
         await this.#persistence.appendLog(line, {
           commandIndex: index,
@@ -411,6 +422,10 @@ export class RunSession implements CommandExecutionController {
   }
 
   async #getReusableWorkspace(): Promise<WorkspaceHandle | null> {
+    if (this.#backend.name !== "local") {
+      return null;
+    }
+
     if (!this.#workspacePath) {
       return null;
     }
@@ -441,7 +456,11 @@ export class RunSession implements CommandExecutionController {
     await this.#persistence.transitionStatus(status, {
       errorMessage,
       level:
-        status === "failed" ? "error" : status === "paused" || status === "cancelled" ? "warn" : "info",
+        status === "failed"
+          ? "error"
+          : status === "paused" || status === "cancelled"
+            ? "warn"
+            : "info",
       message,
       taskStatus,
     });
@@ -461,7 +480,12 @@ export class RunSession implements CommandExecutionController {
 
       if (!this.#paused) {
         await this.#applyPause(
-          this.#buildControlPayload("pause", "Pause request is waiting at a safe boundary", "runner", "paused"),
+          this.#buildControlPayload(
+            "pause",
+            "Pause request is waiting at a safe boundary",
+            "runner",
+            "paused",
+          ),
           false,
         );
       }
@@ -560,7 +584,8 @@ export class RunSession implements CommandExecutionController {
     if (!TERMINAL_STATUSES.has(this.#currentStatus)) {
       await this.#transitionStatus(
         "cancelled",
-        payload.reason ?? "Cancellation requested. Stopping the run and preserving current progress.",
+        payload.reason ??
+          "Cancellation requested. Stopping the run and preserving current progress.",
         "cancelled",
       );
     }
@@ -643,7 +668,7 @@ export class RunSession implements CommandExecutionController {
       model,
       permissionMode: this.#target.run.permissionMode,
       prompt,
-      env: { ...process.env, ...credentialEnv } as Record<string, string>,
+      env: credentialEnv,
       onEvent: async (event) => {
         await this.#persistence.appendLog(event.message, {
           agentProvider: "claude",
@@ -834,6 +859,24 @@ export class RunSession implements CommandExecutionController {
 
   #resolveCommands() {
     return this.#target.run.config.commands ?? [];
+  }
+
+  #assertExecutionBackendSupportsRun(agentProvider: string) {
+    if (this.#backend.name !== "e2b") {
+      return;
+    }
+
+    if (this.#target.repoConnection) {
+      throw new Error(
+        "EXECUTION_BACKEND=e2b does not support repository cloning yet; refusing to run host-local git commands",
+      );
+    }
+
+    if (agentProvider !== "none") {
+      throw new Error(
+        `EXECUTION_BACKEND=e2b does not support ${agentProvider} agent execution yet; refusing to run a host-local agent process`,
+      );
+    }
   }
 
   async #pollForPersistedControls() {

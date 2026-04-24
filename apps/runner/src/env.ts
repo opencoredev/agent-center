@@ -38,13 +38,16 @@ export const runnerRuntimeEnv = {
   RUNNER_BOOTSTRAP_TOKEN: process.env.RUNNER_BOOTSTRAP_TOKEN?.trim() ?? "",
   RUNNER_CLEANUP_MODE: parseCleanupMode(process.env.RUNNER_CLEANUP_MODE),
   RUNNER_CONTROL_POLL_INTERVAL_MS: parsePollInterval(process.env.RUNNER_CONTROL_POLL_INTERVAL_MS),
+  RUNNER_INTERNAL_TOKEN: process.env.RUNNER_INTERNAL_TOKEN?.trim() ?? "",
   RUNNER_API_TOKEN: process.env.RUNNER_API_TOKEN?.trim() ?? "",
   RUNNER_API_URL: process.env.RUNNER_API_URL?.trim() || "http://api.agent-center.localhost:1355",
   RUNNER_REGISTRATION_TOKEN: process.env.RUNNER_REGISTRATION_TOKEN?.trim() ?? "",
   RUNNER_STATE_PATH:
-    process.env.RUNNER_STATE_PATH?.trim() || resolve(process.cwd(), ".agent-center", "runner-state.json"),
+    process.env.RUNNER_STATE_PATH?.trim() ||
+    resolve(process.cwd(), ".agent-center", "runner-state.json"),
   RUNNER_WORKSPACE_ROOT:
-    process.env.RUNNER_WORKSPACE_ROOT?.trim() || resolve(process.cwd(), ".agent-center", "runner-workspaces"),
+    process.env.RUNNER_WORKSPACE_ROOT?.trim() ||
+    resolve(process.cwd(), ".agent-center", "runner-workspaces"),
   EXECUTION_BACKEND: (process.env.EXECUTION_BACKEND ?? "local") as "local" | "e2b",
   E2B_API_KEY: process.env.E2B_API_KEY ?? "",
 };

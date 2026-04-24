@@ -102,6 +102,16 @@ function executeErrorResponse(error: unknown) {
         409,
       );
     }
+
+    if (error.message.includes("EXECUTION_BACKEND=e2b does not support")) {
+      return jsonResponse(
+        {
+          error: "unsupported_execution_backend",
+          message: error.message,
+        },
+        422,
+      );
+    }
   }
 
   return jsonResponse(

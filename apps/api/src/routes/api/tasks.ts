@@ -21,9 +21,10 @@ export const taskRoutes = new Hono<ApiEnv>();
 
 taskRoutes.post("/", async (context) => {
   const input = await validateJson(context, createTaskSchema);
+  const userId = context.get("userId");
   return runApiEffect(
     context,
-    tryApiPromise(() => taskService.create(input)).pipe(
+    tryApiPromise(() => taskService.create(input, userId)).pipe(
       Effect.tap(() => Effect.sync(() => runEventsHub.notifyTasksChanged())),
     ),
     201,
@@ -32,17 +33,22 @@ taskRoutes.post("/", async (context) => {
 
 taskRoutes.get("/", async (context) => {
   const filters = validateQuery(context, taskListQuerySchema);
-  return runApiEffect(context, tryApiPromise(() => taskService.list(filters)));
+  const userId = context.get("userId");
+  return runApiEffect(
+    context,
+    tryApiPromise(() => taskService.list(filters, userId)),
+  );
 });
 
 taskRoutes.post("/:taskId/cancel", async (context) => {
   const { taskId } = validateParams(context, taskIdParamsSchema);
+  const userId = context.get("userId");
   const input = await validateJson(context, taskControlSchema, {
     optionalBody: true,
   });
   return runApiResponseEffect(
     context,
-    tryApiPromise(() => taskService.cancel(taskId, input)).pipe(
+    tryApiPromise(() => taskService.cancel(taskId, input, userId)).pipe(
       Effect.tap(() => Effect.sync(() => runEventsHub.notifyTasksChanged())),
       Effect.map((result) =>
         ok(
@@ -60,6 +66,7 @@ taskRoutes.post("/:taskId/cancel", async (context) => {
 
 taskRoutes.post("/:taskId/retry", async (context) => {
   const { taskId } = validateParams(context, taskIdParamsSchema);
+  const userId = context.get("userId");
   const input = await validateJson(
     context,
     createRunSchema.omit({
@@ -71,7 +78,7 @@ taskRoutes.post("/:taskId/retry", async (context) => {
   );
   return runApiEffect(
     context,
-    tryApiPromise(() => taskService.retry(taskId, input)).pipe(
+    tryApiPromise(() => taskService.retry(taskId, input, userId)).pipe(
       Effect.tap(() => Effect.sync(() => runEventsHub.notifyTasksChanged())),
     ),
     201,
@@ -80,16 +87,21 @@ taskRoutes.post("/:taskId/retry", async (context) => {
 
 taskRoutes.get("/:taskId", async (context) => {
   const { taskId } = validateParams(context, taskIdParamsSchema);
-  return runApiEffect(context, tryApiPromise(() => taskService.getById(taskId)));
+  const userId = context.get("userId");
+  return runApiEffect(
+    context,
+    tryApiPromise(() => taskService.getById(taskId, userId)),
+  );
 });
 
 taskRoutes.patch("/:taskId", async (context) => {
   const { taskId } = validateParams(context, taskIdParamsSchema);
+  const userId = context.get("userId");
   const input = await validateJson(context, updateTaskSchema);
 
   return runApiEffect(
     context,
-    tryApiPromise(() => taskService.update(taskId, input)).pipe(
+    tryApiPromise(() => taskService.update(taskId, input, userId)).pipe(
       Effect.tap(() => Effect.sync(() => runEventsHub.notifyTasksChanged())),
     ),
   );
@@ -97,5 +109,9 @@ taskRoutes.patch("/:taskId", async (context) => {
 
 taskRoutes.get("/:taskId/runs", async (context) => {
   const { taskId } = validateParams(context, taskIdParamsSchema);
-  return runApiEffect(context, tryApiPromise(() => runService.listByTask(taskId)));
+  const userId = context.get("userId");
+  return runApiEffect(
+    context,
+    tryApiPromise(() => runService.listByTask(taskId, userId)),
+  );
 });

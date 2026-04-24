@@ -65,13 +65,16 @@ async function readPersistedRunnerState(
     const parsed = JSON.parse(raw) as Partial<PersistedRunnerState>;
 
     if (typeof parsed.apiToken !== "string" || parsed.apiToken.trim().length === 0) {
-      logger.warn(`[runner] ignoring auth state at ${statePath} because it does not contain an apiToken`);
+      logger.warn(
+        `[runner] ignoring auth state at ${statePath} because it does not contain an apiToken`,
+      );
       return null;
     }
 
     return {
       apiToken: parsed.apiToken.trim(),
-      persistedAt: typeof parsed.persistedAt === "string" ? parsed.persistedAt : new Date().toISOString(),
+      persistedAt:
+        typeof parsed.persistedAt === "string" ? parsed.persistedAt : new Date().toISOString(),
       runner:
         parsed.runner &&
         typeof parsed.runner.id === "string" &&
@@ -164,7 +167,6 @@ export async function bootstrapRunnerAuth(
   const logger = options.logger ?? console;
   const statePath = options.statePath ?? runnerRuntimeEnv.RUNNER_STATE_PATH;
   const apiUrl = options.apiUrl ?? runnerRuntimeEnv.RUNNER_API_URL;
-  const bootstrapToken = trimToken(options.bootstrapToken ?? runnerRuntimeEnv.RUNNER_BOOTSTRAP_TOKEN);
   const envApiToken = trimToken(options.envApiToken ?? runnerRuntimeEnv.RUNNER_API_TOKEN);
 
   if (envApiToken) {
@@ -244,7 +246,9 @@ export async function ensureRunnerApiToken(
   const logger = options.logger ?? console;
   const statePath = options.statePath ?? runnerRuntimeEnv.RUNNER_STATE_PATH;
   const apiUrl = options.apiUrl ?? runnerRuntimeEnv.RUNNER_API_URL;
-  const bootstrapToken = trimToken(options.bootstrapToken ?? runnerRuntimeEnv.RUNNER_BOOTSTRAP_TOKEN);
+  const bootstrapToken = trimToken(
+    options.bootstrapToken ?? runnerRuntimeEnv.RUNNER_BOOTSTRAP_TOKEN,
+  );
 
   try {
     if (!bootstrapToken) {

@@ -1,4 +1,10 @@
-import { query, type SDKMessage, type PermissionMode as SDKPermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import {
+  query,
+  type SDKMessage,
+  type PermissionMode as SDKPermissionMode,
+} from "@anthropic-ai/claude-agent-sdk";
+
+import { buildChildProcessEnv } from "./command-executor";
 
 export interface ClaudeExecutionRequest {
   cwd: string;
@@ -10,7 +16,14 @@ export interface ClaudeExecutionRequest {
 }
 
 export interface ClaudeEvent {
-  type: "session_started" | "assistant_message" | "tool_use" | "tool_result" | "result" | "error" | "log";
+  type:
+    | "session_started"
+    | "assistant_message"
+    | "tool_use"
+    | "tool_result"
+    | "result"
+    | "error"
+    | "log";
   message: string;
   payload?: Record<string, unknown>;
 }
@@ -47,7 +60,7 @@ export function startClaudeAgent(request: ClaudeExecutionRequest): ClaudeExecuti
       model: request.model ?? "claude-sonnet-4-5",
       permissionMode: mapPermissionMode(request.permissionMode),
       allowedTools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash", "Agent"],
-      env: request.env,
+      env: buildChildProcessEnv(request.env),
     },
   });
 

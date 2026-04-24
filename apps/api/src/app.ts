@@ -50,7 +50,7 @@ export function createApp(upgradeWebSocket: UpgradeWebSocket) {
   app.route("/api", apiRoutes);
   app.route("/internal/credentials", internalCredentialRoutes);
   app.route("/internal/github", internalGitHubRoutes);
-  registerWebSocketRoutes(app as unknown as Hono, upgradeWebSocket);
+  registerWebSocketRoutes(app, upgradeWebSocket);
 
   // ── Frontend SPA serving (for self-hosted mode) ─────────────────────────
   if (apiEnv.SERVE_FRONTEND) {
@@ -58,7 +58,9 @@ export function createApp(upgradeWebSocket: UpgradeWebSocket) {
     const indexHtml = join(distPath, "index.html");
 
     if (!existsSync(indexHtml)) {
-      console.warn(`[api] SERVE_FRONTEND=true but ${indexHtml} not found. Frontend will not be served.`);
+      console.warn(
+        `[api] SERVE_FRONTEND=true but ${indexHtml} not found. Frontend will not be served.`,
+      );
     } else {
       console.log(`[api] serving frontend from ${distPath}`);
 
@@ -73,7 +75,7 @@ export function createApp(upgradeWebSocket: UpgradeWebSocket) {
       });
 
       // SPA fallback: serve index.html for all unmatched routes
-      app.get("*", async (context) => {
+      app.get("*", async () => {
         const file = Bun.file(indexHtml);
         return new Response(file, {
           headers: { "content-type": "text/html; charset=utf-8" },

@@ -2,10 +2,15 @@ node_modules
 .agent-center
 .git
 .env
-.env.local
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
 *.log
 dist
 .turbo
+**/.turbo
 apps/web/node_modules
 apps/api/node_modules
 apps/worker/node_modules

@@ -5,7 +5,11 @@ import type {
   RunControlResponse,
   RunDispatchResponse,
 } from "../../internal/protocol";
-import { findRunById, loadRunTarget } from "../../repositories/run-repository";
+import {
+  findRunById,
+  loadRunTarget,
+  type LoadedRunTarget,
+} from "../../repositories/run-repository";
 import { CommandExecutor } from "../execution/command-executor";
 import type { ExecutionBackend } from "../execution/backends/types";
 import { LocalBackend } from "../execution/backends/local-backend";
@@ -29,7 +33,8 @@ function createBackend(options: RunnerControlServiceOptions): ExecutionBackend {
       throw new Error("E2B_API_KEY is required when EXECUTION_BACKEND=e2b");
     }
     // Lazy import to avoid pulling in E2B SDK when not needed
-    const { E2BBackend } = require("../execution/backends/e2b-backend") as typeof import("../execution/backends/e2b-backend");
+    const { E2BBackend } =
+      require("../execution/backends/e2b-backend") as typeof import("../execution/backends/e2b-backend");
     return new E2BBackend({ apiKey: options.e2bApiKey });
   }
 
@@ -72,9 +77,10 @@ export class RunnerControlService {
       throw new Error(`Run ${runId} is already ${target.run.status}`);
     }
 
+    this.#assertExecutionBackendSupportsTarget(target);
+
     const session = new RunSession({
       backend: this.#backend,
-      commandExecutor: this.#commandExecutor,
       controlPollIntervalMs: this.#controlPollIntervalMs,
       gitService: this.#gitService,
       target,
@@ -151,5 +157,25 @@ export class RunnerControlService {
       reason: input.reason,
       source: "runner-http",
     });
+  }
+
+  #assertExecutionBackendSupportsTarget(target: LoadedRunTarget) {
+    if (this.#backend.name !== "e2b") {
+      return;
+    }
+
+    const agentProvider = target.run.config.agentProvider ?? "none";
+
+    if (target.repoConnection) {
+      throw new Error(
+        "EXECUTION_BACKEND=e2b does not support repository cloning yet; refusing to run host-local git commands",
+      );
+    }
+
+    if (agentProvider !== "none") {
+      throw new Error(
+        `EXECUTION_BACKEND=e2b does not support ${agentProvider} agent execution yet; refusing to run a host-local agent process`,
+      );
+    }
   }
 }

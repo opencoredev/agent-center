@@ -27,6 +27,44 @@ export interface CommandExecutionResult {
   exitCode: number;
 }
 
+const DEFAULT_CHILD_PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+const CHILD_ENV_ALLOWLIST = [
+  "CI",
+  "FORCE_COLOR",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "NO_COLOR",
+  "PATH",
+  "TEMP",
+  "TERM",
+  "TMP",
+  "TMPDIR",
+] as const;
+
+export function buildChildProcessEnv(
+  explicitEnv: Record<string, string> | undefined,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+
+  for (const key of CHILD_ENV_ALLOWLIST) {
+    const value = process.env[key];
+    if (value !== undefined) {
+      env[key] = value;
+    }
+  }
+
+  env.PATH ??= DEFAULT_CHILD_PATH;
+
+  if (explicitEnv) {
+    for (const [key, value] of Object.entries(explicitEnv)) {
+      env[key] = value;
+    }
+  }
+
+  return env;
+}
+
 async function consumeStream(
   stream: ReadableStream<Uint8Array> | null | undefined,
   onLine: ((line: string) => Promise<void> | void) | undefined,
@@ -75,10 +113,7 @@ export class CommandExecutor {
     const subprocess = Bun.spawn({
       cmd: ["/bin/zsh", "-lc", request.command],
       cwd: request.cwd,
-      env: {
-        ...process.env,
-        ...request.env,
-      },
+      env: buildChildProcessEnv(request.env),
       stderr: "pipe",
       stdin: "ignore",
       stdout: "pipe",

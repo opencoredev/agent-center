@@ -1,7 +1,13 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { SANDBOX_STATUSES } from "./constants";
-import { metadataValidator, now } from "./lib";
+import {
+  assertSameWorkspace,
+  metadataValidator,
+  now,
+  requireOwnedWorkspace,
+  requireOwnedWorkspaceDocument,
+} from "./lib";
 
 export const listByWorkspace = query({
   args: {
@@ -9,6 +15,7 @@ export const listByWorkspace = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspace(ctx, args.workspaceId);
     return await ctx.db
       .query("sandboxes")
       .withIndex("by_workspace_status", (q) => q.eq("workspaceId", args.workspaceId))
@@ -30,6 +37,20 @@ export const create = mutation({
   },
   returns: v.id("sandboxes"),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspace(ctx, args.workspaceId);
+    if (args.projectId !== undefined) {
+      const project = await requireOwnedWorkspaceDocument(ctx, "projects", args.projectId);
+      assertSameWorkspace(project.workspaceId, args.workspaceId);
+    }
+    if (args.taskId !== undefined) {
+      const task = await requireOwnedWorkspaceDocument(ctx, "tasks", args.taskId);
+      assertSameWorkspace(task.workspaceId, args.workspaceId);
+    }
+    if (args.runId !== undefined) {
+      const run = await requireOwnedWorkspaceDocument(ctx, "runs", args.runId);
+      assertSameWorkspace(run.workspaceId, args.workspaceId);
+    }
+
     const timestamp = now();
     return await ctx.db.insert("sandboxes", {
       workspaceId: args.workspaceId,
@@ -58,6 +79,7 @@ export const heartbeat = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspaceDocument(ctx, "sandboxes", args.sandboxId);
     await ctx.db.patch(args.sandboxId, {
       status: args.status,
       ...(args.leaseToken !== undefined ? { leaseToken: args.leaseToken } : {}),

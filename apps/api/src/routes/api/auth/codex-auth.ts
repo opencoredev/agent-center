@@ -28,12 +28,21 @@ const authJsonSchema = z.object({
  */
 authCodexRoutes.post("/codex/save-auth", async (context) => {
   const { authJson } = await validateJson(context, authJsonSchema);
+  const userId = context.get("userId");
+
+  if (!userId) {
+    throw new ApiError(401, "unauthorized", "User authentication required");
+  }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(authJson);
   } catch {
-    throw new ApiError(400, "invalid_json", "Invalid JSON. Copy the exact contents of ~/.codex/auth.json");
+    throw new ApiError(
+      400,
+      "invalid_json",
+      "Invalid JSON. Copy the exact contents of ~/.codex/auth.json",
+    );
   }
 
   // Validate shape
@@ -47,7 +56,11 @@ authCodexRoutes.post("/codex/save-auth", async (context) => {
 
   const result = shape.safeParse(parsed);
   if (!result.success) {
-    throw new ApiError(400, "invalid_format", "Invalid auth.json format. Make sure you copied the complete file contents.");
+    throw new ApiError(
+      400,
+      "invalid_format",
+      "Invalid auth.json format. Make sure you copied the complete file contents.",
+    );
   }
 
   const { tokens } = result.data;
@@ -66,7 +79,11 @@ authCodexRoutes.post("/codex/save-auth", async (context) => {
 
   if (!refreshRes.ok) {
     console.error("[codex-auth] Token refresh failed with status", refreshRes.status);
-    throw new ApiError(400, "token_invalid", "Token refresh failed. Please run `codex login` again and paste fresh auth.json.");
+    throw new ApiError(
+      400,
+      "token_invalid",
+      "Token refresh failed. Please run `codex login` again and paste fresh auth.json.",
+    );
   }
 
   const refreshData = (await refreshRes.json()) as {
@@ -82,8 +99,9 @@ authCodexRoutes.post("/codex/save-auth", async (context) => {
     refreshData.refresh_token ?? tokens.refresh_token,
     refreshData.expires_in,
     refreshData.id_token ?? tokens.id_token ?? null,
+    userId,
   );
 
-  const status = await credentialService.getOpenAICredentials();
+  const status = await credentialService.getOpenAICredentials(userId);
   return ok(context, status);
 });

@@ -21,6 +21,8 @@ type ListRunEventsAfter = (
   afterSequence: number,
   limit: number,
 ) => Promise<RunEventSpec[]>;
+type AuthorizeRunSubscription = (runId: string, userId?: string) => Promise<void>;
+type AuthorizeTaskSubscription = (userId?: string) => Promise<void>;
 
 interface RunCursor {
   lastSequence: number;
@@ -29,6 +31,7 @@ interface RunCursor {
 interface ConnectionSession {
   socket: ConnectionSocket;
   subscriptions: Map<string, RunCursor>;
+  userId?: string;
 }
 
 export class RunEventsHub {
@@ -37,19 +40,44 @@ export class RunEventsHub {
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private pollInFlight = false;
 
-  constructor(private readonly pollRunEvents: ListRunEventsAfter = listRunEventsAfter) {}
+  constructor(
+    private readonly pollRunEvents: ListRunEventsAfter = listRunEventsAfter,
+    private readonly authorizeRunSubscription: AuthorizeRunSubscription = async (runId, userId) => {
+      const { runService } = await import("../services/run-service");
+      await runService.assertRunAccess(runId, userId);
+    },
+    private readonly authorizeTaskSubscription: AuthorizeTaskSubscription = async (userId) => {
+      if (!userId) {
+        return;
+      }
 
-  register(socket: ConnectionSocket) {
+      const [{ db, workspaces }, { eq }] = await Promise.all([
+        import("@agent-center/db"),
+        import("drizzle-orm"),
+      ]);
+      const workspace = await db.query.workspaces.findFirst({
+        where: eq(workspaces.ownerId, userId),
+      });
+
+      if (workspace === undefined) {
+        throw new Error("No accessible workspace");
+      }
+    },
+  ) {}
+
+  register(socket: ConnectionSocket, userId?: string) {
     const existingSession = this.sessions.get(this.getConnectionKey(socket));
 
     if (existingSession) {
       existingSession.socket = socket;
+      existingSession.userId = userId;
       return;
     }
 
     this.sessions.set(this.getConnectionKey(socket), {
       socket,
       subscriptions: new Map(),
+      userId,
     });
   }
 
@@ -90,6 +118,13 @@ export class RunEventsHub {
     }
 
     if (message.type === "subscribe_tasks") {
+      try {
+        await this.authorizeTaskSubscription(session.userId);
+      } catch {
+        this.sendError(session.socket, "You do not have access to task realtime updates.");
+        return;
+      }
+
       this.taskSubscribers.add(this.getConnectionKey(session.socket));
       return;
     }
@@ -100,6 +135,13 @@ export class RunEventsHub {
     }
 
     if (message.type === "subscribe_run") {
+      try {
+        await this.authorizeRunSubscription(message.runId, session.userId);
+      } catch {
+        this.sendError(session.socket, "You do not have access to this run.");
+        return;
+      }
+
       if (!session.subscriptions.has(message.runId)) {
         session.subscriptions.set(message.runId, {
           lastSequence: 0,

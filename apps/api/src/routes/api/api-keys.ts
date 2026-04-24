@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
+import type { Context } from "hono";
 
 import { db, apiKeys } from "@agent-center/db";
 
@@ -10,6 +11,14 @@ import { ok } from "../../http/responses";
 import type { ApiEnv } from "../../http/types";
 
 export const apiKeyRoutes = new Hono<ApiEnv>();
+
+function requireUserId(context: Context<ApiEnv>): string {
+  const userId = context.get("userId");
+  if (!userId) {
+    throw new ApiError(401, "unauthorized", "User authentication required");
+  }
+  return userId;
+}
 
 // POST /api/api-keys — create a new API key
 apiKeyRoutes.post("/", async (context) => {
@@ -27,7 +36,7 @@ apiKeyRoutes.post("/", async (context) => {
     ? new Date(Date.now() + body.expiresInDays * 24 * 60 * 60 * 1000)
     : null;
 
-  const userId = context.get("userId") ?? null;
+  const userId = requireUserId(context);
 
   const [apiKey] = await db
     .insert(apiKeys)
@@ -55,13 +64,11 @@ apiKeyRoutes.post("/", async (context) => {
   );
 });
 
-// GET /api/api-keys — list all API keys (never returns full key)
+// GET /api/api-keys — list the current user's API keys (never returns full key)
 apiKeyRoutes.get("/", async (context) => {
-  const userId = context.get("userId");
+  const userId = requireUserId(context);
 
-  const keys = userId
-    ? await db.select().from(apiKeys).where(eq(apiKeys.userId, userId))
-    : await db.select().from(apiKeys);
+  const keys = await db.select().from(apiKeys).where(eq(apiKeys.userId, userId));
 
   return ok(
     context,
@@ -79,8 +86,12 @@ apiKeyRoutes.get("/", async (context) => {
 // DELETE /api/api-keys/:id — revoke an API key
 apiKeyRoutes.delete("/:id", async (context) => {
   const { id } = context.req.param();
+  const userId = requireUserId(context);
 
-  const [deleted] = await db.delete(apiKeys).where(eq(apiKeys.id, id)).returning();
+  const [deleted] = await db
+    .delete(apiKeys)
+    .where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId)))
+    .returning();
 
   if (!deleted) {
     throw new ApiError(404, "not_found", "API key not found");

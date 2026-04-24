@@ -15,11 +15,7 @@ const baseWorkerEnv = parseEnv(
   },
 );
 
-function parsePositiveInteger(
-  value: string | undefined,
-  fallback: number,
-  label: string,
-) {
+function parsePositiveInteger(value: string | undefined, fallback: number, label: string) {
   if (value === undefined) {
     return fallback;
   }
@@ -43,10 +39,24 @@ function parseUrl(value: string | undefined, fallback: string, label: string) {
   }
 }
 
+function parseRequiredSecret(value: string | undefined, label: string) {
+  const parsedValue = value?.trim() ?? "";
+
+  if (!parsedValue) {
+    throw new Error(`${label} is required for runner internal API authentication`);
+  }
+
+  return parsedValue;
+}
+
 export const workerEnv = {
   ...baseWorkerEnv,
   WORKER_ID: process.env.WORKER_ID ?? `${os.hostname()}-${process.pid}`,
-  WORKER_RUN_POLL_MS: parsePositiveInteger(process.env.WORKER_RUN_POLL_MS, 3_000, "WORKER_RUN_POLL_MS"),
+  WORKER_RUN_POLL_MS: parsePositiveInteger(
+    process.env.WORKER_RUN_POLL_MS,
+    3_000,
+    "WORKER_RUN_POLL_MS",
+  ),
   WORKER_RUN_BATCH_SIZE: parsePositiveInteger(
     process.env.WORKER_RUN_BATCH_SIZE,
     5,
@@ -71,5 +81,9 @@ export const workerEnv = {
     process.env.RUNNER_DISPATCH_TIMEOUT_MS,
     10_000,
     "RUNNER_DISPATCH_TIMEOUT_MS",
+  ),
+  RUNNER_INTERNAL_TOKEN: parseRequiredSecret(
+    process.env.RUNNER_INTERNAL_TOKEN,
+    "RUNNER_INTERNAL_TOKEN",
   ),
 };

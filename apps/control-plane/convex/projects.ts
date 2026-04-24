@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { metadataValidator, now, normalizeSlug } from "./lib";
+import { metadataValidator, now, normalizeSlug, requireOwnedWorkspace } from "./lib";
 
 export const listByWorkspace = query({
   args: {
@@ -8,6 +8,7 @@ export const listByWorkspace = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspace(ctx, args.workspaceId);
     return await ctx.db
       .query("projects")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -27,6 +28,7 @@ export const create = mutation({
   },
   returns: v.id("projects"),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspace(ctx, args.workspaceId);
     const timestamp = now();
     return await ctx.db.insert("projects", {
       workspaceId: args.workspaceId,
@@ -41,4 +43,3 @@ export const create = mutation({
     });
   },
 });
-

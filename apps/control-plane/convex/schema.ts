@@ -45,11 +45,12 @@ const schema = defineSchema({
   workspaces: defineTable({
     slug: v.string(),
     name: v.string(),
+    ownerIdentity: v.string(),
     description: v.optional(v.string()),
     metadata: v.optional(v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_slug", ["slug"]),
+  }).index("by_slug", ["slug"]).index("by_ownerIdentity", ["ownerIdentity"]),
 
   projects: defineTable({
     workspaceId: v.id("workspaces"),

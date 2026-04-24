@@ -1,12 +1,21 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
-import { metadataValidator, now } from "./lib";
+import {
+  assertSameWorkspace,
+  metadataValidator,
+  notFoundError,
+  now,
+  requireAuthenticatedIdentity,
+  requireOwnedWorkspace,
+  requireOwnedWorkspaceDocument,
+} from "./lib";
 
 export const generateUploadUrl = mutation({
   args: {},
   returns: v.string(),
   handler: async (ctx) => {
+    await requireAuthenticatedIdentity(ctx);
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -30,6 +39,31 @@ export const saveAttachment = mutation({
     url: v.union(v.string(), v.null()),
   }),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspace(ctx, args.workspaceId);
+    if (args.threadId !== undefined) {
+      const thread = await requireOwnedWorkspaceDocument(ctx, "threads", args.threadId);
+      assertSameWorkspace(thread.workspaceId, args.workspaceId);
+    }
+    if (args.taskId !== undefined) {
+      const task = await requireOwnedWorkspaceDocument(ctx, "tasks", args.taskId);
+      assertSameWorkspace(task.workspaceId, args.workspaceId);
+    }
+    if (args.runId !== undefined) {
+      const run = await requireOwnedWorkspaceDocument(ctx, "runs", args.runId);
+      assertSameWorkspace(run.workspaceId, args.workspaceId);
+    }
+    if (args.messageId !== undefined) {
+      const message = await ctx.db.get(args.messageId);
+      if (!message) {
+        throw notFoundError("messages");
+      }
+      const thread = await requireOwnedWorkspaceDocument(ctx, "threads", message.threadId);
+      assertSameWorkspace(thread.workspaceId, args.workspaceId);
+      if (args.threadId !== undefined && message.threadId !== args.threadId) {
+        throw notFoundError("messages");
+      }
+    }
+
     const timestamp = now();
     const attachmentId = await ctx.db.insert("attachments", {
       workspaceId: args.workspaceId,
@@ -84,6 +118,7 @@ export const getAttachment = query({
     if (!attachment) {
       return null;
     }
+    await requireOwnedWorkspace(ctx, attachment.workspaceId);
 
     const { _creationTime: _ignoredCreationTime, ...attachmentWithoutSystemFields } = attachment;
 

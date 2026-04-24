@@ -4,21 +4,14 @@ import { Effect } from "effect";
 
 import { createGitHubProvider } from "../../../../../packages/github/src/index.ts";
 
-import {
-  GitCommandError,
-  RunnerStateError,
-  inferGitHint,
-  toLineTail,
-} from "../../effect/errors";
+import { GitCommandError, RunnerStateError, inferGitHint, toLineTail } from "../../effect/errors";
 import { runEffectOrThrow } from "../../effect/runtime";
 import { runnerRuntimeEnv } from "../../env";
 import { fetchInternalApiJson } from "../../lib/internal-api";
 import { ensureRunnerApiToken } from "../../lib/runner-bootstrap";
 import { shellQuote } from "../../lib/shell";
 import type { LoadedRunTarget } from "../../repositories/run-repository";
-import type {
-  CommandExecutionController,
-} from "../execution/command-executor";
+import type { CommandExecutionController } from "../execution/command-executor";
 import { CommandExecutor } from "../execution/command-executor";
 import { RunPersistence } from "../execution/persistence";
 
@@ -68,15 +61,6 @@ export class GitService {
     await runEffectOrThrow(this.#prepareBranchEffect(target, context), "Branch preparation");
   }
 
-  async #runGitCheck(command: string, context: GitStepContext) {
-    return runEffectOrThrow(
-      this.#runGitCommandEffect(command, context, "git-check", undefined, false).pipe(
-        Effect.map((result) => result.exitCode === 0),
-      ),
-      "Git check",
-    );
-  }
-
   #cloneRepositoryEffect(target: LoadedRunTarget, context: GitStepContext) {
     return Effect.gen(this, function* () {
       const repoConnection = target.repoConnection;
@@ -100,8 +84,7 @@ export class GitService {
               error instanceof Error
                 ? error.message
                 : "Runner could not obtain a GitHub installation token for this repository.",
-            hint:
-              "Check the runner registration state and GitHub App installation, then retry the task.",
+            hint: "Check the runner registration state and GitHub App installation, then retry the task.",
           }),
       });
 

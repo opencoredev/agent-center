@@ -1,6 +1,8 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 
 import { runApiEffect, tryApiPromise } from "../../effect/http";
+import { ApiError } from "../../http/errors";
 import { validateJson } from "../../http/validation";
 import type { ApiEnv } from "../../http/types";
 import { credentialService } from "../../services/credential-service";
@@ -8,17 +10,30 @@ import { apiKeySchema } from "../../validators/credentials";
 
 export const credentialRoutes = new Hono<ApiEnv>();
 
+function requireUserId(context: Context<ApiEnv>): string {
+  const userId = context.get("userId");
+  if (!userId) {
+    throw new ApiError(401, "unauthorized", "User authentication required");
+  }
+  return userId;
+}
+
 // ── Claude ──────────────────────────────────────────────────────────────────
 
 credentialRoutes.get("/claude", async (context) => {
-  return runApiEffect(context, tryApiPromise(() => credentialService.getClaudeCredentials()));
+  const userId = requireUserId(context);
+  return runApiEffect(
+    context,
+    tryApiPromise(() => credentialService.getClaudeCredentials(userId)),
+  );
 });
 
 credentialRoutes.delete("/claude", async (context) => {
+  const userId = requireUserId(context);
   return runApiEffect(
     context,
     tryApiPromise(async () => {
-      await credentialService.deleteClaudeCredentials();
+      await credentialService.deleteClaudeCredentials(userId);
       return { deleted: true };
     }),
   );
@@ -26,12 +41,13 @@ credentialRoutes.delete("/claude", async (context) => {
 
 credentialRoutes.post("/claude/api-key", async (context) => {
   const { apiKey } = await validateJson(context, apiKeySchema);
+  const userId = requireUserId(context);
 
   return runApiEffect(
     context,
     tryApiPromise(async () => {
-      await credentialService.storeClaudeApiKey(apiKey);
-      return credentialService.getClaudeCredentials();
+      await credentialService.storeClaudeApiKey(apiKey, userId);
+      return credentialService.getClaudeCredentials(userId);
     }),
   );
 });
@@ -39,14 +55,19 @@ credentialRoutes.post("/claude/api-key", async (context) => {
 // ── OpenAI ──────────────────────────────────────────────────────────────────
 
 credentialRoutes.get("/openai", async (context) => {
-  return runApiEffect(context, tryApiPromise(() => credentialService.getOpenAICredentials()));
+  const userId = requireUserId(context);
+  return runApiEffect(
+    context,
+    tryApiPromise(() => credentialService.getOpenAICredentials(userId)),
+  );
 });
 
 credentialRoutes.delete("/openai", async (context) => {
+  const userId = requireUserId(context);
   return runApiEffect(
     context,
     tryApiPromise(async () => {
-      await credentialService.deleteOpenAICredentials();
+      await credentialService.deleteOpenAICredentials(userId);
       return { deleted: true };
     }),
   );
@@ -54,12 +75,13 @@ credentialRoutes.delete("/openai", async (context) => {
 
 credentialRoutes.post("/openai/api-key", async (context) => {
   const { apiKey } = await validateJson(context, apiKeySchema);
+  const userId = requireUserId(context);
 
   return runApiEffect(
     context,
     tryApiPromise(async () => {
-      await credentialService.storeOpenAIApiKey(apiKey);
-      return credentialService.getOpenAICredentials();
+      await credentialService.storeOpenAIApiKey(apiKey, userId);
+      return credentialService.getOpenAICredentials(userId);
     }),
   );
 });

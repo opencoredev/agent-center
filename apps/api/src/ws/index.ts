@@ -2,19 +2,22 @@ import { Hono } from "hono";
 import { createBunWebSocket } from "hono/bun";
 import type { WSMessageReceive } from "hono/ws";
 
+import type { ApiEnv } from "../http/types";
 import { RunEventsHub } from "./run-events-hub";
 
 type UpgradeWebSocket = ReturnType<typeof createBunWebSocket>["upgradeWebSocket"];
 
 export const runEventsHub = new RunEventsHub();
 
-export function registerWebSocketRoutes(app: Hono, upgradeWebSocket: UpgradeWebSocket) {
+export function registerWebSocketRoutes(app: Hono<ApiEnv>, upgradeWebSocket: UpgradeWebSocket) {
   app.get(
     "/ws",
-    upgradeWebSocket(() => {
+    upgradeWebSocket((context) => {
+      const userId = context.get("userId");
+
       return {
         onOpen(_event, socket) {
-          runEventsHub.register(socket);
+          runEventsHub.register(socket, userId);
         },
         async onMessage(event, socket) {
           await runEventsHub.handleMessage(socket, await toTextMessage(event.data));

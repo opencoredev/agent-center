@@ -1,6 +1,12 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { metadataValidator, now } from "./lib";
+import {
+  assertSameWorkspace,
+  metadataValidator,
+  now,
+  requireOwnedWorkspace,
+  requireOwnedWorkspaceDocument,
+} from "./lib";
 
 export const listByWorkspace = query({
   args: {
@@ -8,6 +14,7 @@ export const listByWorkspace = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspace(ctx, args.workspaceId);
     return await ctx.db
       .query("repoConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -26,6 +33,12 @@ export const create = mutation({
   },
   returns: v.id("repoConnections"),
   handler: async (ctx, args) => {
+    await requireOwnedWorkspace(ctx, args.workspaceId);
+    if (args.projectId !== undefined) {
+      const project = await requireOwnedWorkspaceDocument(ctx, "projects", args.projectId);
+      assertSameWorkspace(project.workspaceId, args.workspaceId);
+    }
+
     const timestamp = now();
     return await ctx.db.insert("repoConnections", {
       workspaceId: args.workspaceId,
@@ -41,4 +54,3 @@ export const create = mutation({
     });
   },
 });
-

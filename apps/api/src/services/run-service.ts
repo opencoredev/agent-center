@@ -33,7 +33,12 @@ import {
 } from "./helpers";
 import { githubAppService } from "./github-app-service";
 import { repoConnectionService } from "./repo-connection-service";
-import { serializePublicationState, serializeRun, serializeRunEvent, serializeTask } from "./serializers";
+import {
+  serializePublicationState,
+  serializeRun,
+  serializeRunEvent,
+  serializeTask,
+} from "./serializers";
 
 interface RunCreateRequest {
   taskId: string;
@@ -68,8 +73,12 @@ interface RunDiffResponse {
   workspacePath: string | null;
 }
 
+type RunRecord = Exclude<Awaited<ReturnType<typeof findRunById>>, undefined>;
+type TaskRecord = Exclude<Awaited<ReturnType<typeof findTaskById>>, undefined>;
+
 const MAX_UNTRACKED_DIFF_FILES = 20;
 const githubProvider = createGitHubProvider();
+const SAFE_GIT_ENV_KEYS = ["HOME", "LANG", "LC_ALL", "PATH", "SHELL", "TMPDIR"] as const;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -108,7 +117,7 @@ function buildPublicationMetadata(
   publication: Record<string, unknown>,
 ): DomainMetadata {
   return {
-    ...(asRecord(currentMetadata) ?? {}),
+    ...asRecord(currentMetadata),
     publication,
   };
 }
@@ -136,21 +145,54 @@ interface PublicationContent {
 }
 
 async function assertWorkspaceAccess(workspaceId: string, userId?: string) {
-  if (!userId) {
-    return;
-  }
-
   const workspace = await findWorkspaceById(workspaceId);
 
   if (workspace === undefined) {
     throw notFoundError("workspace", workspaceId);
   }
 
-  if (workspace.ownerId !== userId) {
+  if (userId && workspace.ownerId !== userId) {
     throw new ApiError(403, "workspace_forbidden", "You do not have access to this workspace", {
       workspaceId,
     });
   }
+
+  return workspace;
+}
+
+async function assertTaskAccess(task: TaskRecord, userId?: string) {
+  await assertWorkspaceAccess(task.workspaceId, userId);
+}
+
+async function findTaskForRun(run: RunRecord) {
+  const task = await findTaskById(run.taskId);
+
+  if (task === undefined) {
+    throw notFoundError("task", run.taskId);
+  }
+
+  return task;
+}
+
+async function assertRunAccess(run: RunRecord, userId?: string) {
+  const task = await findTaskForRun(run);
+  await assertTaskAccess(task, userId);
+  return task;
+}
+
+async function findRunAndAssertAccess(runId: string, userId?: string) {
+  const run = await findRunById(runId);
+
+  if (run === undefined) {
+    throw notFoundError("run", runId);
+  }
+
+  const task = await assertRunAccess(run, userId);
+
+  return {
+    run,
+    task,
+  };
 }
 
 function resolvePublicationTitle(input: {
@@ -161,7 +203,10 @@ function resolvePublicationTitle(input: {
 }) {
   const configuredTitle = getString(input.runConfig.prTitle) ?? getString(input.taskConfig.prTitle);
 
-  if (configuredTitle && !input.prompts.some((prompt) => normalizeText(prompt) === normalizeText(configuredTitle))) {
+  if (
+    configuredTitle &&
+    !input.prompts.some((prompt) => normalizeText(prompt) === normalizeText(configuredTitle))
+  ) {
     return configuredTitle;
   }
 
@@ -176,7 +221,10 @@ function resolvePublicationBody(input: {
 }) {
   const configuredBody = getString(input.runConfig.prBody) ?? getString(input.taskConfig.prBody);
 
-  if (configuredBody && !input.prompts.some((prompt) => normalizeText(prompt) === normalizeText(configuredBody))) {
+  if (
+    configuredBody &&
+    !input.prompts.some((prompt) => normalizeText(prompt) === normalizeText(configuredBody))
+  ) {
     return configuredBody;
   }
 
@@ -202,7 +250,10 @@ function getGitHubIssueOrigin(metadata: DomainMetadata | null | undefined) {
   };
 }
 
-function ensureIssueLinkInPrBody(body: string, origin: { owner: string; repo: string; issueNumber: number } | null) {
+function ensureIssueLinkInPrBody(
+  body: string,
+  origin: { owner: string; repo: string; issueNumber: number } | null,
+) {
   if (!origin) {
     return body;
   }
@@ -219,10 +270,7 @@ function buildPrOpenedComment(prUrl: string) {
   return `Draft pull request opened: ${prUrl}`;
 }
 
-function buildProgressCommentUpdate(input: {
-  prUrl: string;
-  taskUrl: string | null;
-}) {
+function buildProgressCommentUpdate(input: { prUrl: string; taskUrl: string | null }) {
   return [
     "👀 Agent Center picked this up.",
     "",
@@ -270,9 +318,7 @@ function resolveCommitMessage(input: {
     return configuredCommitMessage;
   }
 
-  return (
-    input.generatedCommitMessage
-  );
+  return input.generatedCommitMessage;
 }
 
 function unquoteGitPath(value: string) {
@@ -444,19 +490,23 @@ function buildPublicationContent(input: {
   const changedFilesSection =
     changes.length > 0
       ? changes
-          .map((change) =>
-            `- \`${change.code}\` \`${change.path}\`${change.previousPath ? ` (from \`${change.previousPath}\`)` : ""}`,
+          .map(
+            (change) =>
+              `- \`${change.code}\` \`${change.path}\`${change.previousPath ? ` (from \`${change.previousPath}\`)` : ""}`,
           )
           .join("\n")
       : "- No file-level status details were available.";
-  const summaryLines = [input.assistantSummary ? `- ${truncateText(input.assistantSummary, 240)}` : null]
-    .filter((line): line is string => Boolean(line));
+  const summaryLines = [
+    input.assistantSummary ? `- ${truncateText(input.assistantSummary, 240)}` : null,
+  ].filter((line): line is string => Boolean(line));
 
   if (!input.assistantSummary) {
     summaryLines.push(`- ${capitalize(verb)} ${filesDescription}.`);
   }
 
-  summaryLines.push(`- Changed ${changes.length || input.statusLines.length || 0} file${changes.length === 1 ? "" : "s"}.`);
+  summaryLines.push(
+    `- Changed ${changes.length || input.statusLines.length || 0} file${changes.length === 1 ? "" : "s"}.`,
+  );
 
   return {
     title,
@@ -483,10 +533,7 @@ async function runGitCommand(workspacePath: string, args: string[]) {
   const subprocess = Bun.spawn({
     cmd: ["git", ...args],
     cwd: workspacePath,
-    env: {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: "0",
-    },
+    env: buildGitEnv(),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -502,6 +549,21 @@ async function runGitCommand(workspacePath: string, args: string[]) {
     stderr: stderr.trim(),
     stdout: stdout.trim(),
   };
+}
+
+function buildGitEnv() {
+  const env: Record<string, string> = {
+    GIT_TERMINAL_PROMPT: "0",
+  };
+
+  for (const key of SAFE_GIT_ENV_KEYS) {
+    const value = process.env[key];
+    if (value) {
+      env[key] = value;
+    }
+  }
+
+  return env;
 }
 
 async function runGitCommandChecked(workspacePath: string, args: string[], message: string) {
@@ -535,12 +597,26 @@ async function buildUntrackedDiff(workspacePath: string, files: string[]) {
   const stats: string[] = [];
 
   for (const file of files.slice(0, MAX_UNTRACKED_DIFF_FILES)) {
-    const patch = await runGitCommand(workspacePath, ["diff", "--patch", "--no-index", "--", "/dev/null", file]);
+    const patch = await runGitCommand(workspacePath, [
+      "diff",
+      "--patch",
+      "--no-index",
+      "--",
+      "/dev/null",
+      file,
+    ]);
     if (patch.stdout) {
       patches.push(patch.stdout);
     }
 
-    const stat = await runGitCommand(workspacePath, ["diff", "--stat", "--no-index", "--", "/dev/null", file]);
+    const stat = await runGitCommand(workspacePath, [
+      "diff",
+      "--stat",
+      "--no-index",
+      "--",
+      "/dev/null",
+      file,
+    ]);
     if (stat.stdout) {
       stats.push(stat.stdout);
     }
@@ -578,7 +654,11 @@ async function readWorkspaceDiff(workspacePath: string): Promise<RunDiffResponse
     };
   }
 
-  const status = await runGitCommand(resolvedWorkspacePath, ["status", "--short", "--untracked-files=all"]);
+  const status = await runGitCommand(resolvedWorkspacePath, [
+    "status",
+    "--short",
+    "--untracked-files=all",
+  ]);
 
   if (status.exitCode !== 0) {
     return {
@@ -594,12 +674,25 @@ async function readWorkspaceDiff(workspacePath: string): Promise<RunDiffResponse
 
   const untrackedFiles = await getUntrackedFiles(resolvedWorkspacePath);
 
-  let patch = await runGitCommand(resolvedWorkspacePath, ["diff", "--patch", "--minimal", "HEAD", "--"]);
-  let stats = await runGitCommand(resolvedWorkspacePath, ["diff", "--stat", "--minimal", "HEAD", "--"]);
+  let patch = await runGitCommand(resolvedWorkspacePath, [
+    "diff",
+    "--patch",
+    "--minimal",
+    "HEAD",
+    "--",
+  ]);
+  let stats = await runGitCommand(resolvedWorkspacePath, [
+    "diff",
+    "--stat",
+    "--minimal",
+    "HEAD",
+    "--",
+  ]);
 
   let missingHead =
     patch.exitCode !== 0 &&
-    (patch.stderr.includes("ambiguous argument 'HEAD'") || patch.stderr.includes("bad revision 'HEAD'"));
+    (patch.stderr.includes("ambiguous argument 'HEAD'") ||
+      patch.stderr.includes("bad revision 'HEAD'"));
 
   if (missingHead) {
     patch = await runGitCommand(resolvedWorkspacePath, ["diff", "--patch", "--minimal", "--"]);
@@ -624,7 +717,7 @@ async function readWorkspaceDiff(workspacePath: string): Promise<RunDiffResponse
     available: true,
     error:
       patch.exitCode !== 0 && !missingHead
-        ? (patch.stderr || "Git diff failed for this run workspace.")
+        ? patch.stderr || "Git diff failed for this run workspace."
         : null,
     hasChanges: status.stdout.length > 0 || combinedPatch.length > 0,
     patch: combinedPatch || null,
@@ -686,11 +779,16 @@ async function getCurrentBranchName(workspacePath: string) {
   const result = await runGitCommand(workspacePath, ["rev-parse", "--abbrev-ref", "HEAD"]);
 
   if (result.exitCode !== 0) {
-    throw new ApiError(500, "git_branch_resolution_failed", "Failed to resolve the current git branch", {
-      stderr: result.stderr,
-      stdout: result.stdout,
-      workspacePath,
-    });
+    throw new ApiError(
+      500,
+      "git_branch_resolution_failed",
+      "Failed to resolve the current git branch",
+      {
+        stderr: result.stderr,
+        stdout: result.stdout,
+        workspacePath,
+      },
+    );
   }
 
   const branch = normalizeBranchName(result.stdout);
@@ -710,7 +808,11 @@ async function stageAndCommitChanges(
   commitMessage: string,
   commitAuthor: PublicationCommitAuthor,
 ) {
-  await runGitCommandChecked(workspacePath, ["add", "-A"], "Failed to stage workspace changes for publication");
+  await runGitCommandChecked(
+    workspacePath,
+    ["add", "-A"],
+    "Failed to stage workspace changes for publication",
+  );
 
   const cachedDiff = await runGitCommand(workspacePath, ["diff", "--cached", "--quiet"]);
 
@@ -815,12 +917,14 @@ function assertPauseable(status: RunStatus) {
 }
 
 export const runService = {
-  async create(input: RunCreateRequest, source: "api" | "retry" = "api") {
+  async create(input: RunCreateRequest, source: "api" | "retry" = "api", userId?: string) {
     const task = await findTaskById(input.taskId);
 
     if (task === undefined) {
       throw notFoundError("task", input.taskId);
     }
+
+    await assertTaskAccess(task, userId);
 
     const latestRun = await findLatestRunForTask(task.id);
 
@@ -854,57 +958,43 @@ export const runService = {
     return serializeRun(run);
   },
 
-  async getById(runId: string) {
-    const run = await findRunById(runId);
-
-    if (run === undefined) {
-      throw notFoundError("run", runId);
-    }
+  async getById(runId: string, userId?: string) {
+    const { run } = await findRunAndAssertAccess(runId, userId);
 
     return serializeRun(run);
   },
 
-  async listByTask(taskId: string) {
+  async listByTask(taskId: string, userId?: string) {
     const task = await findTaskById(taskId);
 
     if (task === undefined) {
       throw notFoundError("task", taskId);
     }
 
+    await assertTaskAccess(task, userId);
+
     const taskRuns = await listRunsForTask(taskId);
     return taskRuns.map(serializeRun);
   },
 
-  async listEvents(runId: string) {
-    const run = await findRunById(runId);
-
-    if (run === undefined) {
-      throw notFoundError("run", runId);
-    }
+  async listEvents(runId: string, userId?: string) {
+    await findRunAndAssertAccess(runId, userId);
 
     const events = await listRunEvents(runId);
 
     return events.map(serializeRunEvent);
   },
 
-  async listLogs(runId: string) {
-    const run = await findRunById(runId);
-
-    if (run === undefined) {
-      throw notFoundError("run", runId);
-    }
+  async listLogs(runId: string, userId?: string) {
+    await findRunAndAssertAccess(runId, userId);
 
     const events = await listRunLogEvents(runId);
 
     return events.map(serializeRunEvent);
   },
 
-  async getDiff(runId: string): Promise<RunDiffResponse> {
-    const run = await findRunById(runId);
-
-    if (run === undefined) {
-      throw notFoundError("run", runId);
-    }
+  async getDiff(runId: string, userId?: string): Promise<RunDiffResponse> {
+    const { run } = await findRunAndAssertAccess(runId, userId);
 
     if (!run.workspacePath) {
       return {
@@ -922,19 +1012,7 @@ export const runService = {
   },
 
   async publish(runId: string, userId?: string) {
-    const run = await findRunById(runId);
-
-    if (run === undefined) {
-      throw notFoundError("run", runId);
-    }
-
-    const task = await findTaskById(run.taskId);
-
-    if (task === undefined) {
-      throw notFoundError("task", run.taskId);
-    }
-
-    await assertWorkspaceAccess(task.workspaceId, userId);
+    const { run, task } = await findRunAndAssertAccess(runId, userId);
 
     if (run.status !== "completed") {
       throw conflictError(`Run cannot be published from status "${run.status}"`, {
@@ -1006,7 +1084,9 @@ export const runService = {
       );
     }
 
-    const baseBranch = normalizeBranchName(run.baseBranch ?? task.baseBranch ?? repoConnection.defaultBranch);
+    const baseBranch = normalizeBranchName(
+      run.baseBranch ?? task.baseBranch ?? repoConnection.defaultBranch,
+    );
 
     if (!baseBranch) {
       throw new ApiError(
@@ -1022,7 +1102,8 @@ export const runService = {
     }
 
     const currentBranchName =
-      normalizeBranchName(run.branchName ?? task.branchName) ?? (await getCurrentBranchName(diff.workspacePath));
+      normalizeBranchName(run.branchName ?? task.branchName) ??
+      (await getCurrentBranchName(diff.workspacePath));
     const publishBranch = resolvePublishBranchName({
       currentBranchName,
       baseBranch,
@@ -1031,7 +1112,9 @@ export const runService = {
       taskTitle: task.title,
     });
     const attemptedAt = new Date().toISOString();
-    const prompts = [run.prompt, task.prompt].filter((prompt): prompt is string => Boolean(getString(prompt)));
+    const prompts = [run.prompt, task.prompt].filter((prompt): prompt is string =>
+      Boolean(getString(prompt)),
+    );
     const assistantSummary = extractAssistantSummary([
       asRecord(run.metadata)?.assistantSummary,
       asRecord(run.metadata)?.finalAssistantMessage,
@@ -1080,13 +1163,18 @@ export const runService = {
           : undefined;
       const commitAuthor = await resolvePublicationCommitAuthor({
         authType: repoConnection.authType,
-        installationId: Number.isInteger(installationId) && installationId > 0 ? installationId : null,
+        installationId:
+          Number.isInteger(installationId) && installationId > 0 ? installationId : null,
         token,
       });
 
       await checkoutPublishBranch(diff.workspacePath, publishBranch);
 
-      const commitResult = await stageAndCommitChanges(diff.workspacePath, commitMessage, commitAuthor);
+      const commitResult = await stageAndCommitChanges(
+        diff.workspacePath,
+        commitMessage,
+        commitAuthor,
+      );
       const aheadCommits = await countAheadCommits(diff.workspacePath, baseBranch);
 
       if (!commitResult.committed && aheadCommits === 0) {
@@ -1189,7 +1277,12 @@ export const runService = {
         },
       });
 
-      if (issueOrigin && repoConnection.authType === "github_app_installation" && Number.isInteger(installationId) && installationId > 0) {
+      if (
+        issueOrigin &&
+        repoConnection.authType === "github_app_installation" &&
+        Number.isInteger(installationId) &&
+        installationId > 0
+      ) {
         const progressComment = getGitHubProgressComment(task.metadata);
         try {
           if (progressComment) {
@@ -1228,7 +1321,8 @@ export const runService = {
         task: serializeTask(updatedTask),
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to publish draft pull request";
+      const message =
+        error instanceof Error ? error.message : "Failed to publish draft pull request";
       const failedPublication = {
         status: "failed",
         provider: "github",
@@ -1269,12 +1363,12 @@ export const runService = {
     }
   },
 
-  async pause(runId: string, input: { reason?: string | null }): Promise<RunControlResponse> {
-    const run = await findRunById(runId);
-
-    if (run === undefined) {
-      throw notFoundError("run", runId);
-    }
+  async pause(
+    runId: string,
+    input: { reason?: string | null },
+    userId?: string,
+  ): Promise<RunControlResponse> {
+    const { run } = await findRunAndAssertAccess(runId, userId);
 
     if (run.status === "paused") {
       throw conflictError("Run is already paused", {
@@ -1321,12 +1415,12 @@ export const runService = {
     };
   },
 
-  async resume(runId: string, input: { reason?: string | null }): Promise<RunControlResponse> {
-    const run = await findRunById(runId);
-
-    if (run === undefined) {
-      throw notFoundError("run", runId);
-    }
+  async resume(
+    runId: string,
+    input: { reason?: string | null },
+    userId?: string,
+  ): Promise<RunControlResponse> {
+    const { run } = await findRunAndAssertAccess(runId, userId);
 
     if (run.status !== "paused") {
       throw new ApiError(409, "run_not_paused", "Run can only be resumed from paused status", {
@@ -1370,6 +1464,10 @@ export const runService = {
       },
       statusCode: 202,
     };
+  },
+
+  async assertRunAccess(runId: string, userId?: string) {
+    await findRunAndAssertAccess(runId, userId);
   },
 };
 

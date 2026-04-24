@@ -16,8 +16,14 @@ interface RunnerDispatchResponse {
 export function createRunnerClient(options: {
   baseUrl: string;
   dispatchTimeoutMs: number;
+  internalAuthToken: string;
 }) {
   const endpoint = new URL("/internal/runs/execute", options.baseUrl).toString();
+  const internalAuthToken = options.internalAuthToken.trim();
+
+  if (!internalAuthToken) {
+    throw new Error("RUNNER_INTERNAL_TOKEN is required for runner dispatch requests");
+  }
 
   return {
     endpoint,
@@ -28,6 +34,7 @@ export function createRunnerClient(options: {
         response = await fetch(endpoint, {
           method: "POST",
           headers: {
+            authorization: `Bearer ${internalAuthToken}`,
             "content-type": "application/json",
           },
           body: JSON.stringify(payload),
@@ -57,9 +64,7 @@ export function createRunnerClient(options: {
       try {
         responseBody = JSON.parse(responseText) as RunnerDispatchResponse;
       } catch (error) {
-        throw new Error(
-          `Runner dispatch returned invalid JSON: ${describeError(error)}`,
-        );
+        throw new Error(`Runner dispatch returned invalid JSON: ${describeError(error)}`);
       }
 
       if (responseBody.accepted === false) {

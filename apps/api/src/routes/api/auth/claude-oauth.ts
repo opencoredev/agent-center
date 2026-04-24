@@ -33,6 +33,11 @@ const exchangeSchema = z.object({
  */
 authClaudeOAuthRoutes.post("/claude/exchange", async (context) => {
   const { code, codeVerifier } = await validateJson(context, exchangeSchema);
+  const userId = context.get("userId");
+
+  if (!userId) {
+    throw new ApiError(401, "unauthorized", "User authentication required");
+  }
 
   // Step 1: Exchange authorization code for access token
   const tokenRes = await fetch(TOKEN_ENDPOINT, {
@@ -59,7 +64,9 @@ authClaudeOAuthRoutes.post("/claude/exchange", async (context) => {
       } else if (errJson.error?.message) {
         msg = errJson.error.message;
       }
-    } catch { /* ignore parse errors */ }
+    } catch {
+      /* ignore parse errors */
+    }
     throw new ApiError(400, "token_exchange_failed", msg);
   }
 
@@ -104,19 +111,23 @@ authClaudeOAuthRoutes.post("/claude/exchange", async (context) => {
   if (!apiKeyRes.ok) {
     const errText = await apiKeyRes.text();
     console.error("[claude-oauth] API key creation failed:", errText);
-    throw new ApiError(400, "api_key_creation_failed", "Authorized successfully but failed to create API key. Your account may not have API access.");
+    throw new ApiError(
+      400,
+      "api_key_creation_failed",
+      "Authorized successfully but failed to create API key. Your account may not have API access.",
+    );
   }
 
   const apiKeyData = (await apiKeyRes.json()) as { api_key: string };
 
   // Step 4: Store the API key
-  await credentialService.storeClaudeApiKey(apiKeyData.api_key);
+  await credentialService.storeClaudeApiKey(apiKeyData.api_key, userId);
 
   // Step 5: Update profile info if we got it
   if (email || subscriptionType) {
-    await credentialService.updateClaudeProfile(email, subscriptionType);
+    await credentialService.updateClaudeProfile(email, subscriptionType, userId);
   }
 
-  const status = await credentialService.getClaudeCredentials();
+  const status = await credentialService.getClaudeCredentials(userId);
   return ok(context, status);
 });

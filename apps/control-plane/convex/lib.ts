@@ -1,4 +1,6 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   AGENT_PROVIDERS,
   PERMISSION_MODES,
@@ -60,4 +62,75 @@ export function normalizeSlug(input: string) {
 
 export function createHandle(base: string, suffix: string) {
   return `${normalizeSlug(base)}-${suffix}`.replace(/-+/g, "-").slice(0, 96);
+}
+
+type AuthenticatedCtx = QueryCtx | MutationCtx;
+type WorkspaceScopedTable =
+  | "attachments"
+  | "credentials"
+  | "projects"
+  | "repoConnections"
+  | "runs"
+  | "sandboxes"
+  | "tasks"
+  | "threads";
+
+type WorkspaceScopedDoc<TableName extends WorkspaceScopedTable> = Doc<TableName> & {
+  workspaceId: Id<"workspaces">;
+};
+
+export function authorizationError() {
+  return new ConvexError("Authentication required");
+}
+
+export function workspaceAuthorizationError() {
+  return new ConvexError("Not authorized for this workspace");
+}
+
+export function notFoundError(resource: string) {
+  return new ConvexError(`${resource} not found`);
+}
+
+export async function requireAuthenticatedIdentity(ctx: AuthenticatedCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw authorizationError();
+  }
+  return identity;
+}
+
+export async function requireOwnedWorkspace(
+  ctx: AuthenticatedCtx,
+  workspaceId: Id<"workspaces">,
+) {
+  const identity = await requireAuthenticatedIdentity(ctx);
+  const workspace = await ctx.db.get(workspaceId);
+  if (!workspace || workspace.ownerIdentity !== identity.tokenIdentifier) {
+    throw workspaceAuthorizationError();
+  }
+  return workspace;
+}
+
+export async function requireOwnedWorkspaceDocument<TableName extends WorkspaceScopedTable>(
+  ctx: AuthenticatedCtx,
+  tableName: TableName,
+  id: Id<TableName>,
+) {
+  const document = await ctx.db.get(id);
+  if (!document) {
+    throw notFoundError(tableName);
+  }
+
+  const workspaceScopedDocument = document as WorkspaceScopedDoc<TableName>;
+  await requireOwnedWorkspace(ctx, workspaceScopedDocument.workspaceId);
+  return workspaceScopedDocument;
+}
+
+export function assertSameWorkspace(
+  actualWorkspaceId: Id<"workspaces">,
+  expectedWorkspaceId: Id<"workspaces">,
+) {
+  if (actualWorkspaceId !== expectedWorkspaceId) {
+    throw workspaceAuthorizationError();
+  }
 }

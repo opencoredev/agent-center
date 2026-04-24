@@ -7,6 +7,7 @@ import { db, users, sessions } from "@agent-center/db";
 
 import { ApiError } from "../../../http/errors";
 import type { ApiEnv } from "../../../http/types";
+import { hashSessionToken } from "../../../services/session-token-service";
 
 export const authGoogleRoutes = new Hono<ApiEnv>();
 
@@ -21,7 +22,8 @@ authGoogleRoutes.get("/google/start", (context) => {
     throw new ApiError(501, "not_configured", "Google OAuth is not configured");
   }
 
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || "http://localhost:3100/api/auth/google/callback";
+  const redirectUri =
+    process.env.GOOGLE_REDIRECT_URI || "http://localhost:3100/api/auth/google/callback";
   const state = randomBytes(16).toString("hex");
   stateStore.set(state, { createdAt: Date.now() });
 
@@ -46,7 +48,8 @@ authGoogleRoutes.get("/google/start", (context) => {
 authGoogleRoutes.get("/google/callback", async (context) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || "http://localhost:3100/api/auth/google/callback";
+  const redirectUri =
+    process.env.GOOGLE_REDIRECT_URI || "http://localhost:3100/api/auth/google/callback";
   const webUrl = process.env.VITE_WEB_URL || "http://localhost:3100";
 
   if (!clientId || !clientSecret) {
@@ -141,10 +144,10 @@ authGoogleRoutes.get("/google/callback", async (context) => {
 
   await db.insert(sessions).values({
     userId: user!.id,
-    token: sessionToken,
+    token: hashSessionToken(sessionToken),
     expiresAt,
   });
 
-  // Redirect to frontend with the session token
-  return context.redirect(`${webUrl}/login?token=${sessionToken}`);
+  // Keep bearer tokens out of request URLs and server access logs.
+  return context.redirect(`${webUrl}/login#token=${encodeURIComponent(sessionToken)}`);
 });

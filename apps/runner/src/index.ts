@@ -18,7 +18,9 @@ async function main() {
   } else if (bootstrap.source === "env") {
     console.log("[runner] using cloud auth token from RUNNER_API_TOKEN");
   } else {
-    console.warn("[runner] no cloud auth token configured; remote credential resolution is disabled");
+    console.warn(
+      "[runner] no cloud auth token configured; remote credential resolution is disabled",
+    );
   }
 
   const controlService = new RunnerControlService({
@@ -28,7 +30,9 @@ async function main() {
     executionBackend: runnerRuntimeEnv.EXECUTION_BACKEND,
     e2bApiKey: runnerRuntimeEnv.E2B_API_KEY,
   });
-  const app = createApp(controlService);
+  const app = createApp(controlService, {
+    internalAuthToken: runnerRuntimeEnv.RUNNER_INTERNAL_TOKEN,
+  });
   const server = Bun.serve({
     fetch: app.fetch,
     hostname: runnerRuntimeEnv.RUNNER_HOST,

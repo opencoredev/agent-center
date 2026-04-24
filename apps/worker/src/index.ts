@@ -16,6 +16,7 @@ const workerService = startWorkerService({
   runPollMs: workerEnv.WORKER_RUN_POLL_MS,
   runnerBaseUrl: workerEnv.RUNNER_INTERNAL_BASE_URL,
   runnerDispatchTimeoutMs: workerEnv.RUNNER_DISPATCH_TIMEOUT_MS,
+  runnerInternalToken: workerEnv.RUNNER_INTERNAL_TOKEN,
   workerId: workerEnv.WORKER_ID,
 });
 

@@ -147,19 +147,21 @@ const mockGetInstallationAccessToken = mock(async () => ({
   token: "ghs_installation_token",
   expires_at: "2026-04-20T13:00:00.000Z",
 }));
-const mockResolveBotCommitAuthor = mock(async (): Promise<{
-  email: string;
-  id: number | null;
-  login: string | null;
-  name: string;
-  source: "fallback" | "github_app_bot";
-}> => ({
-  email: "123456+agent-center-dev[bot]@users.noreply.github.com",
-  id: 123456,
-  login: "agent-center-dev[bot]",
-  name: "agent-center-dev[bot]",
-  source: "github_app_bot",
-}));
+const mockResolveBotCommitAuthor = mock(
+  async (): Promise<{
+    email: string;
+    id: number | null;
+    login: string | null;
+    name: string;
+    source: "fallback" | "github_app_bot";
+  }> => ({
+    email: "123456+agent-center-dev[bot]@users.noreply.github.com",
+    id: 123456,
+    login: "agent-center-dev[bot]",
+    name: "agent-center-dev[bot]",
+    source: "github_app_bot",
+  }),
+);
 const mockCreateIssueComment = mock(async () => ({
   id: 501,
   body: "Draft pull request opened: https://github.com/opencodedev/agent-center/pull/17",
@@ -216,16 +218,16 @@ mock.module("../services/serializers", () => ({
     },
   serializeRun: (run: Record<string, unknown>) => ({
     ...run,
-    publication:
-      ((run.metadata as Record<string, unknown> | undefined)?.publication as Record<string, unknown> | undefined) ??
-      { status: "unpublished", pullRequest: null },
+    publication: ((run.metadata as Record<string, unknown> | undefined)?.publication as
+      | Record<string, unknown>
+      | undefined) ?? { status: "unpublished", pullRequest: null },
   }),
   serializeRunEvent: (event: Record<string, unknown>) => event,
   serializeTask: (task: Record<string, unknown>) => ({
     ...task,
-    publication:
-      ((task.metadata as Record<string, unknown> | undefined)?.publication as Record<string, unknown> | undefined) ??
-      { status: "unpublished", pullRequest: null },
+    publication: ((task.metadata as Record<string, unknown> | undefined)?.publication as
+      | Record<string, unknown>
+      | undefined) ?? { status: "unpublished", pullRequest: null },
   }),
 }));
 
@@ -303,9 +305,11 @@ describe("run-service publish", () => {
         body: expect.stringContaining("## Summary"),
       }),
     );
-    expect((mockCreatePullRequest.mock.calls[0]?.[0] as Record<string, unknown>).body).toContain(
-      "Closes opencodedev/agent-center#123",
-    );
+    const pullRequestInput = mockCreatePullRequest.mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(pullRequestInput).toBeDefined();
+    expect(pullRequestInput!.body).toContain("Closes opencodedev/agent-center#123");
     expect(mockGetInstallationAccessToken).toHaveBeenCalledWith(42);
     expect(mockResolveBotCommitAuthor).toHaveBeenCalledWith({
       installationId: 42,
@@ -326,7 +330,9 @@ describe("run-service publish", () => {
       number: 17,
       htmlUrl: "https://github.com/opencodedev/agent-center/pull/17",
     });
-    expect((result.publication as Record<string, unknown>).commitMessage).toBe("chore: update `README.md`");
+    expect((result.publication as Record<string, unknown>).commitMessage).toBe(
+      "chore: update `README.md`",
+    );
     expect((result.publication as Record<string, unknown>).commitAuthor).toMatchObject({
       email: "123456+agent-center-dev[bot]@users.noreply.github.com",
       login: "agent-center-dev[bot]",
@@ -334,12 +340,27 @@ describe("run-service publish", () => {
     });
     expect(result.run.branchName).toContain("agent-center/fix-publish-flow");
     expect(
-      runGit(["--git-dir", originPath, "rev-parse", `refs/heads/${result.run.branchName as string}`], sandboxRoot),
+      runGit(
+        ["--git-dir", originPath, "rev-parse", `refs/heads/${result.run.branchName as string}`],
+        sandboxRoot,
+      ),
     ).toBeTruthy();
-    expect(runGit(["log", "-1", "--pretty=%an <%ae>%n%s", result.run.branchName as string], workspacePath)).toBe(
+    expect(
+      runGit(
+        ["log", "-1", "--pretty=%an <%ae>%n%s", result.run.branchName as string],
+        workspacePath,
+      ),
+    ).toBe(
       "agent-center-dev[bot] <123456+agent-center-dev[bot]@users.noreply.github.com>\nchore: update `README.md`",
     );
-    expect((mockCreatePullRequest.mock.calls[0]?.[0] as Record<string, unknown>).body).toContain("<summary>Original task</summary>");
+    expect(pullRequestInput!.body).toContain("<summary>Original task</summary>");
+  });
+
+  test("rejects run reads for a non-owner", async () => {
+    await expect(runService.getById(runRecord.id, "user-2")).rejects.toMatchObject({
+      code: "workspace_forbidden",
+      status: 403,
+    });
   });
 
   test("persists failed publication state after the branch has been pushed", async () => {
@@ -356,7 +377,10 @@ describe("run-service publish", () => {
       error: "GitHub PR failed",
     });
     expect(
-      runGit(["--git-dir", originPath, "rev-parse", `refs/heads/${runUpdate.branchName as string}`], sandboxRoot),
+      runGit(
+        ["--git-dir", originPath, "rev-parse", `refs/heads/${runUpdate.branchName as string}`],
+        sandboxRoot,
+      ),
     ).toBeTruthy();
   });
 
@@ -376,9 +400,9 @@ describe("run-service publish", () => {
       name: "Agent Center",
       source: "fallback",
     });
-    expect(runGit(["log", "-1", "--pretty=%an <%ae>", result.run.branchName as string], workspacePath)).toBe(
-      "Agent Center <automation@agent.center>",
-    );
+    expect(
+      runGit(["log", "-1", "--pretty=%an <%ae>", result.run.branchName as string], workspacePath),
+    ).toBe("Agent Center <automation@agent.center>");
   });
 
   test("does not fail publication when commenting back on the issue fails", async () => {

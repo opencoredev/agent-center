@@ -8,7 +8,13 @@ import type {
 } from "@agent-center/shared";
 
 import { ApiError, conflictError, notFoundError } from "../http/errors";
-import { createTask, deleteTask, findTaskById, listTasks, updateTask } from "../repositories/task-repository";
+import {
+  createTask,
+  deleteTask,
+  findTaskById,
+  listTasks,
+  updateTask,
+} from "../repositories/task-repository";
 import { findWorkspaceById } from "../repositories/workspace-repository";
 import { findAutomationByWorkspaceAndId } from "../repositories/automation-repository";
 import { findLatestRunForTask, updateRun, appendRunEvent } from "../repositories/run-repository";
@@ -19,16 +25,66 @@ import { runService } from "./run-service";
 import { serializeTask } from "./serializers";
 import type { RunCreateRequest } from "./run-service";
 
+type TaskRecord = Exclude<Awaited<ReturnType<typeof findTaskById>>, undefined>;
+
+async function assertWorkspaceAccess(workspaceId: string, userId?: string) {
+  const workspace = await findWorkspaceById(workspaceId);
+
+  if (workspace === undefined) {
+    throw notFoundError("workspace", workspaceId);
+  }
+
+  if (userId && workspace.ownerId !== userId) {
+    throw new ApiError(403, "workspace_forbidden", "You do not have access to this workspace", {
+      workspaceId,
+    });
+  }
+
+  return workspace;
+}
+
+async function assertTaskAccess(task: TaskRecord, userId?: string) {
+  await assertWorkspaceAccess(task.workspaceId, userId);
+}
+
 export const taskService = {
-  async list(filters: { workspaceId?: string; projectId?: string; status?: TaskStatus; archived?: "exclude" | "include" | "only" }) {
+  async list(
+    filters: {
+      workspaceId?: string;
+      projectId?: string;
+      status?: TaskStatus;
+      archived?: "exclude" | "include" | "only";
+    },
+    userId?: string,
+  ) {
+    if (filters.workspaceId !== undefined) {
+      await assertWorkspaceAccess(filters.workspaceId, userId);
+    }
+
     const rawTasks = await listTasks(filters);
     const now = Date.now();
     const retainedTasks = [];
+    const workspaceAccess = new Map<string, boolean>();
 
     for (const task of rawTasks) {
-      const archivedAt = typeof task.metadata?.archivedAt === "string"
-        ? new Date(task.metadata.archivedAt).getTime()
-        : null;
+      if (userId && filters.workspaceId === undefined) {
+        let hasAccess = workspaceAccess.get(task.workspaceId);
+
+        if (hasAccess === undefined) {
+          const workspace = await findWorkspaceById(task.workspaceId);
+          hasAccess = workspace?.ownerId === userId;
+          workspaceAccess.set(task.workspaceId, hasAccess);
+        }
+
+        if (!hasAccess) {
+          continue;
+        }
+      }
+
+      const archivedAt =
+        typeof task.metadata?.archivedAt === "string"
+          ? new Date(task.metadata.archivedAt).getTime()
+          : null;
 
       if (archivedAt && now - archivedAt >= 30 * 24 * 60 * 60 * 1000) {
         await deleteTask(task.id).catch((error) => {
@@ -52,28 +108,27 @@ export const taskService = {
     return retainedTasks.map(serializeTask);
   },
 
-  async create(input: {
-    workspaceId: string;
-    projectId: string | null;
-    repoConnectionId: string | null;
-    automationId: string | null;
-    title: string;
-    prompt: string;
-    sandboxSize: SandboxSize;
-    permissionMode: PermissionMode;
-    baseBranch?: string | null;
-    branchName?: string | null;
-    policy: ExecutionPolicy;
-    config: ExecutionConfig;
-    metadata: DomainMetadata;
-  }) {
+  async create(
+    input: {
+      workspaceId: string;
+      projectId: string | null;
+      repoConnectionId: string | null;
+      automationId: string | null;
+      title: string;
+      prompt: string;
+      sandboxSize: SandboxSize;
+      permissionMode: PermissionMode;
+      baseBranch?: string | null;
+      branchName?: string | null;
+      policy: ExecutionPolicy;
+      config: ExecutionConfig;
+      metadata: DomainMetadata;
+    },
+    userId?: string,
+  ) {
     assertLaunchReadyExecutionConfig(input.config);
 
-    const workspace = await findWorkspaceById(input.workspaceId);
-
-    if (workspace === undefined) {
-      throw notFoundError("workspace", input.workspaceId);
-    }
+    await assertWorkspaceAccess(input.workspaceId, userId);
 
     if (input.projectId !== null) {
       await projectService.assertWithinWorkspace(input.workspaceId, input.projectId);
@@ -145,22 +200,30 @@ export const taskService = {
     return serializeTask(task);
   },
 
-  async getById(taskId: string) {
+  async getById(taskId: string, userId?: string) {
     const task = await findTaskById(taskId);
 
     if (task === undefined) {
       throw notFoundError("task", taskId);
     }
+
+    await assertTaskAccess(task, userId);
 
     return serializeTask(task);
   },
 
-  async update(taskId: string, input: { title?: string; metadata?: DomainMetadata }) {
+  async update(
+    taskId: string,
+    input: { title?: string; metadata?: DomainMetadata },
+    userId?: string,
+  ) {
     const task = await findTaskById(taskId);
 
     if (task === undefined) {
       throw notFoundError("task", taskId);
     }
+
+    await assertTaskAccess(task, userId);
 
     const updatedTask = await updateTask(taskId, {
       title: input.title ?? task.title,
@@ -171,12 +234,14 @@ export const taskService = {
     return serializeTask(updatedTask);
   },
 
-  async cancel(taskId: string, input: { reason?: string | null }) {
+  async cancel(taskId: string, input: { reason?: string | null }, userId?: string) {
     const task = await findTaskById(taskId);
 
     if (task === undefined) {
       throw notFoundError("task", taskId);
     }
+
+    await assertTaskAccess(task, userId);
 
     if (task.status === "cancelled") {
       return {
@@ -286,12 +351,14 @@ export const taskService = {
     };
   },
 
-  async retry(taskId: string, input: Omit<RunCreateRequest, "taskId">) {
+  async retry(taskId: string, input: Omit<RunCreateRequest, "taskId">, userId?: string) {
     const task = await findTaskById(taskId);
 
     if (task === undefined) {
       throw notFoundError("task", taskId);
     }
+
+    await assertTaskAccess(task, userId);
 
     const latestRun = await findLatestRunForTask(taskId);
 
@@ -309,6 +376,7 @@ export const taskService = {
         taskId,
       },
       "retry",
+      userId,
     );
   },
 };

@@ -1,5 +1,10 @@
 import { Sandbox } from "@e2b/code-interpreter";
-import type { BackendCommandRequest, CleanupResult, ExecutionBackend, WorkspaceHandle } from "./types";
+import type {
+  BackendCommandRequest,
+  CleanupResult,
+  ExecutionBackend,
+  WorkspaceHandle,
+} from "./types";
 import type { CommandExecutionResult } from "../command-executor";
 
 interface E2BBackendOptions {
@@ -43,12 +48,13 @@ export class E2BBackend implements ExecutionBackend {
   }
 
   async executeCommand(request: BackendCommandRequest): Promise<CommandExecutionResult> {
-    // We need the sandbox from the workspace handle — it's passed via the cwd context
-    // The RunSession provides the workspace path; we need to find the sandbox
-    // This is handled by the caller storing the handle and passing it through
-    throw new Error(
-      "E2B executeCommand must be called via executeCommandInSandbox with the workspace handle",
-    );
+    const handle = request.workspaceHandle as E2BWorkspaceHandle | undefined;
+
+    if (!handle || handle.backend !== "e2b" || !handle.sandbox) {
+      throw new Error("E2B command execution requires an active E2B workspace handle");
+    }
+
+    return this.executeCommandInSandbox(handle, request);
   }
 
   async executeCommandInSandbox(
@@ -81,7 +87,10 @@ export class E2BBackend implements ExecutionBackend {
     };
   }
 
-  async cleanup(handle: WorkspaceHandle, _status: "cancelled" | "completed" | "failed"): Promise<CleanupResult> {
+  async cleanup(
+    handle: WorkspaceHandle,
+    _status: "cancelled" | "completed" | "failed",
+  ): Promise<CleanupResult> {
     const e2bHandle = handle as E2BWorkspaceHandle;
     if (e2bHandle.sandbox) {
       await e2bHandle.sandbox.kill();
