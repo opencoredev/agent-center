@@ -33,5 +33,5 @@ RUN cd apps/web && bunx --bun vite build
 
 FROM nginx:1.27-alpine
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
-RUN printf 'server { listen 3000; root /usr/share/nginx/html; location / { try_files $$uri $$uri/ /index.html; } }\n' > /etc/nginx/conf.d/default.conf
+RUN printf 'server { listen 3000; root /usr/share/nginx/html; location / { try_files $uri $uri/ /index.html; } }\n' > /etc/nginx/conf.d/default.conf
 EXPOSE 3000

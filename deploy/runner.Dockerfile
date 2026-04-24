@@ -15,7 +15,7 @@ COPY packages/github/package.json packages/github/package.json
 COPY packages/sdk-ts/package.json packages/sdk-ts/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
-RUN bun install --frozen-lockfile --production
+RUN bun install --frozen-lockfile
 
 FROM oven/bun:1.3.5-debian
 WORKDIR /app
