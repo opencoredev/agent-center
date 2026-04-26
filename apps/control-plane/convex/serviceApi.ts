@@ -19,9 +19,7 @@ const serviceArgs = {
   serviceToken: v.string(),
 };
 
-function toApiRecord<TRecord extends { _id: string; _creationTime: number }>(
-  record: TRecord,
-) {
+function toApiRecord<TRecord extends { _id: string; _creationTime: number }>(record: TRecord) {
   const { _id, _creationTime, ...rest } = record;
   return {
     id: _id,
@@ -73,8 +71,6 @@ function getInstallationId(metadata: unknown) {
 const nullableString = v.union(v.string(), v.null());
 const optionalNullableString = v.optional(nullableString);
 const optionalNullableProjectId = v.optional(v.union(v.id("projects"), v.null()));
-const optionalNullableRepoConnectionId = v.optional(v.union(v.id("repoConnections"), v.null()));
-const optionalNullableAutomationId = v.optional(v.union(v.id("automations"), v.null()));
 const optionalNullableUserId = v.optional(v.union(v.id("users"), v.null()));
 const defaultExecutionConfig = { commands: [] };
 const defaultPolicy = {};
@@ -123,6 +119,107 @@ export const upsertGoogleUser = mutation({
       avatarUrl: args.avatarUrl,
       authProvider: "google",
       authProviderId: args.googleId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const user = await ctx.db.get(userId);
+    return user ? toApiRecord(user) : null;
+  },
+});
+
+export const upsertLocalBasicAuthUser = mutation({
+  args: {
+    ...serviceArgs,
+    username: v.string(),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    requireServiceToken(args.serviceToken);
+
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_authProvider_and_authProviderId", (q) =>
+        q.eq("authProvider", "local-basic").eq("authProviderId", args.username),
+      )
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        name: args.username,
+        updatedAt: now,
+      });
+
+      return toApiRecord({
+        ...existing,
+        name: args.username,
+        updatedAt: now,
+      });
+    }
+
+    const userId = await ctx.db.insert("users", {
+      email: `${args.username}@local.agent.center`,
+      name: args.username,
+      authProvider: "local-basic",
+      authProviderId: args.username,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const user = await ctx.db.get(userId);
+    return user ? toApiRecord(user) : null;
+  },
+});
+
+export const getLocalPasswordUser = query({
+  args: {
+    ...serviceArgs,
+    username: v.string(),
+  },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, args) => {
+    requireServiceToken(args.serviceToken);
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_authProvider_and_authProviderId", (q) =>
+        q.eq("authProvider", "local-password").eq("authProviderId", args.username),
+      )
+      .unique();
+
+    return user ? toApiRecord(user) : null;
+  },
+});
+
+export const createLocalPasswordUser = mutation({
+  args: {
+    ...serviceArgs,
+    username: v.string(),
+    passwordHash: v.string(),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    requireServiceToken(args.serviceToken);
+
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_authProvider_and_authProviderId", (q) =>
+        q.eq("authProvider", "local-password").eq("authProviderId", args.username),
+      )
+      .unique();
+
+    if (existing) {
+      return null;
+    }
+
+    const now = Date.now();
+    const userId = await ctx.db.insert("users", {
+      email: `${args.username}@local.agent.center`,
+      name: args.username,
+      authProvider: "local-password",
+      authProviderId: args.username,
+      passwordHash: args.passwordHash,
       createdAt: now,
       updatedAt: now,
     });
@@ -191,6 +288,29 @@ export const deleteSession = mutation({
   handler: async (ctx, args) => {
     requireServiceToken(args.serviceToken);
     await ctx.db.delete(args.sessionId);
+    return true;
+  },
+});
+
+export const deleteSessionByTokenHash = mutation({
+  args: {
+    ...serviceArgs,
+    tokenHash: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    requireServiceToken(args.serviceToken);
+
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_token", (q) => q.eq("token", args.tokenHash))
+      .unique();
+
+    if (!session) {
+      return false;
+    }
+
+    await ctx.db.delete(session._id);
     return true;
   },
 });
@@ -982,7 +1102,9 @@ export const getTaskByGitHubDeliveryId = query({
     requireServiceToken(args.serviceToken);
 
     const tasks = await ctx.db.query("tasks").withIndex("by_createdAt").order("desc").collect();
-    const task = tasks.find((candidate) => getGitHubDeliveryId(candidate.metadata) === args.deliveryId);
+    const task = tasks.find(
+      (candidate) => getGitHubDeliveryId(candidate.metadata) === args.deliveryId,
+    );
     return task ? toApiRecord(task) : null;
   },
 });
@@ -1420,9 +1542,9 @@ export const listRunners = query({
             .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
             .collect();
 
-    return sortByCreatedAtDesc(
-      runners.filter((runner) => runner.revokedAt === undefined),
-    ).map(toApiRecord);
+    return sortByCreatedAtDesc(runners.filter((runner) => runner.revokedAt === undefined)).map(
+      toApiRecord,
+    );
   },
 });
 
@@ -1653,11 +1775,7 @@ export const registerRunnerWithToken = mutation({
     lastSeenAt: v.optional(v.number()),
   },
   returns: v.object({
-    status: v.union(
-      v.literal("registered"),
-      v.literal("invalid"),
-      v.literal("already_used"),
-    ),
+    status: v.union(v.literal("registered"), v.literal("invalid"), v.literal("already_used")),
     runner: v.union(v.any(), v.null()),
     registrationToken: v.union(v.any(), v.null()),
   }),
@@ -1777,10 +1895,12 @@ export const claimNextQueuedRun = mutation({
     if (!candidate) return null;
 
     const timestamp = Date.now();
+    const existingMetadata = candidate.metadata ?? {};
+    const existingDispatch = (candidate.metadata as any)?.dispatch ?? {};
     const metadata = {
-      ...(candidate.metadata ?? {}),
+      ...existingMetadata,
       dispatch: {
-        ...((candidate.metadata as any)?.dispatch ?? {}),
+        ...existingDispatch,
         claimedAt: new Date(timestamp).toISOString(),
         claimedBy: args.workerId,
         state: "claimed",
@@ -1836,11 +1956,13 @@ export const markRunDispatchAccepted = mutation({
     if (!run) throw new Error(`Run ${args.runId} no longer exists`);
 
     const timestamp = Date.now();
+    const existingMetadata = run.metadata ?? {};
+    const existingDispatch = (run.metadata as any)?.dispatch ?? {};
     await ctx.db.patch(args.runId, {
       metadata: {
-        ...(run.metadata ?? {}),
+        ...existingMetadata,
         dispatch: {
-          ...((run.metadata as any)?.dispatch ?? {}),
+          ...existingDispatch,
           dispatchedAt: new Date(timestamp).toISOString(),
           endpoint: args.endpoint,
           responseStatus: args.responseStatus,
@@ -1886,14 +2008,16 @@ export const markRunDispatchFailed = mutation({
 
     const timestamp = Date.now();
     const failedAt = new Date(timestamp).toISOString();
+    const existingMetadata = run.metadata ?? {};
+    const existingDispatch = (run.metadata as any)?.dispatch ?? {};
     await ctx.db.patch(args.runId, {
       status: "failed",
       errorMessage: args.errorMessage,
       failedAt: timestamp,
       metadata: {
-        ...(run.metadata ?? {}),
+        ...existingMetadata,
         dispatch: {
-          ...((run.metadata as any)?.dispatch ?? {}),
+          ...existingDispatch,
           failedAt,
           failureReason: args.errorMessage,
           state: "dispatch_failed",
@@ -1956,8 +2080,13 @@ export const getDueAutomationCandidate = query({
       .filter((q) => q.eq(q.field("enabled"), true))
       .collect();
     const candidate = automations
-      .filter((automation) => automation.nextRunAt === undefined || automation.nextRunAt <= args.now)
-      .sort((left, right) => (left.nextRunAt ?? 0) - (right.nextRunAt ?? 0) || left.createdAt - right.createdAt)[0];
+      .filter(
+        (automation) => automation.nextRunAt === undefined || automation.nextRunAt <= args.now,
+      )
+      .sort(
+        (left, right) =>
+          (left.nextRunAt ?? 0) - (right.nextRunAt ?? 0) || left.createdAt - right.createdAt,
+      )[0];
     if (!candidate) return null;
 
     const project = candidate.projectId ? await ctx.db.get(candidate.projectId) : null;

@@ -19,6 +19,10 @@ export interface AutomationProcessingOutcome {
   taskId?: string;
 }
 
+export async function checkControlPlaneReady() {
+  await convexServiceClient.query(api.serviceApi.listWorkspaces);
+}
+
 function toIsoString(value: Date) {
   return value.toISOString();
 }
@@ -63,10 +67,7 @@ function createAutomationBranchName(automation: AutomationCandidate, triggeredAt
     return null;
   }
 
-  const timestamp = toIsoString(triggeredAt)
-    .replaceAll(":", "")
-    .replaceAll(".", "")
-    .toLowerCase();
+  const timestamp = toIsoString(triggeredAt).replaceAll(":", "").replaceAll(".", "").toLowerCase();
 
   return `${prefix}/${timestamp}`;
 }

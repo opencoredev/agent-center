@@ -17,36 +17,39 @@ export const internalGitHubRoutes = new Hono<ApiEnv>();
 
 internalGitHubRoutes.use("*", runnerAuthMiddleware);
 
-internalGitHubRoutes.get("/repo-connections/:repoConnectionId/installation-token", async (context) => {
-  const { repoConnectionId } = validateParams(context, repoConnectionIdParamsSchema);
-  const workspaceId = context.get("runnerWorkspaceId");
+internalGitHubRoutes.get(
+  "/repo-connections/:repoConnectionId/installation-token",
+  async (context) => {
+    const { repoConnectionId } = validateParams(context, repoConnectionIdParamsSchema);
+    const workspaceId = context.get("runnerWorkspaceId");
 
-  if (!workspaceId) {
-    throw new Error("Runner workspace id was not attached to the request context");
-  }
+    if (!workspaceId) {
+      throw new Error("Runner workspace id was not attached to the request context");
+    }
 
-  const repoConnection = await findRepoConnectionByWorkspaceAndId(workspaceId, repoConnectionId);
+    const repoConnection = await findRepoConnectionByWorkspaceAndId(workspaceId, repoConnectionId);
 
-  if (!repoConnection) {
-    throw new ApiError(404, "repo_connection_not_found", "Repo connection not found");
-  }
+    if (!repoConnection) {
+      throw new ApiError(404, "repo_connection_not_found", "Repo connection not found");
+    }
 
-  const installationId = Number(
-    (repoConnection.connectionMetadata as Record<string, unknown> | null)?.installationId,
-  );
-
-  if (!Number.isInteger(installationId) || installationId <= 0) {
-    throw new ApiError(
-      400,
-      "repo_connection_not_installation_backed",
-      "Repo connection is not backed by a GitHub App installation",
+    const installationId = Number(
+      (repoConnection.connectionMetadata as Record<string, unknown> | null)?.installationId,
     );
-  }
 
-  const token = await githubAppService.getInstallationAccessToken(installationId);
+    if (!Number.isInteger(installationId) || installationId <= 0) {
+      throw new ApiError(
+        400,
+        "repo_connection_not_installation_backed",
+        "Repo connection is not backed by a GitHub App installation",
+      );
+    }
 
-  return ok(context, {
-    token: token.token,
-    expiresAt: token.expires_at ?? null,
-  });
-});
+    const token = await githubAppService.getInstallationAccessToken(installationId);
+
+    return ok(context, {
+      token: token.token,
+      expiresAt: token.expires_at ?? null,
+    });
+  },
+);

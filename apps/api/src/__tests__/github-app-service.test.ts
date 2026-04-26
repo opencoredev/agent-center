@@ -10,6 +10,11 @@ const otherWorkspace = {
   ownerId: "user-2",
 };
 
+const ownerlessWorkspace = {
+  id: "33333333-3333-3333-3333-333333333333",
+  ownerId: undefined,
+};
+
 const mockGetApp = mock(async () => ({
   id: 3332050,
   slug: "agent-center-dev",
@@ -91,10 +96,14 @@ const mockFindWorkspaceById = mock(async (workspaceId: string) => {
     return otherWorkspace;
   }
 
+  if (workspaceId === ownerlessWorkspace.id) {
+    return ownerlessWorkspace;
+  }
+
   return undefined;
 });
 
-const mockListWorkspaces = mock(async () => [ownedWorkspace, otherWorkspace]);
+const mockListWorkspaces = mock(async () => [ownedWorkspace, otherWorkspace, ownerlessWorkspace]);
 const mockListRepoConnections = mock(async ({ workspaceId }: { workspaceId?: string }) => {
   if (workspaceId === ownedWorkspace.id) {
     return [
@@ -162,7 +171,11 @@ mock.module("../repositories/repo-connection-repository", () => ({
 }));
 
 const { apiEnv } = await import("../env");
-const { githubAppService } = await import("../services/github-app-service");
+const githubAppServiceModulePath = "../services/github-app-service.ts?github-app-service-test";
+const { githubAppService } = (await import(
+  githubAppServiceModulePath
+)) as typeof import("../services/github-app-service");
+mock.restore();
 
 const originalApiEnv = {
   GITHUB_APP_ID: apiEnv.GITHUB_APP_ID,
@@ -235,14 +248,16 @@ describe("github-app-service", () => {
     ]);
   });
 
-  test("scopes authenticated installation listings to linked installations", async () => {
+  test("requires a workspace scope for authenticated installation listings", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
     const result = await githubAppService.listInstallations({ userId: "user-1" });
 
-    expect(result).toEqual([
-      expect.objectContaining({
-        id: 42,
-      }),
-    ]);
+    expect(result).toEqual([]);
   });
 
   test("rejects repository listings outside the caller workspace", async () => {
@@ -259,6 +274,12 @@ describe("github-app-service", () => {
   });
 
   test("allows workspace-scoped repository listings for owned workspaces", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
     const result = await githubAppService.listInstallationRepositories({
       installationId: 42,
       workspaceId: ownedWorkspace.id,
@@ -271,6 +292,12 @@ describe("github-app-service", () => {
   });
 
   test("filters installation listings down to linked workspace installations", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
     const result = await githubAppService.listInstallations({
       workspaceId: ownedWorkspace.id,
       userId: "user-1",
@@ -282,6 +309,25 @@ describe("github-app-service", () => {
       }),
     ]);
     expect(result).toHaveLength(1);
+  });
+
+  test("allows local ownerless workspaces to browse installations for first connect", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
+    const result = await githubAppService.listInstallations({
+      workspaceId: ownerlessWorkspace.id,
+      userId: "user-1",
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 42,
+      }),
+    ]);
   });
 
   test("resolves the GitHub App bot commit author when the bot account is available", async () => {

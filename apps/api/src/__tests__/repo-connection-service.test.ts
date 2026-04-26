@@ -112,6 +112,7 @@ mock.module("@agent-center/github", () => ({
 
 mock.module("../repositories/workspace-repository", () => ({
   findWorkspaceById: mockFindWorkspaceById,
+  listWorkspaces: mock(async () => [ownedWorkspace, otherWorkspace]),
 }));
 
 mock.module("../repositories/repo-connection-repository", () => ({
@@ -156,7 +157,12 @@ mock.module("../services/github-app-service", () => ({
   },
 }));
 
-const { repoConnectionService } = await import("../services/repo-connection-service");
+const repoConnectionServiceModulePath =
+  "../services/repo-connection-service.ts?repo-connection-service-test";
+const { repoConnectionService } = (await import(
+  repoConnectionServiceModulePath
+)) as typeof import("../services/repo-connection-service");
+mock.restore();
 
 describe("repo-connection-service", () => {
   beforeEach(() => {
@@ -273,7 +279,7 @@ describe("repo-connection-service", () => {
     expect(mockListInstallationRepositories).toHaveBeenCalledWith({
       installationId: 42,
       workspaceId: ownedWorkspace.id,
-      enforceLinkedScope: false,
+      userId: "user-1",
     });
     expect(mockCreateRepoConnection).toHaveBeenCalled();
     expect(result.defaultBranch).toBe("main");
@@ -319,7 +325,7 @@ describe("repo-connection-service", () => {
     expect(mockListInstallationRepositories).toHaveBeenLastCalledWith({
       installationId: 99,
       workspaceId: ownedWorkspace.id,
-      enforceLinkedScope: false,
+      userId: "user-1",
     });
     expect(result.authType).toBe("github_app_installation");
     expect(result.connectionMetadata).toEqual({
@@ -333,7 +339,9 @@ describe("repo-connection-service", () => {
       workspaceId: otherWorkspace.id,
     });
 
-    await expect(repoConnectionService.getById(repoConnectionRecord.id, "user-1")).rejects.toMatchObject({
+    await expect(
+      repoConnectionService.getById(repoConnectionRecord.id, "user-1"),
+    ).rejects.toMatchObject({
       code: "workspace_forbidden",
       status: 403,
     });

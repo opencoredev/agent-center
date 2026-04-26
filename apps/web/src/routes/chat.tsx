@@ -1,13 +1,13 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
-import type { ExecutionRuntime } from '@agent-center/shared';
-import { ArrowRight, Circle, CircleDashed } from 'lucide-react';
-import { toast } from 'sonner';
-import { AGENTS, MODELS, PromptBox, runtimeForSandboxMode } from '@/components/chat/prompt-box';
-import { apiGet, apiPost } from '@/lib/api-client';
-import { Button } from '@/components/ui/button';
-import { useTaskList } from '@/hooks/use-zero-queries';
+import React, { useState, useCallback, useEffect, useRef } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
+import type { ExecutionRuntime } from "@agent-center/shared";
+import { ArrowRight, Circle, CircleDashed } from "lucide-react";
+import { toast } from "sonner";
+import { AGENTS, MODELS, PromptBox, runtimeForSandboxMode } from "@/components/chat/prompt-box";
+import { apiGet, apiPost } from "@/lib/api-client";
+import { Button } from "@/components/ui/button";
+import { useTaskList } from "@/hooks/use-zero-queries";
 
 interface Task {
   id: string;
@@ -37,7 +37,7 @@ interface RepoConnection {
 interface PromptConfig {
   agentProvider: string;
   agentModel: string;
-  agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+  agentReasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink";
   agentThinkingEnabled?: boolean;
   branch: string;
   runtime: ExecutionRuntime;
@@ -50,50 +50,57 @@ interface UploadedAttachment {
   attachmentId?: string;
   contentType: string;
   name: string;
-  type: 'pdf' | 'image' | 'file';
+  type: "pdf" | "image" | "file";
   url?: string | null;
 }
 
 function sandboxSizeForRuntime(runtime: ExecutionRuntime) {
-  if (runtime.target === 'local') {
-    return 'medium' as const;
+  if (runtime.target === "local") {
+    return "medium" as const;
   }
 
-  if (runtime.target === 'cloud' && runtime.sandboxProfile === 'full') {
-    return 'large' as const;
+  if (runtime.target === "cloud" && runtime.sandboxProfile === "full") {
+    return "large" as const;
   }
 
-  if (runtime.target === 'self_hosted') {
-    return 'medium' as const;
+  if (runtime.target === "self_hosted") {
+    return "medium" as const;
   }
 
-  return 'small' as const;
+  return "small" as const;
 }
 
-const SUGGESTION_CHIPS = [
-  'Fix a bug',
-  'Add a feature',
-  'Write tests',
-  'Refactor code',
-] as const;
+const SUGGESTION_CHIPS = ["Fix a bug", "Add a feature", "Write tests", "Refactor code"] as const;
 
 // ── Status helpers ───────────────────────────────────────────────────────────
 
 function StatusDot({ status }: { status: string }) {
-  let color = 'text-muted-foreground/50';
-  if (status === 'completed') color = 'text-status-success';
-  else if (['pending', 'queued', 'provisioning', 'cloning', 'running', 'in_progress'].includes(status)) color = 'text-status-warning';
-  else if (status === 'failed' || status === 'error') color = 'text-status-error';
+  let color = "text-muted-foreground/50";
+  if (status === "completed") color = "text-status-success";
+  else if (
+    ["pending", "queued", "provisioning", "cloning", "running", "in_progress"].includes(status)
+  )
+    color = "text-status-warning";
+  else if (status === "failed" || status === "error") color = "text-status-error";
 
-  const isRunning = ['pending', 'queued', 'provisioning', 'cloning', 'running', 'in_progress'].includes(status);
+  const isRunning = [
+    "pending",
+    "queued",
+    "provisioning",
+    "cloning",
+    "running",
+    "in_progress",
+  ].includes(status);
 
-  return <Circle className={`w-2.5 h-2.5 fill-current ${color} ${isRunning ? 'animate-pulse' : ''}`} />;
+  return (
+    <Circle className={`w-2.5 h-2.5 fill-current ${color} ${isRunning ? "animate-pulse" : ""}`} />
+  );
 }
 
 function timeAgo(date: string | number): string {
   const diff = Date.now() - new Date(date).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
+  if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
@@ -105,28 +112,26 @@ function timeAgo(date: string | number): string {
 
 export function ChatPage() {
   const navigate = useNavigate();
-  const storedModelId = localStorage.getItem('ac_default_model') ?? 'gpt-5.4';
+  const storedModelId = localStorage.getItem("ac_default_model") ?? "gpt-5.4";
   const initialModel =
     MODELS.find((model) => model.id === storedModelId) ??
-    MODELS.find((model) => model.id === 'gpt-5.4') ??
+    MODELS.find((model) => model.id === "gpt-5.4") ??
     MODELS[0]!;
-  const initialAgent =
-    AGENTS.find((agent) => agent.id === initialModel.agentId) ??
-    AGENTS[0]!;
+  const initialAgent = AGENTS.find((agent) => agent.id === initialModel.agentId) ?? AGENTS[0]!;
   const [promptDefault, setPromptDefault] = useState<string | undefined>(undefined);
   const [promptConfig, setPromptConfig] = useState<PromptConfig>({
     agentProvider: initialAgent.id,
     agentModel: initialModel.id,
-    branch: 'main',
-    runtime: runtimeForSandboxMode('local'),
-    repoConnectionId: localStorage.getItem('ac_selected_repo') ?? undefined,
+    branch: "main",
+    runtime: runtimeForSandboxMode("local"),
+    repoConnectionId: localStorage.getItem("ac_selected_repo") ?? undefined,
   });
 
   const { tasks } = useTaskList();
   const previousTaskStatusRef = useRef<Map<string, string>>(new Map());
 
   const clearSelectedRepository = useCallback(() => {
-    localStorage.removeItem('ac_selected_repo');
+    localStorage.removeItem("ac_selected_repo");
     setPromptConfig((current) => ({
       ...current,
       repoConnectionId: undefined,
@@ -134,8 +139,8 @@ export function ChatPage() {
     }));
   }, []);
 
-  const activeTasks = tasks.filter(
-    (t) => ['queued', 'provisioning', 'cloning', 'running', 'in_progress', 'paused'].includes(t.status)
+  const activeTasks = tasks.filter((t) =>
+    ["queued", "provisioning", "cloning", "running", "in_progress", "paused"].includes(t.status),
   );
 
   useEffect(() => {
@@ -143,7 +148,7 @@ export function ChatPage() {
 
     for (const task of tasks) {
       const lastStatus = previous.get(task.id);
-      if (task.status === 'failed' && lastStatus && lastStatus !== 'failed') {
+      if (task.status === "failed" && lastStatus && lastStatus !== "failed") {
         toast.error(`${task.title} failed. Open the task to see the error and retry.`);
       }
       previous.set(task.id, task.status);
@@ -159,36 +164,44 @@ export function ChatPage() {
 
   const submitTask = useMutation({
     mutationFn: async ({ prompt, files }: { prompt: string; files: UploadedAttachment[] }) => {
-      const workspaces = await apiGet<Workspace[]>('/api/workspaces');
+      const workspaces = await apiGet<Workspace[]>("/api/workspaces");
       const defaultWorkspaceId = workspaces[0]?.id;
 
       let repoConnection: RepoConnection | null = null;
       if (promptConfig.repoConnectionId) {
-        const repoConnections = await apiGet<RepoConnection[]>('/api/repo-connections');
+        const repoQuery = defaultWorkspaceId
+          ? `/api/repo-connections?workspaceId=${defaultWorkspaceId}`
+          : "/api/repo-connections";
+        const repoConnections = await apiGet<RepoConnection[]>(repoQuery);
         repoConnection =
           repoConnections.find((repo) => repo.id === promptConfig.repoConnectionId) ?? null;
 
         if (!repoConnection) {
           clearSelectedRepository();
-          throw new Error('The selected repository no longer exists. Pick another repository in Settings -> Repositories.');
+          throw new Error(
+            "The selected repository no longer exists. Pick another repository in Settings -> Repositories.",
+          );
         }
 
         if (!repoConnection.projectId) {
           clearSelectedRepository();
-          throw new Error('The selected repository is not attached to a project yet. Reconnect it in Settings -> Repositories.');
+          throw new Error(
+            "The selected repository is not attached to a project yet. Reconnect it in Settings -> Repositories.",
+          );
         }
       }
 
-      const workspaceId = repoConnection?.workspaceId ?? promptConfig.workspaceId ?? defaultWorkspaceId;
-      if (!workspaceId) throw new Error('No workspace found');
+      const workspaceId =
+        repoConnection?.workspaceId ?? promptConfig.workspaceId ?? defaultWorkspaceId;
+      if (!workspaceId) throw new Error("No workspace found");
 
       const baseBranch = repoConnection?.defaultBranch ?? null;
       const branchName =
-        repoConnection && promptConfig.branch !== (baseBranch ?? 'main')
+        repoConnection && promptConfig.branch !== (baseBranch ?? "main")
           ? promptConfig.branch
           : null;
 
-      const task = await apiPost<Task>('/api/tasks', {
+      const task = await apiPost<Task>("/api/tasks", {
         workspaceId,
         projectId: repoConnection?.projectId ?? promptConfig.projectId ?? null,
         repoConnectionId: repoConnection?.id ?? null,
@@ -198,13 +211,13 @@ export function ChatPage() {
         branchName,
         sandboxSize: sandboxSizeForRuntime(promptConfig.runtime),
         config: {
-          agentProvider: promptConfig.agentProvider as 'claude' | 'codex',
+          agentProvider: promptConfig.agentProvider as "claude" | "codex",
           agentModel: promptConfig.agentModel,
           agentReasoningEffort: promptConfig.agentReasoningEffort,
           agentThinkingEnabled: promptConfig.agentThinkingEnabled,
           runtime: promptConfig.runtime,
         },
-        permissionMode: 'safe',
+        permissionMode: "safe",
         metadata: {
           attachments: files
             .filter((file) => file.attachmentId && file.url)
@@ -217,7 +230,7 @@ export function ChatPage() {
           requestedRuntimeTarget: promptConfig.runtime.target,
           requestedRuntimeProvider: promptConfig.runtime.provider,
           requestedSandboxProfile: promptConfig.runtime.sandboxProfile,
-          runtimeRoutingStatus: 'planned',
+          runtimeRoutingStatus: "planned",
         },
       });
 
@@ -225,10 +238,10 @@ export function ChatPage() {
       return { task, run };
     },
     onSuccess: ({ task }) => {
-      navigate({ to: '/tasks/$taskId', params: { taskId: task.id } });
+      navigate({ to: "/tasks/$taskId", params: { taskId: task.id } });
     },
     onError: (error: Error) => {
-      console.error('Task creation failed:', error.message);
+      console.error("Task creation failed:", error.message);
       toast.error(error.message);
     },
   });
@@ -283,7 +296,10 @@ export function ChatPage() {
       </div>
 
       {/* Active Tasks */}
-      <div className="animate-fade-in" style={{ animationDelay: '0.1s', animationFillMode: 'backwards' }}>
+      <div
+        className="animate-fade-in"
+        style={{ animationDelay: "0.1s", animationFillMode: "backwards" }}
+      >
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-medium text-muted-foreground/70">Active Tasks</h2>
         </div>
@@ -301,15 +317,11 @@ export function ChatPage() {
             {activeTasks.map((task) => (
               <button
                 key={task.id}
-                onClick={() =>
-                  navigate({ to: '/tasks/$taskId', params: { taskId: task.id } })
-                }
+                onClick={() => navigate({ to: "/tasks/$taskId", params: { taskId: task.id } })}
                 className="w-full flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors cursor-pointer text-left first:rounded-t-xl last:rounded-b-xl"
               >
                 <StatusDot status={task.status} />
-                <span className="text-sm text-foreground truncate flex-1">
-                  {task.title}
-                </span>
+                <span className="text-sm text-foreground truncate flex-1">{task.title}</span>
                 <span className="text-xs text-muted-foreground flex-shrink-0">
                   {timeAgo(task.createdAt)}
                 </span>

@@ -85,9 +85,7 @@ export function runFlow(deps: RunFlowDeps) {
     }
 
     if (deps.agentProvider === "codex") {
-      yield* fromPromise(() =>
-        deps.transitionStatus("running", "Starting Codex agent session"),
-      );
+      yield* fromPromise(() => deps.transitionStatus("running", "Starting Codex agent session"));
       yield* fromPromise(deps.waitUntilRunnable);
       yield* fromPromise(deps.executeCodexAgent);
     }
@@ -118,18 +116,14 @@ export function runFlow(deps: RunFlowDeps) {
     Effect.catchAll((error) => {
       if (error instanceof CancelledError) {
         return Effect.gen(function* () {
-          yield* fromPromise(() =>
-            deps.transitionStatus("cancelled", error.message, "cancelled"),
-          );
+          yield* fromPromise(() => deps.transitionStatus("cancelled", error.message, "cancelled"));
           yield* fromPromise(() => deps.cleanupWorkspace("cancelled"));
         });
       }
 
       const message = deps.getFailureMessage(error);
       return Effect.gen(function* () {
-        yield* fromPromise(() =>
-          deps.transitionStatus("failed", message, "failed", message),
-        );
+        yield* fromPromise(() => deps.transitionStatus("failed", message, "failed", message));
         yield* fromPromise(() => deps.appendFailedEvent(message));
         yield* fromPromise(() => deps.cleanupWorkspace("failed"));
       });

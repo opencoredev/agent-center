@@ -90,7 +90,9 @@ export const automationConfigValidator = v.object({
   targetBranchFormat: v.optional(v.string()),
 });
 export const sandboxSizeValidator = v.union(...SANDBOX_SIZES.map((value) => v.literal(value)));
-export const permissionModeValidator = v.union(...PERMISSION_MODES.map((value) => v.literal(value)));
+export const permissionModeValidator = v.union(
+  ...PERMISSION_MODES.map((value) => v.literal(value)),
+);
 export const taskStatusValidator = v.union(...TASK_STATUSES.map((value) => v.literal(value)));
 export const runStatusValidator = v.union(...RUN_STATUSES.map((value) => v.literal(value)));
 export const repoProviderValidator = v.union(...REPO_PROVIDERS.map((value) => v.literal(value)));
@@ -101,12 +103,14 @@ export function now() {
 }
 
 export function normalizeSlug(input: string) {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64) || "untitled";
+  return (
+    input
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64) || "untitled"
+  );
 }
 
 export function createHandle(base: string, suffix: string) {
@@ -158,10 +162,7 @@ export async function requireAuthenticatedIdentity(ctx: AuthenticatedCtx) {
   return identity;
 }
 
-export async function requireOwnedWorkspace(
-  ctx: AuthenticatedCtx,
-  workspaceId: Id<"workspaces">,
-) {
+export async function requireOwnedWorkspace(ctx: AuthenticatedCtx, workspaceId: Id<"workspaces">) {
   const identity = await requireAuthenticatedIdentity(ctx);
   const workspace = await ctx.db.get(workspaceId);
   if (!workspace || workspace.ownerIdentity !== identity.tokenIdentifier) {

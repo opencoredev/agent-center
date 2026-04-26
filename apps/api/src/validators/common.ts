@@ -12,7 +12,8 @@ import {
 } from "@agent-center/shared";
 import { z } from "zod";
 
-export const uuidSchema = z.uuid();
+export const idSchema = z.string().trim().min(1);
+export const uuidSchema = idSchema;
 export const slugSchema = z
   .string()
   .trim()
@@ -83,25 +84,25 @@ export const automationConfigSchema = executionConfigSchema
   .strict();
 
 export const workspaceIdParamsSchema = z.object({
-  workspaceId: uuidSchema,
+  workspaceId: idSchema,
 });
 
 export const projectIdParamsSchema = z.object({
-  projectId: uuidSchema,
+  projectId: idSchema,
 });
 
 export const repoConnectionIdParamsSchema = z.object({
-  repoConnectionId: uuidSchema,
+  repoConnectionId: idSchema,
 });
 
 export const taskIdParamsSchema = z.object({
-  taskId: uuidSchema,
+  taskId: idSchema,
 });
 
 export const runIdParamsSchema = z.object({
-  runId: uuidSchema,
+  runId: idSchema,
 });
 
 export const automationIdParamsSchema = z.object({
-  automationId: uuidSchema,
+  automationId: idSchema,
 });

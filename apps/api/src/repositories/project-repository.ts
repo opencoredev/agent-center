@@ -9,9 +9,7 @@ export interface ProjectListFilters {
 
 export function listProjects(filters: ProjectListFilters) {
   return convexServiceClient.query(api.serviceApi.listProjects, {
-    workspaceId: filters.workspaceId
-      ? asConvexId<"workspaces">(filters.workspaceId)
-      : undefined,
+    workspaceId: filters.workspaceId ? asConvexId<"workspaces">(filters.workspaceId) : undefined,
   });
 }
 

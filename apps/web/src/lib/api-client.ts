@@ -1,5 +1,5 @@
 import { AgentCenterApiError, AgentCenterHttpClient } from "@agent-center/sdk-ts";
-import { getToken } from "./auth";
+import { getToken, isAuthEnabled } from "./auth";
 import { getApiUrl } from "./config";
 
 function createHttpClient() {
@@ -61,8 +61,10 @@ function formatApiError(error: AgentCenterApiError) {
 
 function normalizeClientError(error: unknown) {
   if (error instanceof AgentCenterApiError) {
-    if (error.status === 401) {
-      window.location.href = "/login";
+    if (error.status === 401 && isAuthEnabled()) {
+      if (window.location.pathname !== "/login") {
+        window.location.replace("/login");
+      }
     }
     return new Error(formatApiError(error));
   }

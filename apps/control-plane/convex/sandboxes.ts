@@ -27,7 +27,11 @@ export const create = mutation({
   args: {
     workspaceId: v.id("workspaces"),
     providerKey: v.string(),
-    runtimeKind: v.union(v.literal("lightweight"), v.literal("full_sandbox"), v.literal("self_hosted")),
+    runtimeKind: v.union(
+      v.literal("lightweight"),
+      v.literal("full_sandbox"),
+      v.literal("self_hosted"),
+    ),
     projectId: v.optional(v.id("projects")),
     taskId: v.optional(v.id("tasks")),
     runId: v.optional(v.id("runs")),

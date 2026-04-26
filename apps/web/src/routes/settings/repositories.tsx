@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   ExternalLink,
@@ -8,11 +8,11 @@ import {
   Plus,
   RefreshCw,
   Trash2,
-} from 'lucide-react';
+} from "lucide-react";
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { apiDelete, apiGet, apiPost } from '@/lib/api-client';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { apiDelete, apiGet, apiPost } from "@/lib/api-client";
 
 interface RepoConnection {
   id: string;
@@ -67,7 +67,7 @@ interface GitHubInstallationRepositoryPage {
   repositories: GitHubInstallationRepository[];
 }
 
-function GitHubMark({ className = 'w-5 h-5' }: { className?: string }) {
+function GitHubMark({ className = "w-5 h-5" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
       <path d="M12 .5C5.65.5.5 5.66.5 12.02c0 5.09 3.29 9.41 7.86 10.93.58.11.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.7-3.88-1.54-3.88-1.54-.52-1.33-1.28-1.68-1.28-1.68-1.04-.72.08-.71.08-.71 1.16.08 1.76 1.19 1.76 1.19 1.02 1.76 2.69 1.25 3.35.96.1-.74.4-1.25.72-1.54-2.55-.29-5.23-1.28-5.23-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.17 1.18a10.98 10.98 0 0 1 5.77 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.58.24 2.75.12 3.04.73.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.39-5.26 5.68.41.36.77 1.07.77 2.16 0 1.56-.01 2.82-.01 3.2 0 .31.21.68.8.56A11.53 11.53 0 0 0 23.5 12.02C23.5 5.66 18.35.5 12 .5Z" />
@@ -77,45 +77,49 @@ function GitHubMark({ className = 'w-5 h-5' }: { className?: string }) {
 
 export function RepositoriesPage() {
   const queryClient = useQueryClient();
-  const [owner, setOwner] = useState('');
-  const [repo, setRepo] = useState('');
+  const [owner, setOwner] = useState("");
+  const [repo, setRepo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [selectedInstallationId, setSelectedInstallationId] = useState<number | null>(null);
   const [showManualForm, setShowManualForm] = useState(false);
 
   const installReturnParams = useMemo(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === "undefined") {
       return { installationId: null as number | null, setupAction: null as string | null };
     }
 
     const params = new URLSearchParams(window.location.search);
-    const rawInstallationId = params.get('installation_id');
+    const rawInstallationId = params.get("installation_id");
     const parsedInstallationId = rawInstallationId ? Number(rawInstallationId) : null;
 
     return {
       installationId:
-        parsedInstallationId !== null && Number.isInteger(parsedInstallationId) && parsedInstallationId > 0
+        parsedInstallationId !== null &&
+        Number.isInteger(parsedInstallationId) &&
+        parsedInstallationId > 0
           ? parsedInstallationId
           : null,
-      setupAction: params.get('setup_action'),
+      setupAction: params.get("setup_action"),
     };
   }, []);
 
-  const { data: repos = [], isLoading } = useQuery({
-    queryKey: ['repo-connections'],
-    queryFn: () => apiGet<RepoConnection[]>('/api/repo-connections'),
-    staleTime: 30_000,
-  });
-
   const { data: workspaces = [] } = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: () => apiGet<Workspace[]>('/api/workspaces'),
+    queryKey: ["workspaces"],
+    queryFn: () => apiGet<Workspace[]>("/api/workspaces"),
     staleTime: 60_000,
+  });
+  const workspaceId = workspaces[0]?.id ?? null;
+
+  const { data: repos = [], isLoading } = useQuery({
+    queryKey: ["repo-connections", workspaceId],
+    queryFn: () => apiGet<RepoConnection[]>(`/api/repo-connections?workspaceId=${workspaceId}`),
+    staleTime: 30_000,
+    enabled: workspaceId !== null,
   });
 
   const { data: githubAppStatus } = useQuery({
-    queryKey: ['github-app-status'],
-    queryFn: () => apiGet<GitHubAppStatus>('/api/github/app'),
+    queryKey: ["github-app-status"],
+    queryFn: () => apiGet<GitHubAppStatus>("/api/github/app"),
     staleTime: 60_000,
   });
 
@@ -125,10 +129,11 @@ export function RepositoriesPage() {
     isFetching: installationsFetching,
     refetch: refetchInstallations,
   } = useQuery({
-    queryKey: ['github-installations'],
-    queryFn: () => apiGet<GitHubInstallation[]>('/api/github/installations'),
+    queryKey: ["github-installations", workspaceId],
+    queryFn: () =>
+      apiGet<GitHubInstallation[]>(`/api/github/installations?workspaceId=${workspaceId}`),
     staleTime: 30_000,
-    enabled: githubAppStatus?.configured === true,
+    enabled: githubAppStatus?.configured === true && workspaceId !== null,
   });
 
   const installationId = useMemo(
@@ -148,13 +153,13 @@ export function RepositoriesPage() {
     isFetching: reposFetching,
     refetch: refetchInstallationRepos,
   } = useQuery({
-    queryKey: ['github-installation-repositories', installationId],
+    queryKey: ["github-installation-repositories", installationId, workspaceId],
     queryFn: () =>
       apiGet<GitHubInstallationRepositoryPage>(
-        `/api/github/installations/${installationId}/repositories`,
+        `/api/github/installations/${installationId}/repositories?workspaceId=${workspaceId}`,
       ),
     staleTime: 30_000,
-    enabled: installationId !== null,
+    enabled: installationId !== null && workspaceId !== null,
   });
 
   const installationRepos = useMemo(
@@ -164,7 +169,11 @@ export function RepositoriesPage() {
 
   const connectedRepoIds = useMemo(
     () =>
-      new Set(repos.map((connected) => `${connected.owner.toLowerCase()}/${connected.repo.toLowerCase()}`)),
+      new Set(
+        repos.map(
+          (connected) => `${connected.owner.toLowerCase()}/${connected.repo.toLowerCase()}`,
+        ),
+      ),
     [repos],
   );
 
@@ -181,40 +190,42 @@ export function RepositoriesPage() {
 
   const createMutation = useMutation({
     mutationFn: (input: { owner: string; repo: string }) =>
-      apiPost<RepoConnection>('/api/repo-connections', {
-        workspaceId: workspaces[0]?.id,
-        provider: 'github',
+      apiPost<RepoConnection>("/api/repo-connections", {
+        workspaceId,
+        provider: "github",
         owner: input.owner,
         repo: input.repo,
-        defaultBranch: 'main',
-        authType: 'pat',
+        defaultBranch: "main",
+        authType: "pat",
       }),
     onSuccess: () => {
-      setOwner('');
-      setRepo('');
+      setOwner("");
+      setRepo("");
       setError(null);
-      void queryClient.invalidateQueries({ queryKey: ['repo-connections'] });
+      void queryClient.invalidateQueries({ queryKey: ["repo-connections"] });
+      void queryClient.invalidateQueries({ queryKey: ["repo-connections", workspaceId] });
     },
     onError: (err: Error) => setError(err.message),
   });
 
   const connectInstalledRepoMutation = useMutation({
     mutationFn: (input: GitHubInstallationRepository) =>
-      apiPost<RepoConnection>('/api/repo-connections', {
-        workspaceId: workspaces[0]?.id,
+      apiPost<RepoConnection>("/api/repo-connections", {
+        workspaceId,
         projectId: null,
-        provider: 'github',
+        provider: "github",
         owner: input.ownerLogin,
         repo: input.name,
         defaultBranch: input.defaultBranch,
-        authType: 'github_app_installation',
+        authType: "github_app_installation",
         connectionMetadata: {
           installationId,
         },
       }),
     onSuccess: () => {
       setError(null);
-      void queryClient.invalidateQueries({ queryKey: ['repo-connections'] });
+      void queryClient.invalidateQueries({ queryKey: ["repo-connections"] });
+      void queryClient.invalidateQueries({ queryKey: ["repo-connections", workspaceId] });
     },
     onError: (err: Error) => setError(err.message),
   });
@@ -222,13 +233,18 @@ export function RepositoriesPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiDelete(`/api/repo-connections/${id}`),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['repo-connections'] });
+      void queryClient.invalidateQueries({ queryKey: ["repo-connections"] });
+      void queryClient.invalidateQueries({ queryKey: ["repo-connections", workspaceId] });
     },
     onError: (err: Error) => setError(err.message),
   });
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    if (!workspaceId) {
+      setError("Load a workspace before adding a repository.");
+      return;
+    }
     if (!owner.trim() || !repo.trim()) return;
     createMutation.mutate({ owner: owner.trim(), repo: repo.trim() });
   }
@@ -247,9 +263,9 @@ export function RepositoriesPage() {
           {installReturnParams.installationId !== null ? (
             <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
               <p className="text-sm text-foreground">
-                GitHub App {installReturnParams.setupAction === 'install' ? 'installed' : 'updated'} for{' '}
-                <span className="font-mono">#{installReturnParams.installationId}</span>. Refresh below to pull in
-                the newest repositories.
+                GitHub App {installReturnParams.setupAction === "install" ? "installed" : "updated"}{" "}
+                for <span className="font-mono">#{installReturnParams.installationId}</span>.
+                Refresh below to pull in the newest repositories.
               </p>
             </div>
           ) : null}
@@ -262,8 +278,8 @@ export function RepositoriesPage() {
               <p className="text-base font-semibold text-foreground">Connect with GitHub App</p>
               <p className="text-sm text-muted-foreground mt-1">
                 {githubAppStatus?.configured
-                  ? `Install ${githubAppStatus.slug ? `@${githubAppStatus.slug}` : 'the app'}, then choose repositories from your installations below.`
-                  : 'GitHub App is not configured in this environment.'}
+                  ? `Install ${githubAppStatus.slug ? `@${githubAppStatus.slug}` : "the app"}, then choose repositories from your installations below.`
+                  : "GitHub App is not configured in this environment."}
               </p>
             </div>
             {githubAppStatus?.installUrl ? (
@@ -289,7 +305,7 @@ export function RepositoriesPage() {
                 }
               }}
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${installationsFetching ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${installationsFetching ? "animate-spin" : ""}`} />
               Refresh Installations
             </Button>
             {githubAppStatus?.installUrl ? (
@@ -319,13 +335,17 @@ export function RepositoriesPage() {
                       onClick={() => setSelectedInstallationId(installation.id)}
                       className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
                         installation.id === installationId
-                          ? 'border-primary bg-primary/5 shadow-sm'
-                          : 'border-border hover:bg-muted/40'
+                          ? "border-primary bg-primary/5 shadow-sm"
+                          : "border-border hover:bg-muted/40"
                       }`}
                     >
-                      <p className="text-sm font-medium text-foreground">{installation.accountLogin}</p>
+                      <p className="text-sm font-medium text-foreground">
+                        {installation.accountLogin}
+                      </p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {installation.repositorySelection === 'all' ? 'All repositories' : 'Selected repositories'}
+                        {installation.repositorySelection === "all"
+                          ? "All repositories"
+                          : "Selected repositories"}
                       </p>
                     </button>
                   ))
@@ -369,7 +389,9 @@ export function RepositoriesPage() {
                       <div key={installationRepo.id} className="flex items-center gap-3 px-4 py-3">
                         <FolderGit2 className="w-4 h-4 text-muted-foreground shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground">{installationRepo.fullName}</p>
+                          <p className="text-sm font-medium text-foreground">
+                            {installationRepo.fullName}
+                          </p>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             Default branch: {installationRepo.defaultBranch}
                           </p>
@@ -400,12 +422,12 @@ export function RepositoriesPage() {
                   <div className="rounded-xl border border-dashed border-border bg-card/50 p-5">
                     <p className="text-sm text-foreground">
                       {installationId === null
-                        ? 'Select an installation to browse repositories.'
-                        : 'No more repositories available from this installation right now.'}
+                        ? "Select an installation to browse repositories."
+                        : "No more repositories available from this installation right now."}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      If you don&apos;t see a repository, click Connect GitHub to add more repos or install the app on
-                      another organization, then refresh.
+                      If you don&apos;t see a repository, click Connect GitHub to add more repos or
+                      install the app on another organization, then refresh.
                     </p>
                   </div>
                 )}
@@ -432,7 +454,9 @@ export function RepositoriesPage() {
           >
             <Plus className="w-3.5 h-3.5" />
             Manual Fallback
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showManualForm ? 'rotate-180' : ''}`} />
+            <ChevronDown
+              className={`w-3.5 h-3.5 transition-transform ${showManualForm ? "rotate-180" : ""}`}
+            />
           </Button>
         </div>
 
@@ -440,7 +464,8 @@ export function RepositoriesPage() {
           <div className="rounded-xl border border-border bg-card p-4 mb-4">
             <h3 className="text-sm font-medium text-foreground mb-2">Add Manually</h3>
             <p className="text-xs text-muted-foreground mb-3">
-              Use this only if you need to connect a repository without going through the GitHub App flow.
+              Use this only if you need to connect a repository without going through the GitHub App
+              flow.
             </p>
             <form onSubmit={handleCreate} className="flex items-end gap-3">
               <div className="flex-1">
@@ -466,10 +491,10 @@ export function RepositoriesPage() {
                 type="submit"
                 size="sm"
                 className="h-9 gap-1.5"
-                disabled={!owner.trim() || !repo.trim() || createMutation.isPending}
+                disabled={!workspaceId || !owner.trim() || !repo.trim() || createMutation.isPending}
               >
                 <Plus className="w-3.5 h-3.5" />
-                {createMutation.isPending ? 'Adding...' : 'Add'}
+                {createMutation.isPending ? "Adding..." : "Add"}
               </Button>
             </form>
           </div>
@@ -502,11 +527,13 @@ export function RepositoriesPage() {
                       {rc.owner}/{rc.repo}
                     </p>
                     <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                      {rc.authType === 'github_app_installation' ? 'GitHub App' : 'Manual'}
+                      {rc.authType === "github_app_installation" ? "GitHub App" : "Manual"}
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground/60 mt-0.5">
-                    Workspace: {workspaces.find((workspace) => workspace.id === rc.workspaceId)?.name ?? rc.workspaceId}
+                    Workspace:{" "}
+                    {workspaces.find((workspace) => workspace.id === rc.workspaceId)?.name ??
+                      rc.workspaceId}
                   </p>
                   {rc.defaultBranch && (
                     <p className="text-xs text-muted-foreground/60 mt-0.5">

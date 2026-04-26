@@ -4,11 +4,13 @@ import { api } from "@agent-center/control-plane/api";
 import { createMiddleware } from "hono/factory";
 
 import { ApiError } from "../http/errors";
+import { getLocalBasicAuthUserId, isDevelopmentAuthDisabled } from "../http/auth-user";
 import { convexServiceClient } from "../services/convex-service-client";
 import { hashSessionToken } from "../services/session-token-service";
 
 const PUBLIC_PATHS = [
   "/api/auth/login",
+  "/api/auth/signup",
   "/api/auth/google/start",
   "/api/auth/google/callback",
   "/api/auth/claude/start",
@@ -56,10 +58,7 @@ export const authMiddleware = createMiddleware(async (context, next) => {
     return next();
   }
 
-  const isDevelopmentAuthDisabled =
-    process.env.AUTH_DISABLED === "true" && process.env.NODE_ENV !== "production";
-
-  if (isDevelopmentAuthDisabled) {
+  if (isDevelopmentAuthDisabled()) {
     return next();
   }
 
@@ -108,6 +107,7 @@ export const authMiddleware = createMiddleware(async (context, next) => {
   const legacySession = tokenStore.get(token);
 
   if (legacySession && legacySession.expiresAt > Date.now()) {
+    context.set("userId", getLocalBasicAuthUserId(legacySession.username));
     return next();
   }
 

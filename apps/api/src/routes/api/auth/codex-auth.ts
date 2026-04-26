@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { ApiEnv } from "../../../http/types";
 import { ok } from "../../../http/responses";
+import { getCredentialUserId } from "../../../http/auth-user";
 import { ApiError } from "../../../http/errors";
 import { validateJson } from "../../../http/validation";
 import { credentialService } from "../../../services/credential-service";
@@ -28,7 +29,7 @@ const authJsonSchema = z.object({
  */
 authCodexRoutes.post("/codex/save-auth", async (context) => {
   const { authJson } = await validateJson(context, authJsonSchema);
-  const userId = context.get("userId");
+  const userId = getCredentialUserId(context);
 
   if (!userId) {
     throw new ApiError(401, "unauthorized", "User authentication required");

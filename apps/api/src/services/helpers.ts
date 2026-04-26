@@ -13,7 +13,9 @@ export function mergeMetadata(base: DomainMetadata, patch?: DomainMetadata) {
   };
 }
 
-export function withoutControlMetadata(metadata: DomainMetadata | null | undefined): DomainMetadata {
+export function withoutControlMetadata(
+  metadata: DomainMetadata | null | undefined,
+): DomainMetadata {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     return {};
   }
@@ -56,11 +58,7 @@ export function isActiveRunStatus(status: RunStatus) {
   return activeRunStatuses.has(status);
 }
 
-const launchReadyRuntimeProviders = new Set([
-  "legacy_local",
-  "convex_bash",
-  "agent_os",
-]);
+const launchReadyRuntimeProviders = new Set(["legacy_local", "convex_bash", "agent_os"]);
 
 export function assertLaunchReadyExecutionConfig(config: ExecutionConfig) {
   const provider = config.runtime?.provider;

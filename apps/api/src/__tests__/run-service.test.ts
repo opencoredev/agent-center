@@ -191,6 +191,14 @@ mock.module("../repositories/task-repository", () => ({
   updateTask: mockUpdateTask,
 }));
 
+const sourceModuleMocks = ((
+  globalThis as unknown as Record<string, Record<string, unknown>>
+).__apiTestSourceModuleMocks ??= {});
+sourceModuleMocks.taskRepository = {
+  findTaskById: mockFindTaskById,
+  updateTask: mockUpdateTask,
+};
+
 mock.module("../repositories/workspace-repository", () => ({
   findWorkspaceById: mockFindWorkspaceById,
 }));
@@ -231,7 +239,11 @@ mock.module("../services/serializers", () => ({
   }),
 }));
 
-const { runService } = await import("../services/run-service");
+const runServiceModulePath = "../services/run-service.ts?run-service-test";
+const { runService } = (await import(
+  runServiceModulePath
+)) as typeof import("../services/run-service");
+mock.restore();
 
 function runGit(args: string[], cwd: string) {
   const result = Bun.spawnSync({

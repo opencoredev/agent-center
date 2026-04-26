@@ -99,14 +99,8 @@ describe("basic auth", () => {
       const envUser = "admin";
       const envPass = "correctpassword";
 
-      const usernameMatch = timingSafeEqual(
-        Buffer.from(inputUser),
-        Buffer.from(envUser),
-      );
-      const passwordMatch = timingSafeEqual(
-        Buffer.from(inputPass),
-        Buffer.from(envPass),
-      );
+      const usernameMatch = timingSafeEqual(Buffer.from(inputUser), Buffer.from(envUser));
+      const passwordMatch = timingSafeEqual(Buffer.from(inputPass), Buffer.from(envPass));
 
       expect(usernameMatch).toBe(true);
       expect(passwordMatch).toBe(true);
@@ -118,14 +112,8 @@ describe("basic auth", () => {
       const envUser = "admin";
       const envPass = "correctpasswd1";
 
-      const usernameMatch = timingSafeEqual(
-        Buffer.from(inputUser),
-        Buffer.from(envUser),
-      );
-      const passwordMatch = timingSafeEqual(
-        Buffer.from(inputPass),
-        Buffer.from(envPass),
-      );
+      const usernameMatch = timingSafeEqual(Buffer.from(inputUser), Buffer.from(envUser));
+      const passwordMatch = timingSafeEqual(Buffer.from(inputPass), Buffer.from(envPass));
 
       expect(usernameMatch).toBe(true);
       expect(passwordMatch).toBe(false);
@@ -135,9 +123,7 @@ describe("basic auth", () => {
       const inputUser = "admin";
       const envUser = "administrator";
 
-      expect(() =>
-        timingSafeEqual(Buffer.from(inputUser), Buffer.from(envUser)),
-      ).toThrow();
+      expect(() => timingSafeEqual(Buffer.from(inputUser), Buffer.from(envUser))).toThrow();
     });
   });
 });

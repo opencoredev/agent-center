@@ -146,9 +146,7 @@ function mapUiMessage(
           : null;
 
       if (payloadType === "item.started") {
-        const nextMessage = compactCommand(
-          command ?? "",
-        );
+        const nextMessage = compactCommand(command ?? "");
         return {
           kind: "work",
           message: nextMessage ?? "Ran a command",
@@ -162,8 +160,7 @@ function mapUiMessage(
           typeof (item as { aggregated_output?: unknown }).aggregated_output === "string"
             ? (item as { aggregated_output: string }).aggregated_output
             : null;
-        const status =
-          (item as { status?: unknown }).status === "failed" ? "failed" : "completed";
+        const status = (item as { status?: unknown }).status === "failed" ? "failed" : "completed";
         const nextMessage = compactCommand(command ?? "");
         return {
           kind: "work",
@@ -180,7 +177,8 @@ function mapUiMessage(
     return { kind: "ignore", message: null };
   }
 
-  if (message.includes("Cancellation requested")) return { kind: "setup", message: "Cancellation requested." };
+  if (message.includes("Cancellation requested"))
+    return { kind: "setup", message: "Cancellation requested." };
   if (message.includes("Reusing existing workspace")) return { kind: "ignore", message: null };
 
   if (message.trim().startsWith("{")) {
@@ -190,9 +188,11 @@ function mapUiMessage(
         item?: { type?: string; text?: string };
       };
 
-      if (parsed.type === "turn.started" || parsed.type === "thread.started") return { kind: "ignore", message: null };
+      if (parsed.type === "turn.started" || parsed.type === "thread.started")
+        return { kind: "ignore", message: null };
       if (parsed.type === "item.started") return { kind: "ignore", message: null };
-      if (parsed.type === "item.completed" && parsed.item?.type === "agent_message") return { kind: "ignore", message: null };
+      if (parsed.type === "item.completed" && parsed.item?.type === "agent_message")
+        return { kind: "ignore", message: null };
       if (parsed.type === "item.completed" && parsed.item?.type) {
         return { kind: "ignore", message: null };
       }
@@ -201,19 +201,29 @@ function mapUiMessage(
     }
   }
 
-  if (message.includes("Run claimed by worker and marked provisioning")) return { kind: "setup", message: "Claimed by the worker." };
-  if (message.includes("Provisioning host-local workspace")) return { kind: "setup", message: "Prepared the local workspace." };
-  if (message.includes("Workspace created")) return { kind: "setup", message: "Workspace created." };
-  if (message.includes("Cloning repository into local workspace")) return { kind: "setup", message: "Cloned repository." };
-  if (message.includes("Clone completed for")) return { kind: "setup", message: "Cloned repository." };
-  if (message.includes("Reset branch 'main'")) return { kind: "setup", message: "Reset branch 'main'." };
-  if (message.includes("branch 'main' set up to track 'origin/main'.")) return { kind: "setup", message: "Prepared branch main." };
-  if (message.includes("Your branch is up to date with 'origin/main'.")) return { kind: "setup", message: "Branch is up to date." };
+  if (message.includes("Run claimed by worker and marked provisioning"))
+    return { kind: "setup", message: "Claimed by the worker." };
+  if (message.includes("Provisioning host-local workspace"))
+    return { kind: "setup", message: "Prepared the local workspace." };
+  if (message.includes("Workspace created"))
+    return { kind: "setup", message: "Workspace created." };
+  if (message.includes("Cloning repository into local workspace"))
+    return { kind: "setup", message: "Cloned repository." };
+  if (message.includes("Clone completed for"))
+    return { kind: "setup", message: "Cloned repository." };
+  if (message.includes("Reset branch 'main'"))
+    return { kind: "setup", message: "Reset branch 'main'." };
+  if (message.includes("branch 'main' set up to track 'origin/main'."))
+    return { kind: "setup", message: "Prepared branch main." };
+  if (message.includes("Your branch is up to date with 'origin/main'."))
+    return { kind: "setup", message: "Branch is up to date." };
   if (message.includes("Starting Codex agent session")) return { kind: "ignore", message: null };
-  if (message.includes("Starting Claude Code agent session")) return { kind: "ignore", message: null };
+  if (message.includes("Starting Claude Code agent session"))
+    return { kind: "ignore", message: null };
   if (message.includes("Codex agent session started")) return { kind: "ignore", message: null };
   if (message.includes("Claude session started")) return { kind: "ignore", message: null };
-  if (message.includes("Reading additional input from stdin")) return { kind: "ignore", message: null };
+  if (message.includes("Reading additional input from stdin"))
+    return { kind: "ignore", message: null };
   if (message.includes("Codex session completed")) return { kind: "ignore", message: null };
   if (message.includes("Codex agent session completed")) return { kind: "ignore", message: null };
   if (message.includes("Run completed successfully")) return { kind: "ignore", message: null };
@@ -232,7 +242,11 @@ function appendUiStep(summary: UiSummary, kind: "setup" | "work", step: UiSummar
 
 function withUiSummary(
   metadata: Record<string, unknown>,
-  input: { eventType: EventType; message?: string | null; payload?: Record<string, unknown> | null },
+  input: {
+    eventType: EventType;
+    message?: string | null;
+    payload?: Record<string, unknown> | null;
+  },
 ) {
   const current = (metadata.uiSummary as UiSummary | undefined) ?? {};
   const now = new Date().toISOString();
@@ -266,7 +280,11 @@ function withUiSummary(
     next.thinkingCompletedAt = now;
   }
 
-  if (mappedMessage.kind !== "ignore" && mappedMessage.message && !isLowSignalUiMessage(mappedMessage.message)) {
+  if (
+    mappedMessage.kind !== "ignore" &&
+    mappedMessage.message &&
+    !isLowSignalUiMessage(mappedMessage.message)
+  ) {
     const step: UiSummaryStep = {
       at: now,
       id: crypto.randomUUID(),

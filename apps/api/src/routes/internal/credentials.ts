@@ -15,9 +15,7 @@ internalCredentialRoutes.get("/claude/resolve", async (context) => {
     throw new Error("Runner workspace id was not attached to the request context");
   }
 
-  const credential = await credentialService.resolveRunnerClaudeCredential(
-    runnerWorkspaceId,
-  );
+  const credential = await credentialService.resolveRunnerClaudeCredential(runnerWorkspaceId);
 
   return ok(context, credential);
 });
@@ -28,9 +26,7 @@ internalCredentialRoutes.get("/openai/resolve", async (context) => {
     throw new Error("Runner workspace id was not attached to the request context");
   }
 
-  const credential = await credentialService.resolveRunnerOpenAICredential(
-    runnerWorkspaceId,
-  );
+  const credential = await credentialService.resolveRunnerOpenAICredential(runnerWorkspaceId);
 
   return ok(context, credential);
 });

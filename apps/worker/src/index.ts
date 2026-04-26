@@ -8,7 +8,7 @@ console.log(
   `[worker] config workerId=${workerEnv.WORKER_ID} runPoll=${workerEnv.WORKER_RUN_POLL_MS}ms automationPoll=${workerEnv.WORKER_AUTOMATION_POLL_MS}ms runner=${workerEnv.RUNNER_INTERNAL_BASE_URL}`,
 );
 
-const workerService = startWorkerService({
+const workerService = await startWorkerService({
   automationBatchSize: workerEnv.WORKER_AUTOMATION_BATCH_SIZE,
   automationPollMs: workerEnv.WORKER_AUTOMATION_POLL_MS,
   runBatchSize: workerEnv.WORKER_RUN_BATCH_SIZE,

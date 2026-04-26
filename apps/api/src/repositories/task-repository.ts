@@ -12,9 +12,7 @@ export interface TaskListFilters {
 
 export function listTasks(filters: TaskListFilters) {
   return convexServiceClient.query(api.serviceApi.listTasks, {
-    workspaceId: filters.workspaceId
-      ? asConvexId<"workspaces">(filters.workspaceId)
-      : undefined,
+    workspaceId: filters.workspaceId ? asConvexId<"workspaces">(filters.workspaceId) : undefined,
     projectId: filters.projectId ? asConvexId<"projects">(filters.projectId) : undefined,
     status: filters.status,
   });
@@ -35,10 +33,7 @@ export async function findTaskByGitHubDeliveryId(deliveryId: string) {
 }
 
 export async function createTask(values: Record<string, unknown>) {
-  const task = await convexServiceClient.mutation(
-    api.serviceApi.createTask,
-    asConvexArgs(values),
-  );
+  const task = await convexServiceClient.mutation(api.serviceApi.createTask, asConvexArgs(values));
 
   if (task === null) {
     throw new Error("Failed to create task");

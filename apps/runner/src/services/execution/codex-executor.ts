@@ -248,9 +248,7 @@ async function pipeStream(
   }
 }
 
-export function parseCodexJsonLine(
-  line: string,
-): {
+export function parseCodexJsonLine(line: string): {
   type: "log" | "error" | "assistant_message_delta";
   message: string;
   payload?: Record<string, unknown>;

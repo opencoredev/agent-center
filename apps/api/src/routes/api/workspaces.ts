@@ -10,17 +10,31 @@ import { createWorkspaceSchema } from "../../validators/workspaces";
 export const workspaceRoutes = new Hono<ApiEnv>();
 
 workspaceRoutes.get("/", async (context) => {
-  return runApiEffect(context, tryApiPromise(() => workspaceService.list()));
+  const userId = context.get("userId");
+
+  return runApiEffect(
+    context,
+    tryApiPromise(() => workspaceService.list(userId)),
+  );
 });
 
 workspaceRoutes.post("/", async (context) => {
   const input = await validateJson(context, createWorkspaceSchema);
+  const userId = context.get("userId");
 
-  return runApiEffect(context, tryApiPromise(() => workspaceService.create(input)), 201);
+  return runApiEffect(
+    context,
+    tryApiPromise(() => workspaceService.create(input, userId)),
+    201,
+  );
 });
 
 workspaceRoutes.get("/:workspaceId", async (context) => {
   const { workspaceId } = validateParams(context, workspaceIdParamsSchema);
+  const userId = context.get("userId");
 
-  return runApiEffect(context, tryApiPromise(() => workspaceService.getById(workspaceId)));
+  return runApiEffect(
+    context,
+    tryApiPromise(() => workspaceService.getById(workspaceId, userId)),
+  );
 });

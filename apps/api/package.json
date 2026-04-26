@@ -10,14 +10,14 @@
     "lint": "bunx oxlint src --deny-warnings",
     "format": "bunx oxfmt src --write",
     "format:check": "bunx oxfmt src --check",
-    "test": "bun test"
+    "test": "bun scripts/run-tests.ts"
   },
   "dependencies": {
     "@agent-center/config": "workspace:*",
     "@agent-center/control-plane": "workspace:*",
     "@agent-center/github": "workspace:*",
     "@agent-center/shared": "workspace:*",
-    "convex": "^1.26.2",
+    "convex": "^1.36.1",
     "effect": "^3.21.0",
     "hono": "^4.12.14",
     "zod": "^4.3.6"

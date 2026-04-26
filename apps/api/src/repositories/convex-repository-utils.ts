@@ -17,7 +17,11 @@ export function asConvexId<Table extends TableName>(id: string) {
 }
 
 export function toTimestamp(value: Date | number | string) {
-  return value instanceof Date ? value.getTime() : typeof value === "string" ? Date.parse(value) : value;
+  return value instanceof Date
+    ? value.getTime()
+    : typeof value === "string"
+      ? Date.parse(value)
+      : value;
 }
 
 export function normalizeConvexInput<T extends Record<string, unknown>>(values: T) {

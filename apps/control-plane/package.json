@@ -23,12 +23,12 @@
     "codegen": "bunx convex codegen",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "bunx oxlint convex --deny-warnings",
-    "format": "bunx oxfmt convex --write",
-    "format:check": "bunx oxfmt convex --check",
+    "format": "bunx oxfmt convex '!convex/_generated/**' --write",
+    "format:check": "bunx oxfmt convex '!convex/_generated/**' --check",
     "test": "bun test"
   },
   "dependencies": {
-    "convex": "^1.26.2"
+    "convex": "^1.36.1"
   },
   "devDependencies": {
     "typescript": "^6.0.2"

@@ -17,3 +17,19 @@ What does not live here yet:
 - production auth and tenancy rules
 
 Use this workspace as the source of truth for the new state model while the rest of the stack is moved over incrementally.
+
+## Local Service Token
+
+The API, worker, runner, and Convex functions must share `AGENT_CENTER_CONVEX_SERVICE_TOKEN`.
+
+For local development, generate a token in the repo root `.env`:
+
+```bash
+openssl rand -hex 32
+```
+
+Then set the same value on the Convex dev deployment so `process.env.AGENT_CENTER_CONVEX_SERVICE_TOKEN` is available inside control-plane functions:
+
+```bash
+bunx convex env set AGENT_CENTER_CONVEX_SERVICE_TOKEN "$(grep '^AGENT_CENTER_CONVEX_SERVICE_TOKEN=' .env | cut -d= -f2-)"
+```

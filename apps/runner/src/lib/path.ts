@@ -5,8 +5,14 @@ export function isPathInside(parentPath: string, childPath: string) {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-export function resolveInsideWorkspace(workspacePath: string, ...segments: Array<string | undefined>) {
-  const resolved = resolve(workspacePath, ...segments.filter((segment): segment is string => !!segment));
+export function resolveInsideWorkspace(
+  workspacePath: string,
+  ...segments: Array<string | undefined>
+) {
+  const resolved = resolve(
+    workspacePath,
+    ...segments.filter((segment): segment is string => !!segment),
+  );
 
   if (!isPathInside(workspacePath, resolved)) {
     throw new Error(`Resolved path escapes workspace: ${resolved}`);

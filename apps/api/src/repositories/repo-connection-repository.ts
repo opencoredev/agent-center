@@ -12,9 +12,7 @@ export interface RepoConnectionListFilters {
 
 export function listRepoConnections(filters: RepoConnectionListFilters) {
   return convexServiceClient.query(api.serviceApi.listRepoConnections, {
-    workspaceId: filters.workspaceId
-      ? asConvexId<"workspaces">(filters.workspaceId)
-      : undefined,
+    workspaceId: filters.workspaceId ? asConvexId<"workspaces">(filters.workspaceId) : undefined,
     projectId: filters.projectId ? asConvexId<"projects">(filters.projectId) : undefined,
     provider: filters.provider,
   });

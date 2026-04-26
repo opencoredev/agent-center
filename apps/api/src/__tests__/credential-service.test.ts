@@ -7,9 +7,11 @@ import type { ApiEnv } from "../http/types";
 
 const mockSelectResult: unknown[] = [];
 const savedEnv: Record<string, string | undefined> = {};
-let mockInsertCalled = false;
 let mockLastWhere: unknown;
-let mockLastInsertValues: unknown;
+let mockConvexMutationCalled = false;
+let mockLastConvexQuery: unknown;
+let mockLastConvexMutationArgs: unknown;
+const mockConvexMutationCalls: unknown[] = [];
 
 function withAwaitable<T extends object, TValue>(
   value: T,
@@ -34,9 +36,7 @@ const mockFrom = mock(() => ({ where: mockWhere }));
 const mockSelect = mock(() => ({ from: mockFrom }));
 
 const mockOnConflictDoUpdate = mock(() => Promise.resolve());
-const mockInsertValues = mock((values: unknown) => {
-  mockInsertCalled = true;
-  mockLastInsertValues = values;
+const mockInsertValues = mock(() => {
   return withAwaitable(
     {
       onConflictDoUpdate: mockOnConflictDoUpdate,
@@ -102,6 +102,78 @@ mock.module("drizzle-orm", () => ({
   isNull: (arg: unknown) => ({ op: "isNull", arg }),
 }));
 
+const mockConvexQuery = mock(async (_ref: unknown, args: unknown) => {
+  mockLastConvexQuery = {
+    args,
+  };
+
+  if (args && typeof args === "object" && "provider" in args) {
+    return mockSelectResult[0] ?? null;
+  }
+
+  if (args && typeof args === "object" && "username" in args) {
+    return mockSelectResult[0] ?? null;
+  }
+
+  return [...mockSelectResult];
+});
+
+const mockConvexMutation = mock(async (_ref: unknown, args: unknown) => {
+  mockConvexMutationCalled = true;
+  mockLastConvexMutationArgs = args;
+  mockConvexMutationCalls.push(args);
+
+  if (args && typeof args === "object") {
+    if ("username" in args && "passwordHash" in args) {
+      return {
+        id: "local-password-user-1",
+        email: `${args.username}@local.agent.center`,
+        name: args.username,
+        authProvider: "local-password",
+        authProviderId: args.username,
+        passwordHash: args.passwordHash,
+      };
+    }
+
+    if ("username" in args) {
+      return {
+        id: "local-user-1",
+        email: "leo@local.agent.center",
+        name: args.username,
+        authProvider: "local-basic",
+        authProviderId: args.username,
+      };
+    }
+
+    if ("userId" in args && "tokenHash" in args && "expiresAt" in args) {
+      return {
+        id: "session-1",
+        userId: args.userId,
+        token: args.tokenHash,
+        expiresAt: args.expiresAt,
+      };
+    }
+
+    if ("keyHash" in args || "tokenHash" in args) {
+      return mockSelectResult[0] ?? null;
+    }
+
+    if ("apiKeyId" in args) {
+      return mockSelectResult[0] ?? null;
+    }
+  }
+
+  return null;
+});
+
+mock.module("../services/convex-service-client", () => ({
+  convexServiceClient: {
+    query: mockConvexQuery,
+    mutation: mockConvexMutation,
+    action: mock(async () => null),
+  },
+}));
+
 mock.module("../env", () => ({
   apiEnv: {
     CREDENTIAL_ENCRYPTION_KEY: "test-encryption-key-for-unit-tests",
@@ -111,8 +183,11 @@ mock.module("../env", () => ({
 
 const { credentialService } = await import("../services/credential-service");
 const { authMiddleware } = await import("../middleware/auth");
+const { tokenStore } = await import("../middleware/basic-auth");
+const { authLoginRoutes } = await import("../routes/api/auth/login");
 const { apiKeyRoutes } = await import("../routes/api/api-keys");
 const { hashSessionToken } = await import("../services/session-token-service");
+mock.restore();
 
 function createAuthTestApp() {
   const app = new Hono<ApiEnv>();
@@ -120,6 +195,20 @@ function createAuthTestApp() {
   app.get("/api/protected", (context) =>
     context.json({ ok: true, userId: context.get("userId") ?? null }),
   );
+  app.onError((error, _context) => {
+    const apiError =
+      error instanceof ApiError ? error : new ApiError(500, "internal_error", "Unexpected error");
+    return new Response(JSON.stringify({ code: apiError.code }), {
+      status: apiError.status,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  return app;
+}
+
+function createLoginTestApp() {
+  const app = new Hono<ApiEnv>();
+  app.route("/api/auth", authLoginRoutes);
   app.onError((error, _context) => {
     const apiError =
       error instanceof ApiError ? error : new ApiError(500, "internal_error", "Unexpected error");
@@ -162,9 +251,14 @@ describe("credential-service", () => {
     savedEnv.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS =
       process.env.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS;
     mockSelectResult.length = 0;
-    mockInsertCalled = false;
+    mockConvexMutationCalled = false;
     mockLastWhere = undefined;
-    mockLastInsertValues = undefined;
+    mockLastConvexQuery = undefined;
+    mockLastConvexMutationArgs = undefined;
+    mockConvexMutationCalls.length = 0;
+    tokenStore.clear();
+    mockConvexQuery.mockClear();
+    mockConvexMutation.mockClear();
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENAI_API_KEY;
     delete process.env.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS;
@@ -232,9 +326,190 @@ describe("credential-service", () => {
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ ok: true, userId: "user-1" });
-      expect(mockLastWhere).toEqual({
-        op: "eq",
-        args: ["sessionToken", hashSessionToken("sess_test")],
+      expect(mockLastConvexMutationArgs).toEqual({
+        tokenHash: hashSessionToken("sess_test"),
+      });
+    });
+
+    test("maps legacy local login tokens to a local user id", async () => {
+      process.env.NODE_ENV = "development";
+      process.env.AUTH_DISABLED = "";
+      tokenStore.set("legacy-token", {
+        username: "leo",
+        expiresAt: Date.now() + 60_000,
+      });
+
+      const response = await createAuthTestApp().request("/api/protected", {
+        headers: { Authorization: "Bearer legacy-token" },
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        ok: true,
+        userId: "local-basic:leo",
+      });
+    });
+  });
+
+  describe("local auth routes", () => {
+    test("basic login creates a persistent sess token", async () => {
+      process.env.AUTH_USERNAME = "leo";
+      process.env.AUTH_PASSWORD = "secret";
+
+      const response = await createLoginTestApp().request("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username: "leo", password: "secret" }),
+        headers: { "content-type": "application/json" },
+      });
+
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { data: { token: string; expiresAt: string } };
+
+      expect(body.data.token.startsWith("sess_")).toBe(true);
+      expect(tokenStore.get(body.data.token)).toBeUndefined();
+      expect(mockConvexMutationCalls).toContainEqual({ username: "leo" });
+      expect(mockConvexMutationCalls).toContainEqual({
+        userId: "local-user-1",
+        tokenHash: hashSessionToken(body.data.token),
+        expiresAt: Date.parse(body.data.expiresAt),
+      });
+    });
+
+    test("signup creates a local password user and persistent sess token", async () => {
+      const response = await createLoginTestApp().request("/api/auth/signup", {
+        method: "POST",
+        body: JSON.stringify({ username: "New.User", password: "secret123" }),
+        headers: { "content-type": "application/json" },
+      });
+
+      expect(response.status).toBe(201);
+      const body = (await response.json()) as { data: { token: string; expiresAt: string } };
+
+      expect(body.data.token.startsWith("sess_")).toBe(true);
+      expect(mockConvexMutationCalls).toContainEqual({
+        userId: "local-password-user-1",
+        tokenHash: hashSessionToken(body.data.token),
+        expiresAt: Date.parse(body.data.expiresAt),
+      });
+
+      const createUserCall = mockConvexMutationCalls.find(
+        (call) =>
+          typeof call === "object" && call !== null && "username" in call && "passwordHash" in call,
+      ) as { username: string; passwordHash: string } | undefined;
+
+      expect(createUserCall).toBeDefined();
+      expect(createUserCall?.username).toBe("new.user");
+      expect(createUserCall?.passwordHash.startsWith("pbkdf2$")).toBe(true);
+      expect(createUserCall?.passwordHash).not.toContain("secret123");
+    });
+
+    test("signup returns a helpful conflict for duplicate usernames", async () => {
+      mockSelectResult.push({
+        id: "existing-user",
+        name: "taken",
+        authProvider: "local-password",
+        authProviderId: "taken",
+        passwordHash: "pbkdf2$310000$sha256$salt$key",
+      });
+
+      const response = await createLoginTestApp().request("/api/auth/signup", {
+        method: "POST",
+        body: JSON.stringify({ username: "taken", password: "secret123" }),
+        headers: { "content-type": "application/json" },
+      });
+
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        code: "username_taken",
+      });
+      expect(mockConvexMutationCalled).toBe(false);
+    });
+
+    test("local password login creates a persistent sess token", async () => {
+      const signupResponse = await createLoginTestApp().request("/api/auth/signup", {
+        method: "POST",
+        body: JSON.stringify({ username: "member", password: "secret123" }),
+        headers: { "content-type": "application/json" },
+      });
+      expect(signupResponse.status).toBe(201);
+
+      const createUserCall = mockConvexMutationCalls.find(
+        (call) =>
+          typeof call === "object" && call !== null && "username" in call && "passwordHash" in call,
+      ) as { passwordHash: string } | undefined;
+      expect(createUserCall).toBeDefined();
+
+      mockSelectResult.push({
+        id: "local-password-user-1",
+        name: "member",
+        authProvider: "local-password",
+        authProviderId: "member",
+        passwordHash: createUserCall?.passwordHash,
+      });
+      mockConvexMutationCalls.length = 0;
+
+      const response = await createLoginTestApp().request("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username: "member", password: "secret123" }),
+        headers: { "content-type": "application/json" },
+      });
+
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { data: { token: string; expiresAt: string } };
+
+      expect(body.data.token.startsWith("sess_")).toBe(true);
+      expect(mockConvexMutationCalls).toContainEqual({
+        userId: "local-password-user-1",
+        tokenHash: hashSessionToken(body.data.token),
+        expiresAt: Date.parse(body.data.expiresAt),
+      });
+    });
+
+    test("/me accepts persistent sess tokens", async () => {
+      process.env.AUTH_USERNAME = "leo";
+      process.env.AUTH_PASSWORD = "secret";
+      mockSelectResult.push({
+        id: "session-1",
+        token: hashSessionToken("sess_test"),
+        userId: "local-user-1",
+        expiresAt: Date.now() + 60_000,
+      });
+
+      const response = await createLoginTestApp().request("/api/auth/me", {
+        headers: { Authorization: "Bearer sess_test" },
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        data: {
+          authenticated: true,
+          username: "leo",
+        },
+      });
+      expect(mockLastConvexMutationArgs).toEqual({
+        tokenHash: hashSessionToken("sess_test"),
+      });
+    });
+
+    test("/logout deletes persistent sess sessions", async () => {
+      mockSelectResult.push({
+        id: "session-1",
+        token: hashSessionToken("sess_test"),
+        userId: "local-user-1",
+        expiresAt: Date.now() + 60_000,
+      });
+
+      const response = await createLoginTestApp().request("/api/auth/logout", {
+        method: "POST",
+        headers: { Authorization: "Bearer sess_test" },
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        data: { message: "Logged out successfully" },
+      });
+      expect(mockLastConvexMutationArgs).toEqual({
+        tokenHash: hashSessionToken("sess_test"),
       });
     });
   });
@@ -261,7 +536,11 @@ describe("credential-service", () => {
       const response = await createApiKeysTestApp("user-1").request("/api-keys");
 
       expect(response.status).toBe(200);
-      expect(mockLastWhere).toEqual({ op: "eq", args: ["userId", "user-1"] });
+      expect(mockLastConvexQuery).toEqual({
+        args: {
+          userId: "user-1",
+        },
+      });
     });
 
     test("delete is scoped to the authenticated user id", async () => {
@@ -272,12 +551,9 @@ describe("credential-service", () => {
       });
 
       expect(response.status).toBe(200);
-      expect(mockLastWhere).toEqual({
-        op: "and",
-        args: [
-          { op: "eq", args: ["id", "key-1"] },
-          { op: "eq", args: ["userId", "user-1"] },
-        ],
+      expect(mockLastConvexMutationArgs).toEqual({
+        apiKeyId: "key-1",
+        userId: "user-1",
       });
     });
   });
@@ -290,12 +566,11 @@ describe("credential-service", () => {
       expect(result.email).toBeNull();
       expect(result.expiresAt).toBeNull();
       expect(result.subscriptionType).toBeNull();
-      expect(mockLastWhere).toEqual({
-        op: "and",
-        args: [
-          { op: "eq", args: ["provider", "claude"] },
-          { op: "eq", args: ["userId", "user-1"] },
-        ],
+      expect(mockLastConvexQuery).toEqual({
+        args: {
+          provider: "claude",
+          userId: "user-1",
+        },
       });
     });
 
@@ -358,8 +633,8 @@ describe("credential-service", () => {
     test("inserts credentials with the provided user id", async () => {
       await credentialService.storeClaudeApiKey("sk-ant-new-key", "user-1");
 
-      expect(mockInsertCalled).toBe(true);
-      expect(mockLastInsertValues).toMatchObject({
+      expect(mockConvexMutationCalled).toBe(true);
+      expect(mockLastConvexMutationArgs).toMatchObject({
         userId: "user-1",
         provider: "claude",
         source: "api_key",
@@ -470,12 +745,11 @@ describe("credential-service", () => {
           id_token: "oauth-id-token",
         },
       });
-      expect(mockLastWhere).toEqual({
-        op: "and",
-        args: [
-          { op: "eq", args: ["provider", "openai"] },
-          { op: "isNull", arg: "userId" },
-        ],
+      expect(mockLastConvexQuery).toEqual({
+        args: {
+          provider: "openai",
+          userId: null,
+        },
       });
     });
   });

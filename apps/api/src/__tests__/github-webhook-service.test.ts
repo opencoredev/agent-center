@@ -5,9 +5,16 @@ const repoConnection = {
   id: "repo-connection-1",
   workspaceId: "11111111-1111-1111-1111-111111111111",
   projectId: "22222222-2222-2222-2222-222222222222",
+  provider: "github" as const,
   owner: "opencodedev",
   repo: "agent-center",
   defaultBranch: "main",
+  authType: "github_app_installation",
+  connectionMetadata: {
+    installationId: 42,
+  },
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 };
 
 const project = {
@@ -23,7 +30,9 @@ const createdRun = {
   id: "44444444-4444-4444-4444-444444444444",
 };
 
-const mockFindTaskByGitHubDeliveryId = mock(async (): Promise<{ id: string } | undefined> => undefined);
+const mockFindTaskByGitHubDeliveryId = mock(
+  async (): Promise<{ id: string } | undefined> => undefined,
+);
 const mockFindGitHubAppRepoConnectionByRepository = mock(async () => repoConnection);
 const mockAssertWithinWorkspace = mock(async () => project);
 const mockFindOrCreateRepositoryProject = mock(async () => project);
@@ -32,13 +41,48 @@ const mockUpdateTask = mock(async () => createdTask);
 const mockCreateRun = mock(async () => createdRun);
 const mockCreateIssueComment = mock(async () => ({ id: 1 }));
 const mockCreateMentionReaction = mock(async () => ({ id: 99, content: "eyes" }));
+type TaskRepositoryMocks = {
+  createTask?: (...args: unknown[]) => unknown;
+  deleteTask?: (...args: unknown[]) => unknown;
+  findTaskByGitHubDeliveryId: (...args: unknown[]) => unknown;
+  findTaskById?: (...args: unknown[]) => unknown;
+  listTasks?: (...args: unknown[]) => unknown;
+  updateTask?: (...args: unknown[]) => unknown;
+};
+const sourceModuleMocks = ((
+  globalThis as unknown as Record<string, Record<string, unknown>>
+).__apiTestSourceModuleMocks ??= {});
+
+const taskRepositoryMocks = (sourceModuleMocks.taskRepository = {
+  findTaskByGitHubDeliveryId: mockFindTaskByGitHubDeliveryId,
+} satisfies TaskRepositoryMocks) as TaskRepositoryMocks;
 
 mock.module("../repositories/task-repository", () => ({
-  findTaskByGitHubDeliveryId: mockFindTaskByGitHubDeliveryId,
+  createTask: (...args: unknown[]) =>
+    (taskRepositoryMocks.createTask as (...args: unknown[]) => unknown)?.(...args),
+  deleteTask: (...args: unknown[]) =>
+    (taskRepositoryMocks.deleteTask as (...args: unknown[]) => unknown)?.(...args),
+  findTaskByGitHubDeliveryId: (...args: unknown[]) =>
+    (taskRepositoryMocks.findTaskByGitHubDeliveryId as (...args: unknown[]) => unknown)(...args),
+  findTaskById: (...args: unknown[]) =>
+    (taskRepositoryMocks.findTaskById as (...args: unknown[]) => unknown)?.(...args),
+  listTasks: (...args: unknown[]) =>
+    (taskRepositoryMocks.listTasks as (...args: unknown[]) => unknown)?.(...args) ?? [],
+  updateTask: (...args: unknown[]) =>
+    (taskRepositoryMocks.updateTask as (...args: unknown[]) => unknown)?.(...args),
 }));
 
 mock.module("../repositories/repo-connection-repository", () => ({
+  createRepoConnection: mock(async () => repoConnection),
+  deleteRepoConnection: mock(async () => repoConnection),
+  findRepoConnectionById: mock(async () => repoConnection),
   findGitHubAppRepoConnectionByRepository: mockFindGitHubAppRepoConnectionByRepository,
+  findRepoConnectionByWorkspaceAndId: mock(async () => repoConnection),
+  findRepoConnectionByWorkspaceAndRepo: mock(async () => repoConnection),
+  listRepoConnections: mock(async ({ workspaceId }: { workspaceId?: string } = {}) =>
+    workspaceId === undefined || workspaceId === repoConnection.workspaceId ? [repoConnection] : [],
+  ),
+  updateRepoConnection: mock(async () => repoConnection),
 }));
 
 mock.module("../services/project-service", () => ({
@@ -71,6 +115,7 @@ mock.module("../services/github-app-service", () => ({
 
 const { apiEnv } = await import("../env");
 const { githubWebhookService } = await import("../services/github-webhook-service");
+mock.restore();
 
 const originalWebhookSecret = apiEnv.GITHUB_WEBHOOK_SECRET;
 const originalSetupUrl = apiEnv.GITHUB_APP_SETUP_URL;
@@ -108,10 +153,12 @@ function buildIssuesOpenedPayload(body = "@agent-center-dev fix this bug") {
   });
 }
 
-function buildIssueCommentPayload(input: {
-  body?: string;
-  hasPullRequest?: boolean;
-} = {}) {
+function buildIssueCommentPayload(
+  input: {
+    body?: string;
+    hasPullRequest?: boolean;
+  } = {},
+) {
   return JSON.stringify({
     action: "created",
     installation: {

@@ -68,17 +68,26 @@ githubRoutes.post("/webhook", async (context) => {
           if (result.status === "created") {
             runEventsHub.notifyTasksChanged();
           }
-        })
+        }),
       ),
     ),
   );
 });
 
 githubRoutes.get("/app", async (context) => {
-  return runApiEffect(context, tryApiPromise(() => githubAppService.getStatus()));
+  return runApiEffect(
+    context,
+    tryApiPromise(() => githubAppService.getStatus()),
+  );
 });
 
 githubRoutes.get("/installations", listInstallationsHandler);
 githubRoutes.get("/app/installations", listInstallationsHandler);
-githubRoutes.get("/installations/:installationId/repositories", listInstallationRepositoriesHandler);
-githubRoutes.get("/app/installations/:installationId/repositories", listInstallationRepositoriesHandler);
+githubRoutes.get(
+  "/installations/:installationId/repositories",
+  listInstallationRepositoriesHandler,
+);
+githubRoutes.get(
+  "/app/installations/:installationId/repositories",
+  listInstallationRepositoriesHandler,
+);

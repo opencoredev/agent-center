@@ -91,7 +91,7 @@ bun install
 
 ## Environment Setup
 
-All services load the root `.env` file.
+The Bun services load the root `.env` file and then `.env.local`, with `.env.local` taking precedence.
 
 ```bash
 cp .env.example .env
@@ -103,7 +103,16 @@ The example file includes the current env surface for:
 - API host/port
 - worker polling + runner dispatch
 - runner host/port + local workspace path
+- Convex URL + service-token auth
 - optional GitHub token fallbacks
+
+Generate `AGENT_CENTER_CONVEX_SERVICE_TOKEN` with `openssl rand -hex 32` and put it in `.env` for shared local setup. If you run the Convex control plane, set the same value on that Convex deployment too:
+
+```bash
+bunx convex env set AGENT_CENTER_CONVEX_SERVICE_TOKEN "$(grep '^AGENT_CENTER_CONVEX_SERVICE_TOKEN=' .env | cut -d= -f2-)"
+```
+
+Also set `RUNNER_INTERNAL_TOKEN` with another `openssl rand -hex 32` value. The worker and runner both read this token for local internal dispatch.
 
 If you want runner workspaces in a deterministic location, set `RUNNER_WORKSPACE_ROOT` to an absolute path. The example uses a relative path for local convenience.
 

@@ -198,7 +198,11 @@ export const runnerService = {
 
   async authenticate(token: string) {
     if (token.startsWith(RUNNER_REGISTRATION_TOKEN_PREFIX)) {
-      throw new ApiError(401, "runner_unauthorized", "Runner registration tokens cannot be used for runner authentication");
+      throw new ApiError(
+        401,
+        "runner_unauthorized",
+        "Runner registration tokens cannot be used for runner authentication",
+      );
     }
 
     if (!token.startsWith(RUNNER_AUTH_TOKEN_PREFIX)) {

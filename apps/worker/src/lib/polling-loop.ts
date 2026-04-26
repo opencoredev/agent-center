@@ -28,10 +28,7 @@ export function startPollingLoop(options: {
     try {
       await options.run();
     } catch (error) {
-      console.error(
-        `[worker] ${options.name} loop failed: ${describeError(error)}`,
-        error,
-      );
+      console.error(`[worker] ${options.name} loop failed: ${describeError(error)}`, error);
     }
 
     if (stopped) {

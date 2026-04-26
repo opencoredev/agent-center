@@ -140,11 +140,7 @@ function parseCronExpression(expression: string) {
   return parsedSchedule;
 }
 
-function matchesDay(
-  schedule: ParsedCronSchedule,
-  dayOfMonth: number,
-  dayOfWeek: number,
-) {
+function matchesDay(schedule: ParsedCronSchedule, dayOfMonth: number, dayOfWeek: number) {
   const dayOfMonthMatches = schedule.dayOfMonth.matches(dayOfMonth);
   const dayOfWeekMatches = schedule.dayOfWeek.matches(dayOfWeek);
 

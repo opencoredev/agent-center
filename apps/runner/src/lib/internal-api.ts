@@ -21,7 +21,10 @@ export class InternalApiAuthError extends InternalApiError {
   }
 }
 
-export type InternalApiFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+export type InternalApiFetch = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
 
 export interface InternalApiRequestOptions {
   baseUrl?: string;

@@ -23,6 +23,7 @@ mock.module("../ws", () => ({
 }));
 
 const { githubRoutes } = await import("../routes/api/github");
+mock.restore();
 
 describe("github webhook route", () => {
   beforeEach(() => {

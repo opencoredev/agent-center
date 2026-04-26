@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 
 import { runApiEffect, tryApiPromise } from "../../effect/http";
+import { getCredentialUserId } from "../../http/auth-user";
 import { ApiError } from "../../http/errors";
 import { validateJson } from "../../http/validation";
 import type { ApiEnv } from "../../http/types";
@@ -11,7 +12,7 @@ import { apiKeySchema } from "../../validators/credentials";
 export const credentialRoutes = new Hono<ApiEnv>();
 
 function requireUserId(context: Context<ApiEnv>): string {
-  const userId = context.get("userId");
+  const userId = getCredentialUserId(context);
   if (!userId) {
     throw new ApiError(401, "unauthorized", "User authentication required");
   }

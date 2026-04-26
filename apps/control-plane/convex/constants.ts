@@ -1,4 +1,11 @@
-export const TASK_STATUSES = ["pending", "queued", "running", "completed", "failed", "cancelled"] as const;
+export const TASK_STATUSES = [
+  "pending",
+  "queued",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
 export const RUN_STATUSES = [
   "queued",
   "provisioning",

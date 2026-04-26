@@ -14,12 +14,12 @@ import { createRunSchema } from "../validators/runs";
 
 describe("common validators", () => {
   describe("uuidSchema", () => {
-    test("accepts valid UUIDs", () => {
+    test("accepts API ids", () => {
       expect(() => uuidSchema.parse("550e8400-e29b-41d4-a716-446655440000")).not.toThrow();
+      expect(() => uuidSchema.parse("kh7a3hp26dgbf74fp92bgdt2tn84j7dy")).not.toThrow();
     });
 
-    test("rejects invalid UUIDs", () => {
-      expect(() => uuidSchema.parse("not-a-uuid")).toThrow();
+    test("rejects empty ids", () => {
       expect(() => uuidSchema.parse("")).toThrow();
     });
   });
@@ -112,9 +112,7 @@ describe("executionConfigSchema", () => {
   });
 
   test("rejects unknown fields", () => {
-    expect(() =>
-      executionConfigSchema.parse({ unknownField: "value" }),
-    ).toThrow();
+    expect(() => executionConfigSchema.parse({ unknownField: "value" })).toThrow();
   });
 });
 

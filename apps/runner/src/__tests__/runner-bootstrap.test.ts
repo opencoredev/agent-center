@@ -20,9 +20,9 @@ async function createTempStatePath(name: string) {
 
 afterEach(async () => {
   await Promise.all(
-    tempDirs.splice(0, tempDirs.length).map((directory) =>
-      rm(directory, { force: true, recursive: true }),
-    ),
+    tempDirs
+      .splice(0, tempDirs.length)
+      .map((directory) => rm(directory, { force: true, recursive: true })),
   );
 
   runnerRuntimeEnv.RUNNER_API_TOKEN = initialRunnerApiToken;

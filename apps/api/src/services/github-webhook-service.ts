@@ -11,7 +11,10 @@ import { projectService } from "./project-service";
 import { runService } from "./run-service";
 import { taskService } from "./task-service";
 import { githubAppService } from "./github-app-service";
-import { githubIssueCommentCreatedSchema, githubIssuesOpenedSchema } from "../validators/github-webhooks";
+import {
+  githubIssueCommentCreatedSchema,
+  githubIssuesOpenedSchema,
+} from "../validators/github-webhooks";
 
 const DEFAULT_WEBHOOK_RUN_CONFIG: ExecutionConfig = {
   commands: [],
@@ -171,7 +174,11 @@ function withGitHubProgressMetadata(
   metadata: Record<string, unknown>,
   input: {
     progressComment?: { id: number; htmlUrl: string; taskUrl: string } | null;
-    mentionReaction?: { id: number; commentId: number | null; target: "issue" | "issue_comment" } | null;
+    mentionReaction?: {
+      id: number;
+      commentId: number | null;
+      target: "issue" | "issue_comment";
+    } | null;
   },
 ) {
   const github = (metadata.github ?? {}) as Record<string, unknown>;
@@ -186,7 +193,11 @@ function withGitHubProgressMetadata(
   };
 }
 
-function parseSupportedWebhook(input: { event: SupportedGitHubEvent; rawBody: string; deliveryId: string }) {
+function parseSupportedWebhook(input: {
+  event: SupportedGitHubEvent;
+  rawBody: string;
+  deliveryId: string;
+}) {
   const json = JSON.parse(input.rawBody) as unknown;
 
   if (input.event === "issues") {
@@ -260,19 +271,33 @@ export const githubWebhookService = {
     const secret = apiEnv.GITHUB_WEBHOOK_SECRET?.trim();
 
     if (!secret) {
-      throw new ApiError(501, "github_webhook_not_configured", "GitHub webhook secret is not configured");
+      throw new ApiError(
+        501,
+        "github_webhook_not_configured",
+        "GitHub webhook secret is not configured",
+      );
     }
 
     if (!input.deliveryId) {
-      throw new ApiError(400, "github_delivery_id_missing", "GitHub delivery id header is required");
+      throw new ApiError(
+        400,
+        "github_delivery_id_missing",
+        "GitHub delivery id header is required",
+      );
     }
 
-    if (!verifyGitHubWebhookSignature({
-      secret,
-      payload: input.rawBody,
-      signature: input.signature,
-    })) {
-      throw new ApiError(401, "github_webhook_signature_invalid", "GitHub webhook signature is invalid");
+    if (
+      !verifyGitHubWebhookSignature({
+        secret,
+        payload: input.rawBody,
+        signature: input.signature,
+      })
+    ) {
+      throw new ApiError(
+        401,
+        "github_webhook_signature_invalid",
+        "GitHub webhook signature is invalid",
+      );
     }
 
     const existingTask = await findTaskByGitHubDeliveryId(input.deliveryId);
@@ -301,9 +326,14 @@ export const githubWebhookService = {
       });
     } catch (error) {
       if (error instanceof SyntaxError || error instanceof z.ZodError) {
-        throw new ApiError(400, "github_webhook_payload_invalid", "GitHub webhook payload is invalid", {
-          event: input.event,
-        });
+        throw new ApiError(
+          400,
+          "github_webhook_payload_invalid",
+          "GitHub webhook payload is invalid",
+          {
+            event: input.event,
+          },
+        );
       }
 
       throw error;
@@ -317,7 +347,10 @@ export const githubWebhookService = {
       };
     }
 
-    const mention = extractMentionPrompt(parsed.sourceText, githubAppService.getWebhookMentionLogins());
+    const mention = extractMentionPrompt(
+      parsed.sourceText,
+      githubAppService.getWebhookMentionLogins(),
+    );
     if (!mention) {
       return {
         deliveryId: input.deliveryId,
@@ -342,12 +375,16 @@ export const githubWebhookService = {
 
     const project =
       repoConnection.projectId != null
-        ? await projectService.assertWithinWorkspace(repoConnection.workspaceId, repoConnection.projectId)
+        ? await projectService.assertWithinWorkspace(
+            repoConnection.workspaceId,
+            repoConnection.projectId,
+          )
         : await projectService.findOrCreateRepositoryProject({
             workspaceId: repoConnection.workspaceId,
             owner: repoConnection.owner,
             repo: repoConnection.repo,
-            defaultBranch: repoConnection.defaultBranch ?? parsed.repository.defaultBranch ?? "main",
+            defaultBranch:
+              repoConnection.defaultBranch ?? parsed.repository.defaultBranch ?? "main",
           });
 
     const metadata = {
@@ -395,7 +432,8 @@ export const githubWebhookService = {
       prompt: buildTaskPrompt(parsed, mention.cleaned || null),
       sandboxSize: "medium",
       permissionMode: "safe",
-      baseBranch: repoConnection.defaultBranch ?? parsed.repository.defaultBranch ?? project.defaultBranch,
+      baseBranch:
+        repoConnection.defaultBranch ?? parsed.repository.defaultBranch ?? project.defaultBranch,
       branchName: null,
       policy: {},
       config: DEFAULT_WEBHOOK_RUN_CONFIG,

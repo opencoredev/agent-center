@@ -1,6 +1,11 @@
 import { CommandExecutor } from "../command-executor";
 import { WorkspaceService } from "../../sandbox/workspace-service";
-import type { BackendCommandRequest, CleanupResult, ExecutionBackend, WorkspaceHandle } from "./types";
+import type {
+  BackendCommandRequest,
+  CleanupResult,
+  ExecutionBackend,
+  WorkspaceHandle,
+} from "./types";
 import type { CommandExecutionResult } from "../command-executor";
 
 interface LocalBackendOptions {
@@ -42,7 +47,10 @@ export class LocalBackend implements ExecutionBackend {
     });
   }
 
-  async cleanup(handle: WorkspaceHandle, status: "cancelled" | "completed" | "failed"): Promise<CleanupResult> {
+  async cleanup(
+    handle: WorkspaceHandle,
+    status: "cancelled" | "completed" | "failed",
+  ): Promise<CleanupResult> {
     return this.#workspaceService.cleanupWorkspace(handle.path, status);
   }
 }

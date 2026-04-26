@@ -13,9 +13,7 @@ interface RunnerRegistrationTokenFilters {
 
 export function listRunners(filters: RunnerFilters = {}) {
   return convexServiceClient.query(api.serviceApi.listRunners, {
-    workspaceId: filters.workspaceId
-      ? asConvexId<"workspaces">(filters.workspaceId)
-      : undefined,
+    workspaceId: filters.workspaceId ? asConvexId<"workspaces">(filters.workspaceId) : undefined,
   });
 }
 
@@ -43,9 +41,7 @@ export async function updateRunner(runnerId: string, values: Record<string, unkn
 
 export function listRunnerRegistrationTokens(filters: RunnerRegistrationTokenFilters = {}) {
   return convexServiceClient.query(api.serviceApi.listRunnerRegistrationTokens, {
-    workspaceId: filters.workspaceId
-      ? asConvexId<"workspaces">(filters.workspaceId)
-      : undefined,
+    workspaceId: filters.workspaceId ? asConvexId<"workspaces">(filters.workspaceId) : undefined,
   });
 }
 
@@ -102,8 +98,5 @@ export function registerRunnerWithToken(input: {
   authKeyPrefix: string;
   lastSeenAt?: Date | number;
 }) {
-  return convexServiceClient.mutation(
-    api.serviceApi.registerRunnerWithToken,
-    asConvexArgs(input),
-  );
+  return convexServiceClient.mutation(api.serviceApi.registerRunnerWithToken, asConvexArgs(input));
 }

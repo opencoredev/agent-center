@@ -6,6 +6,7 @@ mock.module("../ws/run-events-repository", () => ({
 }));
 
 const { RunEventsHub } = await import("../ws/run-events-hub");
+mock.restore();
 
 function createSocket() {
   const messages: unknown[] = [];

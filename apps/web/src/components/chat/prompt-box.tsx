@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect, useMemo, useDeferredValue } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo, useDeferredValue } from "react";
 import {
   CornerDownLeft,
   Paperclip,
@@ -16,33 +16,23 @@ import {
   Cloud,
   Monitor,
   Search,
-} from 'lucide-react';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'convex/react';
-import { useNavigate } from '@tanstack/react-router';
-import type { ExecutionRuntime } from '@agent-center/shared';
-import { api as controlPlaneApi } from '@agent-center/control-plane/api';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-import { apiGet, apiPost } from '@/lib/api-client';
-import { useControlPlaneEnabled } from '@/contexts/convex-context';
-import { getSelfHostedConnectorConfig } from '@/lib/execution-connectors';
-import { toast } from 'sonner';
+} from "lucide-react";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation as useConvexMutation, useQuery as useConvexQuery } from "convex/react";
+import { useNavigate } from "@tanstack/react-router";
+import type { ExecutionRuntime } from "@agent-center/shared";
+import { api as controlPlaneApi } from "@agent-center/control-plane/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { apiGet, apiPost } from "@/lib/api-client";
+import { useControlPlaneEnabled } from "@/contexts/convex-context";
+import { getSelfHostedConnectorConfig } from "@/lib/execution-connectors";
+import { toast } from "sonner";
 
 // ── Provider Logo ───────────────────────────────────────────────────────────
 
-function ProviderLogo({
-  provider,
-  className,
-}: {
-  provider: string;
-  className?: string;
-}) {
+function ProviderLogo({ provider, className }: { provider: string; className?: string }) {
   return (
     <img
       src={`https://models.dev/logos/${provider}.svg`}
@@ -62,9 +52,9 @@ export interface ModelEntry {
   label: string;
   description: string;
   context: string;
-  speed: 'Fast' | 'Moderate' | 'Slow';
+  speed: "Fast" | "Moderate" | "Slow";
   reasoningEffortLevels?: ReadonlyArray<{
-    value: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+    value: "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink";
     label: string;
     isDefault?: boolean;
   }>;
@@ -79,147 +69,141 @@ export interface AgentEntry {
   credentialPath: string;
 }
 
-export type AgentReasoningEffort =
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max'
-  | 'ultrathink';
+export type AgentReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink";
 
 export const AGENTS: AgentEntry[] = [
   {
-    id: 'claude',
-    label: 'Claude Code',
-    logoId: 'claude',
-    credentialPath: '/api/credentials/claude',
+    id: "claude",
+    label: "Claude Code",
+    logoId: "claude",
+    credentialPath: "/api/credentials/claude",
   },
   {
-    id: 'codex',
-    label: 'Codex',
-    logoId: 'openai',
-    credentialPath: '/api/credentials/openai',
+    id: "codex",
+    label: "Codex",
+    logoId: "openai",
+    credentialPath: "/api/credentials/openai",
   },
 ];
 
 const DEFAULT_MODEL_BY_AGENT: Record<string, string> = {
-  claude: 'claude-opus-4-6',
-  codex: 'gpt-5.4',
+  claude: "claude-opus-4-6",
+  codex: "gpt-5.4",
 };
 
-const DEFAULT_REASONING_EFFORT_BY_AGENT: Partial<Record<AgentEntry['id'], AgentReasoningEffort>> = {
-  claude: 'high',
-  codex: 'high',
+const DEFAULT_REASONING_EFFORT_BY_AGENT: Partial<Record<AgentEntry["id"], AgentReasoningEffort>> = {
+  claude: "high",
+  codex: "high",
 };
 
 export const MODELS: ModelEntry[] = [
   // ── Claude Code ──
   {
-    id: 'claude-opus-4-6',
-    agentId: 'claude',
-    label: 'Claude Opus 4.6',
-    description: 'Most capable model for complex reasoning',
-    context: '1M',
-    speed: 'Moderate',
+    id: "claude-opus-4-6",
+    agentId: "claude",
+    label: "Claude Opus 4.6",
+    description: "Most capable model for complex reasoning",
+    context: "1M",
+    speed: "Moderate",
     reasoningEffortLevels: [
-      { value: 'low', label: 'Low' },
-      { value: 'medium', label: 'Medium' },
-      { value: 'high', label: 'High', isDefault: true },
-      { value: 'max', label: 'Max' },
-      { value: 'ultrathink', label: 'Ultrathink' },
+      { value: "low", label: "Low" },
+      { value: "medium", label: "Medium" },
+      { value: "high", label: "High", isDefault: true },
+      { value: "max", label: "Max" },
+      { value: "ultrathink", label: "Ultrathink" },
     ],
     isDefault: true,
   },
   {
-    id: 'claude-sonnet-4-6',
-    agentId: 'claude',
-    label: 'Claude Sonnet 4.6',
-    description: 'Balanced speed and intelligence',
-    context: '200K',
-    speed: 'Fast',
+    id: "claude-sonnet-4-6",
+    agentId: "claude",
+    label: "Claude Sonnet 4.6",
+    description: "Balanced speed and intelligence",
+    context: "200K",
+    speed: "Fast",
     reasoningEffortLevels: [
-      { value: 'low', label: 'Low' },
-      { value: 'medium', label: 'Medium' },
-      { value: 'high', label: 'High', isDefault: true },
-      { value: 'ultrathink', label: 'Ultrathink' },
+      { value: "low", label: "Low" },
+      { value: "medium", label: "Medium" },
+      { value: "high", label: "High", isDefault: true },
+      { value: "ultrathink", label: "Ultrathink" },
     ],
   },
   {
-    id: 'claude-opus-4-5',
-    agentId: 'claude',
-    label: 'Claude Opus 4.5',
-    description: 'Previous-gen flagship reasoning',
-    context: '200K',
-    speed: 'Moderate',
+    id: "claude-opus-4-5",
+    agentId: "claude",
+    label: "Claude Opus 4.5",
+    description: "Previous-gen flagship reasoning",
+    context: "200K",
+    speed: "Moderate",
     reasoningEffortLevels: [
-      { value: 'low', label: 'Low' },
-      { value: 'medium', label: 'Medium' },
-      { value: 'high', label: 'High', isDefault: true },
-      { value: 'max', label: 'Max' },
+      { value: "low", label: "Low" },
+      { value: "medium", label: "Medium" },
+      { value: "high", label: "High", isDefault: true },
+      { value: "max", label: "Max" },
     ],
   },
   {
-    id: 'claude-haiku-4-5',
-    agentId: 'claude',
-    label: 'Claude Haiku 4.5',
-    description: 'Fastest Claude for simple tasks',
-    context: '200K',
-    speed: 'Fast',
+    id: "claude-haiku-4-5",
+    agentId: "claude",
+    label: "Claude Haiku 4.5",
+    description: "Fastest Claude for simple tasks",
+    context: "200K",
+    speed: "Fast",
     supportsThinkingToggle: true,
   },
   // ── Codex ──
   {
-    id: 'gpt-5.4',
-    agentId: 'codex',
-    label: 'GPT-5.4',
-    description: 'Latest frontier model',
-    context: '1M',
-    speed: 'Moderate',
+    id: "gpt-5.4",
+    agentId: "codex",
+    label: "GPT-5.4",
+    description: "Latest frontier model",
+    context: "1M",
+    speed: "Moderate",
     reasoningEffortLevels: [
-      { value: 'low', label: 'Low' },
-      { value: 'medium', label: 'Medium' },
-      { value: 'high', label: 'High', isDefault: true },
-      { value: 'xhigh', label: 'Extra High' },
+      { value: "low", label: "Low" },
+      { value: "medium", label: "Medium" },
+      { value: "high", label: "High", isDefault: true },
+      { value: "xhigh", label: "Extra High" },
     ],
     isDefault: true,
   },
   {
-    id: 'gpt-5.4-mini',
-    agentId: 'codex',
-    label: 'GPT-5.4 Mini',
-    description: 'Compact and cost-efficient',
-    context: '128K',
-    speed: 'Fast',
+    id: "gpt-5.4-mini",
+    agentId: "codex",
+    label: "GPT-5.4 Mini",
+    description: "Compact and cost-efficient",
+    context: "128K",
+    speed: "Fast",
     reasoningEffortLevels: [
-      { value: 'low', label: 'Low' },
-      { value: 'medium', label: 'Medium', isDefault: true },
-      { value: 'high', label: 'High' },
+      { value: "low", label: "Low" },
+      { value: "medium", label: "Medium", isDefault: true },
+      { value: "high", label: "High" },
     ],
   },
   {
-    id: 'gpt-5.3-codex',
-    agentId: 'codex',
-    label: 'GPT-5.3 Codex',
-    description: 'Optimized for code generation',
-    context: '192K',
-    speed: 'Fast',
+    id: "gpt-5.3-codex",
+    agentId: "codex",
+    label: "GPT-5.3 Codex",
+    description: "Optimized for code generation",
+    context: "192K",
+    speed: "Fast",
     reasoningEffortLevels: [
-      { value: 'low', label: 'Low' },
-      { value: 'medium', label: 'Medium', isDefault: true },
-      { value: 'high', label: 'High' },
+      { value: "low", label: "Low" },
+      { value: "medium", label: "Medium", isDefault: true },
+      { value: "high", label: "High" },
     ],
   },
   {
-    id: 'o3',
-    agentId: 'codex',
-    label: 'o3',
-    description: 'Advanced reasoning model',
-    context: '200K',
-    speed: 'Slow',
+    id: "o3",
+    agentId: "codex",
+    label: "o3",
+    description: "Advanced reasoning model",
+    context: "200K",
+    speed: "Slow",
     reasoningEffortLevels: [
-      { value: 'medium', label: 'Medium' },
-      { value: 'high', label: 'High', isDefault: true },
-      { value: 'xhigh', label: 'Extra High' },
+      { value: "medium", label: "Medium" },
+      { value: "high", label: "High", isDefault: true },
+      { value: "xhigh", label: "Extra High" },
     ],
   },
 ];
@@ -272,9 +256,9 @@ interface AttachedFile {
   contentType: string;
   name: string;
   previewUrl?: string;
-  status: 'uploading' | 'uploaded' | 'error';
+  status: "uploading" | "uploaded" | "error";
   size: string;
-  type: 'pdf' | 'image' | 'file';
+  type: "pdf" | "image" | "file";
   url?: string | null;
 }
 
@@ -288,7 +272,7 @@ interface PromptBoxProps {
   allowInputWhileStreaming?: boolean;
   defaultConfig?: {
     agentModel?: string;
-    agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+    agentReasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink";
     agentThinkingEnabled?: boolean;
     branch?: string;
     repoConnectionId?: string | null;
@@ -297,7 +281,7 @@ interface PromptBoxProps {
   onConfigChange?: (config: {
     agentProvider: string;
     agentModel: string;
-    agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+    agentReasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink";
     agentThinkingEnabled?: boolean;
     branch: string;
     runtime: ExecutionRuntime;
@@ -315,12 +299,12 @@ interface RuntimeProviderRecord {
   key: string;
   name: string;
   description?: string;
-  kind: 'lightweight' | 'full_sandbox' | 'self_hosted';
+  kind: "lightweight" | "full_sandbox" | "self_hosted";
 }
 
 interface CredentialStatus {
   connected: boolean;
-  source: 'api_key' | 'oauth' | null;
+  source: "api_key" | "oauth" | null;
   email: string | null;
   expiresAt: string | null;
   subscriptionType: string | null;
@@ -340,56 +324,62 @@ function RepoSelector({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
 
-  const { data: rawRepos = [] } = useQuery({
-    queryKey: ['repo-connections'],
-    queryFn: () => apiGet<RepoConnection[]>('/api/repo-connections'),
+  const { data: workspaces = [] } = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: () => apiGet<{ id: string; name: string }[]>("/api/workspaces"),
     staleTime: 60_000,
   });
-  const { data: workspaces = [] } = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: () => apiGet<{ id: string; name: string }[]>('/api/workspaces'),
+  const workspaceId = workspaces[0]?.id ?? null;
+  const { data: rawRepos = [] } = useQuery({
+    queryKey: ["repo-connections", workspaceId],
+    queryFn: () => apiGet<RepoConnection[]>(`/api/repo-connections?workspaceId=${workspaceId}`),
     staleTime: 60_000,
+    enabled: workspaceId !== null,
   });
   const { data: githubAppStatus } = useQuery({
-    queryKey: ['github-app-status'],
-    queryFn: () => apiGet<GitHubAppStatus>('/api/github/app'),
+    queryKey: ["github-app-status"],
+    queryFn: () => apiGet<GitHubAppStatus>("/api/github/app"),
     staleTime: 60_000,
   });
   const { data: installations = [] } = useQuery({
-    queryKey: ['github-installations'],
-    queryFn: () => apiGet<GitHubInstallation[]>('/api/github/installations'),
+    queryKey: ["github-installations", workspaceId],
+    queryFn: () =>
+      apiGet<GitHubInstallation[]>(`/api/github/installations?workspaceId=${workspaceId}`),
     staleTime: 30_000,
-    enabled: githubAppStatus?.configured === true,
+    enabled: githubAppStatus?.configured === true && workspaceId !== null,
   });
   const installationRepoQueries = useQueries({
     queries: installations.map((installation) => ({
-      queryKey: ['github-installation-repositories', installation.id],
+      queryKey: ["github-installation-repositories", installation.id, workspaceId],
       queryFn: () =>
-        apiGet<GitHubInstallationRepositoryPage>(`/api/github/installations/${installation.id}/repositories`),
+        apiGet<GitHubInstallationRepositoryPage>(
+          `/api/github/installations/${installation.id}/repositories?workspaceId=${workspaceId}`,
+        ),
       staleTime: 30_000,
-      enabled: githubAppStatus?.configured === true,
+      enabled: githubAppStatus?.configured === true && workspaceId !== null,
     })),
   });
 
   const connectInstalledRepoMutation = useMutation({
     mutationFn: (input: { installationId: number; repository: GitHubInstallationRepository }) =>
-      apiPost<RepoConnection>('/api/repo-connections', {
-        workspaceId: workspaces[0]?.id,
+      apiPost<RepoConnection>("/api/repo-connections", {
+        workspaceId,
         projectId: null,
-        provider: 'github',
+        provider: "github",
         owner: input.repository.ownerLogin,
         repo: input.repository.name,
         defaultBranch: input.repository.defaultBranch,
-        authType: 'github_app_installation',
+        authType: "github_app_installation",
         connectionMetadata: {
           installationId: input.installationId,
         },
       }),
     onSuccess: (repo: RepoConnection) => {
-      void queryClient.invalidateQueries({ queryKey: ['repo-connections'] });
+      void queryClient.invalidateQueries({ queryKey: ["repo-connections"] });
+      void queryClient.invalidateQueries({ queryKey: ["repo-connections", workspaceId] });
       onSelect(repo);
       setOpen(false);
     },
@@ -416,9 +406,7 @@ function RepoSelector({
     installationRepoQueries.some((query) => query.isLoading);
 
   const selected = repos.find((r) => r.id === selectedRepoId);
-  const displayLabel = selected
-    ? `${selected.owner}/${selected.repo}`
-    : 'Select repo';
+  const displayLabel = selected ? `${selected.owner}/${selected.repo}` : "Select repo";
 
   type RepoEntry =
     | {
@@ -426,55 +414,61 @@ function RepoSelector({
         fullName: string;
         id: string;
         installationRepo: SelectableInstallationRepository | null;
-        status: 'connected';
+        status: "connected";
       }
     | {
         connectedRepo: null;
         fullName: string;
         id: string;
         installationRepo: SelectableInstallationRepository;
-        status: 'available';
+        status: "available";
       };
 
   const repoEntries = useMemo(() => {
     const normalizedQuery = deferredSearch.trim().toLowerCase();
 
     const connectedRepoByKey = new Map<string, RepoConnection>(
-      repos.map((repo) => [`${repo.owner.toLowerCase()}/${repo.repo.toLowerCase()}`, repo] as const),
+      repos.map(
+        (repo) => [`${repo.owner.toLowerCase()}/${repo.repo.toLowerCase()}`, repo] as const,
+      ),
     );
     const installationRepoByKey = new Map<string, SelectableInstallationRepository>(
-      installationRepos.map((installationRepo) => [
-        `${installationRepo.ownerLogin.toLowerCase()}/${installationRepo.name.toLowerCase()}`,
-        installationRepo,
-      ] as const),
+      installationRepos.map(
+        (installationRepo) =>
+          [
+            `${installationRepo.ownerLogin.toLowerCase()}/${installationRepo.name.toLowerCase()}`,
+            installationRepo,
+          ] as const,
+      ),
     );
 
-    const connectedEntries: RepoEntry[] = repos
-      .map((repo): RepoEntry => {
-        const key = `${repo.owner.toLowerCase()}/${repo.repo.toLowerCase()}`;
-        const installationRepo = installationRepoByKey.get(key) ?? null;
+    const connectedEntries: RepoEntry[] = repos.map((repo): RepoEntry => {
+      const key = `${repo.owner.toLowerCase()}/${repo.repo.toLowerCase()}`;
+      const installationRepo = installationRepoByKey.get(key) ?? null;
 
-        return {
-          connectedRepo: repo,
-          fullName: `${repo.owner}/${repo.repo}`,
-          id: repo.id,
-          installationRepo,
-          status: 'connected' as const,
-        };
-      });
+      return {
+        connectedRepo: repo,
+        fullName: `${repo.owner}/${repo.repo}`,
+        id: repo.id,
+        installationRepo,
+        status: "connected" as const,
+      };
+    });
 
     const availableEntries: RepoEntry[] = installationRepos
       .filter((installationRepo) => {
         const key = `${installationRepo.ownerLogin.toLowerCase()}/${installationRepo.name.toLowerCase()}`;
         return !connectedRepoByKey.has(key);
       })
-      .map((installationRepo): RepoEntry => ({
-        connectedRepo: null,
-        fullName: installationRepo.fullName,
-        id: `installation:${installationRepo.id}`,
-        installationRepo,
-        status: 'available' as const,
-      }));
+      .map(
+        (installationRepo): RepoEntry => ({
+          connectedRepo: null,
+          fullName: installationRepo.fullName,
+          id: `installation:${installationRepo.id}`,
+          installationRepo,
+          status: "available" as const,
+        }),
+      );
 
     const entries = connectedEntries
       .concat(availableEntries)
@@ -494,10 +488,10 @@ function RepoSelector({
           disabled={disabled}
           className={`flex items-center gap-1.5 px-2.5 h-7 rounded-md text-xs transition-colors ${
             disabled
-              ? 'text-muted-foreground/40 cursor-default'
+              ? "text-muted-foreground/40 cursor-default"
               : selected
-                ? 'text-muted-foreground hover:text-foreground hover:bg-muted/80 cursor-pointer'
-                : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 cursor-pointer'
+                ? "text-muted-foreground hover:text-foreground hover:bg-muted/80 cursor-pointer"
+                : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 cursor-pointer"
           }`}
         >
           <FolderGit2 className="w-3.5 h-3.5" />
@@ -505,25 +499,32 @@ function RepoSelector({
           {!disabled && <ChevronDown className="w-3 h-3 opacity-50" />}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[460px] max-w-[calc(100vw-2rem)] p-2" sideOffset={8}>
+      <PopoverContent
+        align="start"
+        className="w-[460px] max-w-[calc(100vw-2rem)] p-2"
+        sideOffset={8}
+      >
         <div className="space-y-2">
           <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-2.5 py-2">
             <Search className="w-3.5 h-3.5 text-muted-foreground" />
             <Input
               value={search}
-              onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                setSearch(event.target.value)
+              }
               placeholder="Search owner/repo..."
               className="h-auto border-0 bg-transparent px-0 py-0 text-sm shadow-none focus-visible:ring-0"
             />
           </div>
 
-          <div className="max-h-[24rem] overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
+          <div className="max-h-[24rem] overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
             <div className="space-y-1">
               {repoEntries.length > 0 ? (
                 repoEntries.map((entry) => {
                   const connectedRepo = entry.connectedRepo;
                   const isSelected = connectedRepo?.id === selectedRepoId;
-                  const installationRepo = entry.status === 'available' ? entry.installationRepo : null;
+                  const installationRepo =
+                    entry.status === "available" ? entry.installationRepo : null;
 
                   return (
                     <button
@@ -546,7 +547,7 @@ function RepoSelector({
                         });
                       }}
                       className={`flex items-center gap-2.5 w-full px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer ${
-                        isSelected ? 'bg-accent' : 'hover:bg-muted/50'
+                        isSelected ? "bg-accent" : "hover:bg-muted/50"
                       }`}
                       disabled={connectInstalledRepoMutation.isPending || !workspaces[0]?.id}
                     >
@@ -562,10 +563,10 @@ function RepoSelector({
                 <div className="px-2.5 py-6 text-center">
                   <p className="text-xs text-muted-foreground">
                     {isLoadingInstallationRepos
-                      ? 'Loading repositories...'
+                      ? "Loading repositories..."
                       : githubAppStatus?.configured
-                      ? 'No repositories match your search or installation.'
-                      : 'GitHub App is not configured yet.'}
+                        ? "No repositories match your search or installation."
+                        : "GitHub App is not configured yet."}
                   </p>
                 </div>
               )}
@@ -576,7 +577,7 @@ function RepoSelector({
             <button
               onClick={() => {
                 setOpen(false);
-                navigate({ to: '/settings/repositories' });
+                navigate({ to: "/settings/repositories" });
               }}
               className="flex items-center gap-2.5 w-full px-2.5 py-2 text-sm rounded-md hover:bg-muted/50 transition-colors cursor-pointer"
             >
@@ -625,7 +626,11 @@ function ModelSelector({
           <ChevronDown className="w-3 h-3 opacity-50" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[420px] max-sm:w-[calc(100vw-2rem)] p-0 overflow-hidden" sideOffset={8}>
+      <PopoverContent
+        align="start"
+        className="w-[420px] max-sm:w-[calc(100vw-2rem)] p-0 overflow-hidden"
+        sideOffset={8}
+      >
         <div className="flex">
           <div className="w-[150px] shrink-0 border-r border-border/40 py-1 px-1">
             {AGENTS.map((agent) => {
@@ -635,17 +640,22 @@ function ModelSelector({
                   key={agent.id}
                   onMouseEnter={() => setHoveredAgent(agent.id)}
                   className={`flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-sm transition-colors cursor-pointer ${
-                    isActive ? 'bg-accent' : 'hover:bg-muted/50'
+                    isActive ? "bg-accent" : "hover:bg-muted/50"
                   }`}
                 >
                   <ProviderLogo provider={agent.logoId} className="w-4 h-4 dark:invert" />
-                  <span className="font-medium text-foreground flex-1 text-left truncate">{agent.label}</span>
+                  <span className="font-medium text-foreground flex-1 text-left truncate">
+                    {agent.label}
+                  </span>
                   <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
                 </button>
               );
             })}
           </div>
-          <div className="flex-1 min-w-0 overflow-y-auto max-h-[320px] py-1 px-1" style={{ scrollbarWidth: 'thin' }}>
+          <div
+            className="flex-1 min-w-0 overflow-y-auto max-h-[320px] py-1 px-1"
+            style={{ scrollbarWidth: "thin" }}
+          >
             {activeModels.map((model) => {
               const isSelected = model.id === selectedModelId;
               return (
@@ -657,15 +667,19 @@ function ModelSelector({
                     setHoveredAgent(null);
                   }}
                   className={`flex items-center gap-2 w-full px-2.5 py-2 rounded-md transition-colors cursor-pointer ${
-                    isSelected ? 'bg-accent' : 'hover:bg-muted/50'
+                    isSelected ? "bg-accent" : "hover:bg-muted/50"
                   }`}
                 >
                   <div className="flex-1 min-w-0 text-left">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-foreground">{model.label}</span>
-                      <span className="text-[10px] text-muted-foreground/50 font-mono">{model.context}</span>
+                      <span className="text-[10px] text-muted-foreground/50 font-mono">
+                        {model.context}
+                      </span>
                     </div>
-                    <p className="text-[11px] text-muted-foreground/60 mt-0.5 truncate">{model.description}</p>
+                    <p className="text-[11px] text-muted-foreground/60 mt-0.5 truncate">
+                      {model.description}
+                    </p>
                   </div>
                   {isSelected && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
                 </button>
@@ -676,7 +690,7 @@ function ModelSelector({
                 onClick={() => {
                   setOpen(false);
                   setHoveredAgent(null);
-                  navigate({ to: '/settings/models' });
+                  navigate({ to: "/settings/models" });
                 }}
                 className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-md text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
               >
@@ -711,23 +725,29 @@ function TraitsSelector({
   onThinkingEnabledChange,
 }: {
   model: ModelEntry;
-  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink";
   thinkingEnabled?: boolean;
-  onReasoningEffortChange: (value: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink') => void;
+  onReasoningEffortChange: (
+    value: "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink",
+  ) => void;
   onThinkingEnabledChange: (value: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const selectedEffort = reasoningEffort ?? getDefaultReasoningEffort(model);
 
-  if ((!model.reasoningEffortLevels || model.reasoningEffortLevels.length === 0) && !model.supportsThinkingToggle) {
+  if (
+    (!model.reasoningEffortLevels || model.reasoningEffortLevels.length === 0) &&
+    !model.supportsThinkingToggle
+  ) {
     return null;
   }
 
   const triggerLabel = model.reasoningEffortLevels?.length
-    ? model.reasoningEffortLevels.find((option) => option.value === selectedEffort)?.label ?? 'Reasoning'
+    ? (model.reasoningEffortLevels.find((option) => option.value === selectedEffort)?.label ??
+      "Reasoning")
     : thinkingEnabled === false
-      ? 'Thinking off'
-      : 'Thinking on';
+      ? "Thinking off"
+      : "Thinking on";
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -749,14 +769,16 @@ function TraitsSelector({
                   setOpen(false);
                 }}
                 className={`flex items-center justify-between gap-2.5 w-full px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer ${
-                  selectedEffort === option.value ? 'bg-accent' : 'hover:bg-muted/50'
+                  selectedEffort === option.value ? "bg-accent" : "hover:bg-muted/50"
                 }`}
               >
                 <span>
                   {option.label}
-                  {option.isDefault ? ' (default)' : ''}
+                  {option.isDefault ? " (default)" : ""}
                 </span>
-                {selectedEffort === option.value && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+                {selectedEffort === option.value && (
+                  <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                )}
               </button>
             ))}
           </>
@@ -769,8 +791,8 @@ function TraitsSelector({
             ) : null}
             <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Thinking</div>
             {[
-              { label: 'On (default)', value: true },
-              { label: 'Off', value: false },
+              { label: "On (default)", value: true },
+              { label: "Off", value: false },
             ].map((option) => (
               <button
                 key={String(option.value)}
@@ -779,11 +801,13 @@ function TraitsSelector({
                   setOpen(false);
                 }}
                 className={`flex items-center justify-between gap-2.5 w-full px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer ${
-                  (thinkingEnabled ?? true) === option.value ? 'bg-accent' : 'hover:bg-muted/50'
+                  (thinkingEnabled ?? true) === option.value ? "bg-accent" : "hover:bg-muted/50"
                 }`}
               >
                 <span>{option.label}</span>
-                {(thinkingEnabled ?? true) === option.value && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+                {(thinkingEnabled ?? true) === option.value && (
+                  <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                )}
               </button>
             ))}
           </>
@@ -807,7 +831,9 @@ function BranchSelector({
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState(branch);
 
-  useEffect(() => { setInput(branch); }, [branch]);
+  useEffect(() => {
+    setInput(branch);
+  }, [branch]);
 
   const handleSelect = (b: string) => {
     onSelect(b);
@@ -821,8 +847,8 @@ function BranchSelector({
           disabled={disabled}
           className={`flex items-center gap-1.5 px-2.5 h-7 rounded-md text-xs transition-colors ${
             disabled
-              ? 'text-muted-foreground/40 cursor-default'
-              : 'hover:bg-muted/80 cursor-pointer text-muted-foreground hover:text-foreground'
+              ? "text-muted-foreground/40 cursor-default"
+              : "hover:bg-muted/80 cursor-pointer text-muted-foreground hover:text-foreground"
           }`}
         >
           <GitBranch className="w-3.5 h-3.5" />
@@ -837,9 +863,9 @@ function BranchSelector({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+              if (e.key === "Enter") {
                 e.preventDefault();
-                handleSelect(input.trim() || 'main');
+                handleSelect(input.trim() || "main");
               }
             }}
             placeholder="Branch name..."
@@ -847,13 +873,13 @@ function BranchSelector({
             autoFocus
           />
           <button
-            onClick={() => handleSelect('main')}
+            onClick={() => handleSelect("main")}
             className={`flex items-center justify-between w-full px-2.5 py-1.5 text-sm rounded-md transition-colors cursor-pointer ${
-              branch === 'main' ? 'bg-accent' : 'hover:bg-muted/50'
+              branch === "main" ? "bg-accent" : "hover:bg-muted/50"
             }`}
           >
             <span>main</span>
-            {branch === 'main' && <Check className="w-3.5 h-3.5 text-primary" />}
+            {branch === "main" && <Check className="w-3.5 h-3.5 text-primary" />}
           </button>
         </div>
       </PopoverContent>
@@ -863,12 +889,17 @@ function BranchSelector({
 
 // ── Sandbox mode selector ────────────────────────────────────────────────────
 
-export type SandboxMode = 'local' | 'cloud_light' | 'cloud_full' | 'self_hosted';
+export type SandboxMode = "local" | "cloud_light" | "cloud_full" | "self_hosted";
 
-const LAUNCH_READY_SANDBOX_MODES = new Set<SandboxMode>(['local', 'cloud_light', 'cloud_full']);
+const LAUNCH_READY_SANDBOX_MODES = new Set<SandboxMode>(["local", "cloud_light", "cloud_full"]);
 
 function isSandboxMode(value: string | null): value is SandboxMode {
-  return value === 'local' || value === 'cloud_light' || value === 'cloud_full' || value === 'self_hosted';
+  return (
+    value === "local" ||
+    value === "cloud_light" ||
+    value === "cloud_full" ||
+    value === "self_hosted"
+  );
 }
 
 function isLaunchReadySandboxMode(mode: SandboxMode) {
@@ -877,51 +908,51 @@ function isLaunchReadySandboxMode(mode: SandboxMode) {
 
 export function runtimeForSandboxMode(mode: SandboxMode): ExecutionRuntime {
   switch (mode) {
-    case 'cloud_light':
+    case "cloud_light":
       return {
-        target: 'cloud',
-        provider: 'convex_bash',
-        sandboxProfile: 'lightweight',
-        idlePolicy: 'sleep',
+        target: "cloud",
+        provider: "convex_bash",
+        sandboxProfile: "lightweight",
+        idlePolicy: "sleep",
         resumeOnActivity: true,
       };
-    case 'cloud_full':
+    case "cloud_full":
       return {
-        target: 'cloud',
-        provider: 'agent_os',
-        sandboxProfile: 'full',
-        idlePolicy: 'sleep',
+        target: "cloud",
+        provider: "agent_os",
+        sandboxProfile: "full",
+        idlePolicy: "sleep",
         resumeOnActivity: true,
       };
-    case 'self_hosted':
+    case "self_hosted":
       return {
-        target: 'self_hosted',
-        provider: 'self_hosted_runner',
-        sandboxProfile: 'full',
-        idlePolicy: 'retain',
+        target: "self_hosted",
+        provider: "self_hosted_runner",
+        sandboxProfile: "full",
+        idlePolicy: "retain",
         resumeOnActivity: true,
       };
-    case 'local':
+    case "local":
     default:
       return {
-        target: 'local',
-        provider: 'legacy_local',
-        sandboxProfile: 'none',
-        idlePolicy: 'retain',
+        target: "local",
+        provider: "legacy_local",
+        sandboxProfile: "none",
+        idlePolicy: "retain",
       };
   }
 }
 
 export function sandboxModeForProviderKey(key: string): SandboxMode {
   switch (key) {
-    case 'convex_bash':
-      return 'cloud_light';
-    case 'agent_os':
-      return 'cloud_full';
-    case 'self_hosted_runner':
-      return 'self_hosted';
+    case "convex_bash":
+      return "cloud_light";
+    case "agent_os":
+      return "cloud_full";
+    case "self_hosted_runner":
+      return "self_hosted";
     default:
-      return 'local';
+      return "local";
   }
 }
 
@@ -937,59 +968,72 @@ function SandboxSelector({
   const controlPlaneEnabled = useControlPlaneEnabled();
   const runtimeProviders = useConvexQuery(
     controlPlaneApi.runtimeProviders.list,
-    controlPlaneEnabled ? {} : 'skip',
+    controlPlaneEnabled ? {} : "skip",
   ) as RuntimeProviderRecord[] | undefined;
-  const controlPlaneWorkspaces = useConvexQuery(
-    controlPlaneApi.workspaces.list,
-    controlPlaneEnabled ? {} : 'skip',
-  ) as { _id: string; name: string; slug: string }[] | undefined;
 
   const selfHostedConnector = getSelfHostedConnectorConfig();
-  const fallbackOptions: { value: SandboxMode; label: string; icon: React.ElementType; desc: string; disabled?: boolean }[] = [
-    { value: 'local', label: 'Local', icon: Monitor, desc: 'Runs through the current built-in backend' },
+  const fallbackOptions: {
+    value: SandboxMode;
+    label: string;
+    icon: React.ElementType;
+    desc: string;
+    disabled?: boolean;
+  }[] = [
     {
-      value: 'cloud_light',
-      label: 'Convex Bash',
-      icon: Cloud,
-      desc: 'Low-cost lightweight runtime for quick tasks and follow-ups',
+      value: "local",
+      label: "Local",
+      icon: Monitor,
+      desc: "Runs through the current built-in backend",
     },
     {
-      value: 'cloud_full',
-      label: 'AgentOS Full',
+      value: "cloud_light",
+      label: "Convex Bash",
       icon: Cloud,
-      desc: 'Full workspace sandbox backed by the current managed runner',
+      desc: "Low-cost lightweight runtime for quick tasks and follow-ups",
     },
     {
-      value: 'self_hosted',
-      label: selfHostedConnector?.label ?? 'Self-hosted',
+      value: "cloud_full",
+      label: "AgentOS Full",
+      icon: Cloud,
+      desc: "Full workspace sandbox backed by the current managed runner",
+    },
+    {
+      value: "self_hosted",
+      label: selfHostedConnector?.label ?? "Self-hosted",
       icon: Settings,
       desc: selfHostedConnector
         ? `${selfHostedConnector.baseUrl}`
-        : 'Configure a connector in Settings -> Workspace',
+        : "Configure a connector in Settings -> Workspace",
       disabled: !selfHostedConnector,
     },
   ];
 
-  const options = runtimeProviders && runtimeProviders.length > 0
-    ? [
-        fallbackOptions[0]!,
-        ...runtimeProviders
-          .filter((provider) => provider.key !== 'legacy_local')
-          .map((provider) => ({
-          value: sandboxModeForProviderKey(provider.key),
-          label:
-            provider.key === 'self_hosted_runner'
-              ? selfHostedConnector?.label ?? provider.name
-              : provider.name,
-          icon: provider.kind === 'self_hosted' ? Settings : provider.kind === 'full_sandbox' ? Cloud : Monitor,
-          desc:
-            provider.key === 'self_hosted_runner' && !selfHostedConnector
-              ? 'Configure a connector in Settings -> Workspace'
-              : provider.description ?? 'Control plane runtime',
-          disabled: provider.key === 'self_hosted_runner' && !selfHostedConnector,
-        })),
-      ]
-    : fallbackOptions;
+  const options =
+    runtimeProviders && runtimeProviders.length > 0
+      ? [
+          fallbackOptions[0]!,
+          ...runtimeProviders
+            .filter((provider) => provider.key !== "legacy_local")
+            .map((provider) => ({
+              value: sandboxModeForProviderKey(provider.key),
+              label:
+                provider.key === "self_hosted_runner"
+                  ? (selfHostedConnector?.label ?? provider.name)
+                  : provider.name,
+              icon:
+                provider.kind === "self_hosted"
+                  ? Settings
+                  : provider.kind === "full_sandbox"
+                    ? Cloud
+                    : Monitor,
+              desc:
+                provider.key === "self_hosted_runner" && !selfHostedConnector
+                  ? "Configure a connector in Settings -> Workspace"
+                  : (provider.description ?? "Control plane runtime"),
+              disabled: provider.key === "self_hosted_runner" && !selfHostedConnector,
+            })),
+        ]
+      : fallbackOptions;
 
   const selected = options.find((o) => o.value === mode) ?? options[0]!;
   const Icon = selected.icon;
@@ -1018,10 +1062,10 @@ function SandboxSelector({
               }}
               className={`flex items-center gap-2.5 w-full px-2.5 py-2 text-sm rounded-md transition-colors cursor-pointer ${
                 opt.disabled
-                  ? 'opacity-50 cursor-not-allowed'
+                  ? "opacity-50 cursor-not-allowed"
                   : isSelected
-                    ? 'bg-accent'
-                    : 'hover:bg-muted/50'
+                    ? "bg-accent"
+                    : "hover:bg-muted/50"
               }`}
             >
               <OptIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
@@ -1037,7 +1081,7 @@ function SandboxSelector({
         <button
           onClick={() => {
             setOpen(false);
-            navigate({ to: '/settings/workspace' });
+            navigate({ to: "/settings/workspace" });
           }}
           className="flex items-center gap-2.5 w-full px-2.5 py-2 text-sm rounded-md hover:bg-muted/50 transition-colors cursor-pointer"
         >
@@ -1051,8 +1095,8 @@ function SandboxSelector({
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function FileTypeIcon({ type }: { type: AttachedFile['type'] }) {
-  if (type === 'image') return <ImageIcon className="w-3.5 h-3.5" />;
+function FileTypeIcon({ type }: { type: AttachedFile["type"] }) {
+  if (type === "image") return <ImageIcon className="w-3.5 h-3.5" />;
   return <FileText className="w-3.5 h-3.5" />;
 }
 
@@ -1074,31 +1118,35 @@ export function PromptBox({
   lockConfig = false,
 }: PromptBoxProps) {
   const hasDefaultRepoConfig =
-    defaultConfig !== undefined && Object.prototype.hasOwnProperty.call(defaultConfig, 'repoConnectionId');
-  const [value, setValue] = useState(defaultValue ?? '');
+    defaultConfig !== undefined &&
+    Object.prototype.hasOwnProperty.call(defaultConfig, "repoConnectionId");
+  const [value, setValue] = useState(defaultValue ?? "");
   const [files, setFiles] = useState<AttachedFile[]>([]);
-  const [selectedModelId, setSelectedModelId] = useState(() =>
-    defaultConfig?.agentModel ?? localStorage.getItem('ac_default_model') ?? 'claude-opus-4-6'
+  const [selectedModelId, setSelectedModelId] = useState(
+    () =>
+      defaultConfig?.agentModel ?? localStorage.getItem("ac_default_model") ?? "claude-opus-4-6",
   );
   const [reasoningEffort, setReasoningEffort] = useState<
-    'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink' | undefined
+    "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink" | undefined
   >(() => defaultConfig?.agentReasoningEffort);
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean | undefined>(
     () => defaultConfig?.agentThinkingEnabled,
   );
-  const [branch, setBranch] = useState(defaultConfig?.branch ?? 'main');
+  const [branch, setBranch] = useState(defaultConfig?.branch ?? "main");
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(() =>
     hasDefaultRepoConfig
       ? (defaultConfig?.repoConnectionId ?? null)
-      : localStorage.getItem('ac_selected_repo')
+      : localStorage.getItem("ac_selected_repo"),
   );
   const [selectedRepo, setSelectedRepo] = useState<RepoConnection | null>(null);
   const [sandboxMode, setSandboxMode] = useState<SandboxMode>(() => {
     if (defaultConfig?.sandboxMode) {
-      return isLaunchReadySandboxMode(defaultConfig.sandboxMode) ? defaultConfig.sandboxMode : 'local';
+      return isLaunchReadySandboxMode(defaultConfig.sandboxMode)
+        ? defaultConfig.sandboxMode
+        : "local";
     }
-    const stored = localStorage.getItem('ac_sandbox_mode');
-    return isSandboxMode(stored) && isLaunchReadySandboxMode(stored) ? stored : 'local';
+    const stored = localStorage.getItem("ac_sandbox_mode");
+    return isSandboxMode(stored) && isLaunchReadySandboxMode(stored) ? stored : "local";
   });
   const [contextOpen, setContextOpen] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
@@ -1109,30 +1157,31 @@ export function PromptBox({
   const canComposeWhileStreaming = allowInputWhileStreaming && isStreaming;
   const generateUploadUrl = useConvexMutation(controlPlaneApi.files.generateUploadUrl);
   const saveAttachment = useConvexMutation(controlPlaneApi.files.saveAttachment);
-  const createControlPlaneWorkspace = useConvexMutation(controlPlaneApi.workspaces.create);
-  const controlPlaneWorkspaces = useConvexQuery(
-    controlPlaneApi.workspaces.list,
-    controlPlaneEnabled ? {} : 'skip',
-  ) as { _id: string; name: string; slug: string }[] | undefined;
   const { data: restWorkspaces = [] } = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: () => apiGet<{ id: string; name: string }[]>('/api/workspaces'),
+    queryKey: ["workspaces"],
+    queryFn: () => apiGet<{ id: string; name: string }[]>("/api/workspaces"),
     staleTime: 60_000,
   });
+  const defaultWorkspaceId = restWorkspaces[0]?.id ?? null;
   const { data: repoConnections = [] } = useQuery({
-    queryKey: ['repo-connections'],
-    queryFn: () => apiGet<RepoConnection[]>('/api/repo-connections'),
+    queryKey: ["repo-connections", defaultWorkspaceId],
+    queryFn: () =>
+      apiGet<RepoConnection[]>(`/api/repo-connections?workspaceId=${defaultWorkspaceId}`),
     staleTime: 60_000,
+    enabled: defaultWorkspaceId !== null,
   });
 
   const selectedModel = MODELS.find((m) => m.id === selectedModelId) ?? MODELS[0]!;
   const selectedAgent = AGENTS.find((agent) => agent.id === selectedModel.agentId) ?? AGENTS[0]!;
 
   const { data: credentialStatuses = {}, isLoading: isCredentialLoading } = useQuery({
-    queryKey: ['prompt-credentials'],
+    queryKey: ["prompt-credentials"],
     queryFn: async () => {
       const entries = await Promise.all(
-        AGENTS.map(async (agent) => [agent.id, await apiGet<CredentialStatus>(agent.credentialPath)] as const),
+        AGENTS.map(
+          async (agent) =>
+            [agent.id, await apiGet<CredentialStatus>(agent.credentialPath)] as const,
+        ),
       );
       return Object.fromEntries(entries) as Record<string, CredentialStatus>;
     },
@@ -1150,8 +1199,8 @@ export function PromptBox({
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = el.scrollHeight + 'px';
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
   }, [value]);
 
   useEffect(() => {
@@ -1172,13 +1221,13 @@ export function PromptBox({
     setSelectedModelId(fallbackModelId);
     setReasoningEffort(fallbackModel ? getDefaultReasoningEffort(fallbackModel) : undefined);
     setThinkingEnabled(fallbackModel?.supportsThinkingToggle ? true : undefined);
-    localStorage.setItem('ac_default_model', fallbackModelId);
+    localStorage.setItem("ac_default_model", fallbackModelId);
   }, [credentialStatuses, isCredentialLoading, selectedAgent.id, selectedCredential?.connected]);
 
   useEffect(() => {
     if (isLaunchReadySandboxMode(sandboxMode)) return;
-    setSandboxMode('local');
-    localStorage.setItem('ac_sandbox_mode', 'local');
+    setSandboxMode("local");
+    localStorage.setItem("ac_sandbox_mode", "local");
   }, [sandboxMode]);
 
   const emitConfig = useCallback(
@@ -1189,7 +1238,7 @@ export function PromptBox({
       mode: SandboxMode,
       repoId = repo?.id ?? selectedRepoId,
       overrides?: {
-        agentReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink';
+        agentReasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink";
         agentThinkingEnabled?: boolean;
       },
     ) => {
@@ -1198,10 +1247,9 @@ export function PromptBox({
         agentModel: model.id,
         agentReasoningEffort:
           overrides?.agentReasoningEffort ?? reasoningEffort ?? getDefaultReasoningEffort(model),
-        agentThinkingEnabled:
-          model.supportsThinkingToggle
-            ? (overrides?.agentThinkingEnabled ?? thinkingEnabled ?? true)
-            : undefined,
+        agentThinkingEnabled: model.supportsThinkingToggle
+          ? (overrides?.agentThinkingEnabled ?? thinkingEnabled ?? true)
+          : undefined,
         branch: b,
         runtime: runtimeForSandboxMode(mode),
         workspaceId: repo?.workspaceId ?? undefined,
@@ -1232,193 +1280,209 @@ export function PromptBox({
     const firstRepo = repoConnections[0]!;
     setSelectedRepo(firstRepo);
     setSelectedRepoId(firstRepo.id);
-    localStorage.setItem('ac_selected_repo', firstRepo.id);
+    localStorage.setItem("ac_selected_repo", firstRepo.id);
     if (firstRepo.defaultBranch) {
       setBranch(firstRepo.defaultBranch);
     }
   }, [hasDefaultRepoConfig, repoConnections, selectedRepo?.id, selectedRepoId]);
 
   const clearComposer = useCallback(() => {
-    setValue('');
+    setValue("");
     setFiles([]);
   }, []);
 
   const hasContent = value.trim().length > 0 || files.length > 0;
 
   const isApplePlatform = useMemo(() => {
-    if (typeof navigator === 'undefined') return true;
+    if (typeof navigator === "undefined") return true;
     const platform =
-      (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ??
+      (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData
+        ?.platform ??
       navigator.platform ??
-      '';
+      "";
     return /(Mac|iPhone|iPad)/i.test(platform);
   }, []);
-  const primaryShortcutLabel = `${isApplePlatform ? 'Cmd' : 'Ctrl'}+Enter`;
+  const primaryShortcutLabel = `${isApplePlatform ? "Cmd" : "Ctrl"}+Enter`;
   const steerShortcutLabel = `Shift+${primaryShortcutLabel}`;
 
-  const handleSubmit = useCallback((mode: 'send' | 'queue' | 'steer' = 'send') => {
-    if (isSubmitting) return;
-    if (!isCredentialLoading && selectedCredential?.connected === false) return;
-    if (files.some((file) => file.status === 'uploading')) return;
-    const trimmed = value.trim();
-    const uploadedFiles = files.filter((file) => file.status === 'uploaded');
+  const handleSubmit = useCallback(
+    (mode: "send" | "queue" | "steer" = "send") => {
+      if (isSubmitting) return;
+      if (!isCredentialLoading && selectedCredential?.connected === false) return;
+      if (files.some((file) => file.status === "uploading")) return;
+      const trimmed = value.trim();
+      const uploadedFiles = files.filter((file) => file.status === "uploaded");
 
-    if (!trimmed && uploadedFiles.length === 0) {
-      if (isStreaming) {
-        onStop?.();
-      }
-      return;
-    }
-
-    if (canComposeWhileStreaming) {
-      if (mode === 'steer') {
-        onSteerSubmit?.(trimmed, uploadedFiles);
-      } else {
-        onQueueSubmit?.(trimmed, uploadedFiles);
-      }
-      clearComposer();
-      return;
-    }
-
-    if (isStreaming) return;
-
-    onSubmit(trimmed, uploadedFiles);
-    clearComposer();
-  }, [canComposeWhileStreaming, clearComposer, files, isCredentialLoading, isStreaming, isSubmitting, onQueueSubmit, onSteerSubmit, onStop, onSubmit, selectedCredential?.connected, value]);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      if (canComposeWhileStreaming && e.shiftKey && (value.trim().length > 0 || files.length > 0)) {
-        handleSubmit('steer');
+      if (!trimmed && uploadedFiles.length === 0) {
+        if (isStreaming) {
+          onStop?.();
+        }
         return;
       }
 
-      handleSubmit(canComposeWhileStreaming ? 'queue' : 'send');
+      if (canComposeWhileStreaming) {
+        if (mode === "steer") {
+          onSteerSubmit?.(trimmed, uploadedFiles);
+        } else {
+          onQueueSubmit?.(trimmed, uploadedFiles);
+        }
+        clearComposer();
+        return;
+      }
+
+      if (isStreaming) return;
+
+      onSubmit(trimmed, uploadedFiles);
+      clearComposer();
+    },
+    [
+      canComposeWhileStreaming,
+      clearComposer,
+      files,
+      isCredentialLoading,
+      isStreaming,
+      isSubmitting,
+      onQueueSubmit,
+      onSteerSubmit,
+      onStop,
+      onSubmit,
+      selectedCredential?.connected,
+      value,
+    ],
+  );
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      if (canComposeWhileStreaming && e.shiftKey && (value.trim().length > 0 || files.length > 0)) {
+        handleSubmit("steer");
+        return;
+      }
+
+      handleSubmit(canComposeWhileStreaming ? "queue" : "send");
     }
   };
 
-  const uploadFiles = useCallback(async (inputFiles: File[]) => {
-    const imageFiles = inputFiles.filter((file) => file.type.startsWith('image/'));
-    if (imageFiles.length !== inputFiles.length) {
-      toast.error('Only image uploads are supported right now. Remove non-image files or paste/drop a PNG, JPG, GIF, or WebP image.');
-    }
+  const uploadFiles = useCallback(
+    async (inputFiles: File[]) => {
+      const imageFiles = inputFiles.filter((file) => file.type.startsWith("image/"));
+      if (imageFiles.length !== inputFiles.length) {
+        toast.error(
+          "Only image uploads are supported right now. Remove non-image files or paste/drop a PNG, JPG, GIF, or WebP image.",
+        );
+      }
 
-    if (imageFiles.length === 0) {
-      return;
-    }
-
-    const existingKeys = new Set(files.map((file) => `${file.name}:${file.size}`));
-    const uniqueImageFiles = imageFiles.filter((file) => !existingKeys.has(`${file.name}:${file.size}`));
-
-    if (uniqueImageFiles.length !== imageFiles.length) {
-      toast.error('That image is already attached. Remove the existing copy first if you want to upload it again.');
-    }
-
-    if (uniqueImageFiles.length === 0) {
-      return;
-    }
-
-    if (!controlPlaneEnabled) {
-      toast.error('Image upload is unavailable because Convex is not configured for this app environment.');
-      return;
-    }
-
-    let workspaceId = controlPlaneWorkspaces?.[0]?._id;
-    if (!workspaceId) {
-      const fallbackWorkspace = restWorkspaces[0];
-      if (!fallbackWorkspace) {
-        toast.error('Image upload could not start because no workspace exists yet. Create or load a workspace, then try again.');
+      if (imageFiles.length === 0) {
         return;
       }
 
-      workspaceId = await createControlPlaneWorkspace({
-        name: fallbackWorkspace.name,
-      }) as string;
-    }
+      const existingKeys = new Set(files.map((file) => `${file.name}:${file.size}`));
+      const uniqueImageFiles = imageFiles.filter(
+        (file) => !existingKeys.has(`${file.name}:${file.size}`),
+      );
 
-    if (!workspaceId) {
-      toast.error('Image upload could not start because the Convex workspace is still unavailable. Wait a moment and try again.');
-      return;
-    }
+      if (uniqueImageFiles.length !== imageFiles.length) {
+        toast.error(
+          "That image is already attached. Remove the existing copy first if you want to upload it again.",
+        );
+      }
 
-    const draftFiles = uniqueImageFiles.map((file) => ({
-      id: crypto.randomUUID(),
-      contentType: file.type || 'application/octet-stream',
-      name: file.name,
-      previewUrl: URL.createObjectURL(file),
-      status: 'uploading' as const,
-      size: file.size < 1024 ? `${file.size}B` : `${Math.round(file.size / 1024)}KB`,
-      type: 'image' as const,
-      url: null,
-    }));
+      if (uniqueImageFiles.length === 0) {
+        return;
+      }
 
-    setFiles((prev) => [...prev, ...draftFiles]);
+      if (!controlPlaneEnabled) {
+        toast.error(
+          "Image upload is unavailable because Convex is not configured for this app environment.",
+        );
+        return;
+      }
 
-    await Promise.all(
-      draftFiles.map(async (draftFile, index) => {
-        const file = uniqueImageFiles[index]!;
+      const workspaceId = restWorkspaces[0]?.id;
+      if (!workspaceId) {
+        toast.error(
+          "Image upload could not start because no workspace exists yet. Create or load a workspace, then try again.",
+        );
+        return;
+      }
 
-        try {
-          const uploadUrl = await generateUploadUrl({});
-          const uploadResponse = await fetch(uploadUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': file.type || 'application/octet-stream',
-            },
-            body: file,
-          });
+      const draftFiles = uniqueImageFiles.map((file) => ({
+        id: crypto.randomUUID(),
+        contentType: file.type || "application/octet-stream",
+        name: file.name,
+        previewUrl: URL.createObjectURL(file),
+        status: "uploading" as const,
+        size: file.size < 1024 ? `${file.size}B` : `${Math.round(file.size / 1024)}KB`,
+        type: "image" as const,
+        url: null,
+      }));
 
-          if (!uploadResponse.ok) {
-            const body = await uploadResponse.text().catch(() => '');
-            throw new Error(
-              `Image upload failed for "${file.name}" (${uploadResponse.status}). ${body || 'Retry the upload or check Convex storage health.'}`,
+      setFiles((prev) => [...prev, ...draftFiles]);
+
+      await Promise.all(
+        draftFiles.map(async (draftFile, index) => {
+          const file = uniqueImageFiles[index]!;
+
+          try {
+            const uploadUrl = await generateUploadUrl({});
+            const uploadResponse = await fetch(uploadUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": file.type || "application/octet-stream",
+              },
+              body: file,
+            });
+
+            if (!uploadResponse.ok) {
+              const body = await uploadResponse.text().catch(() => "");
+              throw new Error(
+                `Image upload failed for "${file.name}" (${uploadResponse.status}). ${body || "Retry the upload or check Convex storage health."}`,
+              );
+            }
+
+            const { storageId } = (await uploadResponse.json()) as { storageId: string };
+            const saved = await saveAttachment({
+              workspaceId: workspaceId as never,
+              storageId: storageId as never,
+              fileName: file.name,
+              contentType: file.type || "application/octet-stream",
+              fileSize: file.size,
+              kind: "image",
+            });
+
+            setFiles((prev) =>
+              prev.map((existing) =>
+                existing.id === draftFile.id
+                  ? {
+                      ...existing,
+                      attachmentId: saved.attachmentId as string,
+                      status: "uploaded",
+                      url: saved.url,
+                    }
+                  : existing,
+              ),
+            );
+          } catch (error) {
+            setFiles((prev) =>
+              prev.map((existing) =>
+                existing.id === draftFile.id ? { ...existing, status: "error" } : existing,
+              ),
+            );
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : `Image upload failed for "${file.name}". Retry the upload or remove the attachment.`,
             );
           }
-
-          const { storageId } = await uploadResponse.json() as { storageId: string };
-          const saved = await saveAttachment({
-            workspaceId: workspaceId as never,
-            storageId: storageId as never,
-            fileName: file.name,
-            contentType: file.type || 'application/octet-stream',
-            fileSize: file.size,
-            kind: 'image',
-          });
-
-          setFiles((prev) =>
-            prev.map((existing) =>
-              existing.id === draftFile.id
-                ? {
-                    ...existing,
-                    attachmentId: saved.attachmentId as string,
-                    status: 'uploaded',
-                    url: saved.url,
-                  }
-                : existing,
-            ),
-          );
-        } catch (error) {
-          setFiles((prev) =>
-            prev.map((existing) =>
-              existing.id === draftFile.id
-                ? { ...existing, status: 'error' }
-                : existing,
-            ),
-          );
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : `Image upload failed for "${file.name}". Retry the upload or remove the attachment.`,
-          );
-        }
-      }),
-    );
-  }, [controlPlaneEnabled, controlPlaneWorkspaces, createControlPlaneWorkspace, files, generateUploadUrl, restWorkspaces, saveAttachment]);
+        }),
+      );
+    },
+    [controlPlaneEnabled, files, generateUploadUrl, restWorkspaces, saveAttachment],
+  );
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     await uploadFiles(Array.from(e.target.files || []));
-    e.target.value = '';
+    e.target.value = "";
   };
 
   const removeFile = (id: string) => {
@@ -1437,7 +1501,7 @@ export function PromptBox({
     setSelectedModelId(model.id);
     setReasoningEffort(nextReasoningEffort);
     setThinkingEnabled(nextThinkingEnabled);
-    localStorage.setItem('ac_default_model', model.id);
+    localStorage.setItem("ac_default_model", model.id);
     emitConfig(model, branch, selectedRepo, sandboxMode, undefined, {
       agentReasoningEffort: nextReasoningEffort,
       agentThinkingEnabled: nextThinkingEnabled,
@@ -1445,7 +1509,7 @@ export function PromptBox({
   };
 
   const handleReasoningEffortChange = (
-    nextValue: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultrathink',
+    nextValue: "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink",
   ) => {
     setReasoningEffort(nextValue);
     emitConfig(selectedModel, branch, selectedRepo, sandboxMode, undefined, {
@@ -1467,7 +1531,7 @@ export function PromptBox({
 
   const handleSandboxMode = (mode: SandboxMode) => {
     setSandboxMode(mode);
-    localStorage.setItem('ac_sandbox_mode', mode);
+    localStorage.setItem("ac_sandbox_mode", mode);
     emitConfig(selectedModel, branch, selectedRepo, mode);
   };
 
@@ -1475,9 +1539,9 @@ export function PromptBox({
     setSelectedRepo(repo);
     setSelectedRepoId(repo?.id ?? null);
     if (repo?.id) {
-      localStorage.setItem('ac_selected_repo', repo.id);
+      localStorage.setItem("ac_selected_repo", repo.id);
     } else {
-      localStorage.removeItem('ac_selected_repo');
+      localStorage.removeItem("ac_selected_repo");
     }
     if (repo?.defaultBranch) {
       setBranch(repo.defaultBranch);
@@ -1488,24 +1552,21 @@ export function PromptBox({
   };
 
   const hasProviderCredentials = selectedCredential?.connected !== false;
-  const hasPendingUploads = files.some((file) => file.status === 'uploading');
+  const hasPendingUploads = files.some((file) => file.status === "uploading");
 
   const resolvedPlaceholder =
-    placeholder ||
-    (compact
-      ? 'Send a message...'
-      : 'Describe what you want to build...');
+    placeholder || (compact ? "Send a message..." : "Describe what you want to build...");
   const providerNotice =
     !isCredentialLoading && !hasProviderCredentials
       ? `${selectedAgent.label} is not connected. Add credentials in Settings -> Models before starting a run.`
       : null;
-  const repoNotice = selectedRepoId === null ? 'Select a repository before starting a run.' : null;
+  const repoNotice = selectedRepoId === null ? "Select a repository before starting a run." : null;
 
   return (
     <div className="w-full">
       <div
         className={`rounded-xl border bg-card shadow-sm overflow-hidden transition-shadow focus-within:ring-2 focus-within:ring-ring/30 focus-within:border-ring/50 ${
-          isDragActive ? 'border-primary/60 ring-2 ring-primary/20' : 'border-border'
+          isDragActive ? "border-primary/60 ring-2 ring-primary/20" : "border-border"
         }`}
         onDragEnter={(event) => {
           event.preventDefault();
@@ -1535,7 +1596,7 @@ export function PromptBox({
                 key={file.id}
                 className="flex items-center gap-2 pl-2 pr-1.5 py-1 rounded-lg bg-muted text-xs text-foreground"
               >
-                {file.type === 'image' && (file.url || file.previewUrl) ? (
+                {file.type === "image" && (file.url || file.previewUrl) ? (
                   <img
                     src={file.url ?? file.previewUrl}
                     alt={file.name}
@@ -1547,10 +1608,10 @@ export function PromptBox({
                 <div className="min-w-0">
                   <span className="block max-w-[140px] truncate">{file.name}</span>
                   <span className="block text-muted-foreground">
-                    {file.status === 'uploading'
-                      ? 'Uploading...'
-                      : file.status === 'error'
-                        ? 'Upload failed'
+                    {file.status === "uploading"
+                      ? "Uploading..."
+                      : file.status === "error"
+                        ? "Upload failed"
                         : file.size}
                   </span>
                 </div>
@@ -1573,7 +1634,7 @@ export function PromptBox({
           onKeyDown={handleKeyDown}
           onPaste={async (event) => {
             const pastedFiles = Array.from(event.clipboardData.files || []).filter((file) =>
-              file.type.startsWith('image/'),
+              file.type.startsWith("image/"),
             );
             if (pastedFiles.length === 0) return;
             event.preventDefault();
@@ -1588,7 +1649,7 @@ export function PromptBox({
             px-4 py-3
             max-h-[40vh]
             disabled:cursor-not-allowed disabled:opacity-50
-            ${compact ? 'min-h-[44px]' : 'min-h-[100px]'}
+            ${compact ? "min-h-[44px]" : "min-h-[100px]"}
           `}
         />
 
@@ -1604,18 +1665,11 @@ export function PromptBox({
 
             <div className="w-px h-4 bg-border/50" />
 
-            <BranchSelector
-              branch={branch}
-              onSelect={handleBranchSelect}
-              disabled={lockConfig}
-            />
+            <BranchSelector branch={branch} onSelect={handleBranchSelect} disabled={lockConfig} />
 
             <div className="w-px h-4 bg-border/50" />
 
-            <ModelSelector
-              selectedModelId={selectedModelId}
-              onSelect={handleModelPick}
-            />
+            <ModelSelector selectedModelId={selectedModelId} onSelect={handleModelPick} />
 
             <TraitsSelector
               model={selectedModel}
@@ -1627,10 +1681,7 @@ export function PromptBox({
 
             <div className="w-px h-4 bg-border/50" />
 
-            <SandboxSelector
-              mode={sandboxMode}
-              onSelect={handleSandboxMode}
-            />
+            <SandboxSelector mode={sandboxMode} onSelect={handleSandboxMode} />
           </div>
 
           {/* Right: actions */}
@@ -1679,8 +1730,10 @@ export function PromptBox({
 
             {canComposeWhileStreaming && hasContent ? (
               <Button
-                onClick={() => handleSubmit('steer')}
-                disabled={isSubmitting || !hasProviderCredentials || hasPendingUploads || !selectedRepoId}
+                onClick={() => handleSubmit("steer")}
+                disabled={
+                  isSubmitting || !hasProviderCredentials || hasPendingUploads || !selectedRepoId
+                }
                 size="sm"
                 variant="outline"
                 className="h-7 rounded-full px-2.5 text-[11px]"
@@ -1702,9 +1755,9 @@ export function PromptBox({
               </Button>
             ) : (
               <Button
-                onClick={() => handleSubmit(canComposeWhileStreaming ? 'queue' : 'send')}
+                onClick={() => handleSubmit(canComposeWhileStreaming ? "queue" : "send")}
                 disabled={
-                  (isStreaming && !canComposeWhileStreaming)
+                  isStreaming && !canComposeWhileStreaming
                     ? true
                     : (!hasContent && !isStreaming) ||
                       isSubmitting ||
@@ -1716,9 +1769,11 @@ export function PromptBox({
                 className="h-7 w-7 rounded-full ml-1"
                 title={
                   canComposeWhileStreaming
-                    ? (hasContent ? `Queue follow-up (${primaryShortcutLabel})` : `Stop current run (${primaryShortcutLabel})`)
+                    ? hasContent
+                      ? `Queue follow-up (${primaryShortcutLabel})`
+                      : `Stop current run (${primaryShortcutLabel})`
                     : isStreaming
-                      ? 'Stop'
+                      ? "Stop"
                       : `Send (${primaryShortcutLabel})`
                 }
               >
@@ -1734,14 +1789,10 @@ export function PromptBox({
           </div>
         </div>
         {repoNotice && !providerNotice && (
-          <div className="px-4 pb-3 text-[11px] text-muted-foreground/75">
-            {repoNotice}
-          </div>
+          <div className="px-4 pb-3 text-[11px] text-muted-foreground/75">{repoNotice}</div>
         )}
         {providerNotice && (
-          <div className="px-4 pb-3 text-[11px] text-amber-600">
-            {providerNotice}
-          </div>
+          <div className="px-4 pb-3 text-[11px] text-amber-600">{providerNotice}</div>
         )}
       </div>
     </div>

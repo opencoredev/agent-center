@@ -52,7 +52,9 @@ const schema = defineSchema({
     lastUsedAt: v.optional(v.number()),
     expiresAt: v.optional(v.number()),
     createdAt: v.optional(v.number()),
-  }).index("by_keyHash", ["keyHash"]).index("by_user", ["userId"]),
+  })
+    .index("by_keyHash", ["keyHash"])
+    .index("by_user", ["userId"]),
 
   credentials: defineTable({
     workspaceId: v.optional(v.id("workspaces")),
@@ -79,12 +81,15 @@ const schema = defineSchema({
     ownerId: v.optional(v.id("users")),
     slug: v.string(),
     name: v.string(),
-    ownerIdentity: v.string(),
+    ownerIdentity: v.optional(v.string()),
     description: v.optional(v.string()),
     metadata: v.optional(v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_slug", ["slug"]).index("by_ownerIdentity", ["ownerIdentity"]).index("by_ownerId", ["ownerId"]),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_ownerIdentity", ["ownerIdentity"])
+    .index("by_ownerId", ["ownerId"]),
 
   projects: defineTable({
     workspaceId: v.id("workspaces"),
@@ -96,7 +101,9 @@ const schema = defineSchema({
     metadata: v.optional(v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_workspace_slug", ["workspaceId", "slug"]).index("by_workspace", ["workspaceId"]),
+  })
+    .index("by_workspace_slug", ["workspaceId", "slug"])
+    .index("by_workspace", ["workspaceId"]),
 
   repoConnections: defineTable({
     workspaceId: v.id("workspaces"),
@@ -126,7 +133,9 @@ const schema = defineSchema({
     metadata: v.optional(v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_kind", ["kind"]).index("by_key", ["key"]),
+  })
+    .index("by_kind", ["kind"])
+    .index("by_key", ["key"]),
 
   sandboxes: defineTable({
     workspaceId: v.id("workspaces"),
@@ -143,7 +152,9 @@ const schema = defineSchema({
     metadata: v.optional(v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_run", ["runId"]).index("by_workspace_status", ["workspaceId", "status"]),
+  })
+    .index("by_run", ["runId"])
+    .index("by_workspace_status", ["workspaceId", "status"]),
 
   tasks: defineTable({
     workspaceId: v.id("workspaces"),
@@ -208,7 +219,9 @@ const schema = defineSchema({
     metadata: v.optional(v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_task", ["taskId"]).index("by_run", ["runId"]),
+  })
+    .index("by_task", ["taskId"])
+    .index("by_run", ["runId"]),
 
   messages: defineTable({
     threadId: v.id("threads"),
@@ -218,7 +231,9 @@ const schema = defineSchema({
     parts: v.optional(v.any()),
     metadata: v.optional(v.any()),
     createdAt: v.number(),
-  }).index("by_thread", ["threadId"]).index("by_run", ["runId"]),
+  })
+    .index("by_thread", ["threadId"])
+    .index("by_run", ["runId"]),
 
   attachments: defineTable({
     workspaceId: v.id("workspaces"),

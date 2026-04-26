@@ -13,6 +13,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -40,7 +41,7 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await apiFetch("/api/auth/login", {
+      const res = await apiFetch(mode === "signin" ? "/api/auth/login" : "/api/auth/signup", {
         method: "POST",
         body: JSON.stringify({ username, password }),
       });
@@ -50,8 +51,25 @@ export function LoginPage() {
         return;
       }
 
+      if (res.status === 409) {
+        setError("That username is already taken");
+        return;
+      }
+
+      if (res.status === 403) {
+        setError("Sign up is currently disabled");
+        return;
+      }
+
       if (!res.ok) {
-        setError(`Login failed (${res.status})`);
+        let message = `${mode === "signin" ? "Sign in" : "Sign up"} failed (${res.status})`;
+        try {
+          const body = (await res.json()) as { error?: { message?: string } };
+          message = body.error?.message ?? message;
+        } catch {
+          // Keep the status-based fallback when the response is not JSON.
+        }
+        setError(message);
         return;
       }
 
@@ -78,11 +96,38 @@ export function LoginPage() {
             <Zap className="w-5 h-5 text-primary" />
           </div>
           <h1 className="text-lg font-semibold text-foreground">Agent Center</h1>
-          <p className="text-sm text-muted-foreground mt-1">Sign in to continue</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {mode === "signin" ? "Sign in to continue" : "Create your account"}
+          </p>
         </div>
 
         <Card>
           <CardContent className="pt-6 space-y-4">
+            <div className="grid grid-cols-2 rounded-md bg-muted p-1">
+              <Button
+                type="button"
+                variant={mode === "signin" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => {
+                  setMode("signin");
+                  setError("");
+                }}
+              >
+                Sign in
+              </Button>
+              <Button
+                type="button"
+                variant={mode === "signup" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => {
+                  setMode("signup");
+                  setError("");
+                }}
+              >
+                Sign up
+              </Button>
+            </div>
+
             {/* Google OAuth */}
             <Button type="button" variant="outline" onClick={handleGoogleLogin} className="w-full">
               Continue with Google
@@ -110,12 +155,19 @@ export function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
                 required
-                autoComplete="current-password"
+                minLength={mode === "signup" ? 8 : undefined}
+                autoComplete={mode === "signin" ? "current-password" : "new-password"}
               />
               {error && <p className="text-xs text-destructive text-center">{error}</p>}
               <Button type="submit" disabled={loading} className="w-full">
                 {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                {loading ? "Signing in..." : "Sign In"}
+                {loading
+                  ? mode === "signin"
+                    ? "Signing in..."
+                    : "Creating account..."
+                  : mode === "signin"
+                    ? "Sign in"
+                    : "Sign up"}
               </Button>
             </form>
           </CardContent>

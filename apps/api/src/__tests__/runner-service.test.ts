@@ -155,11 +155,27 @@ const mockFindRunnerById = mock(async () => ownedRunner);
 const mockFindRunnerRegistrationTokenById = mock(async () => activeRegistrationToken);
 const mockListRunnerRegistrationTokens = mock(async () => []);
 const mockListRunners = mock(async () => []);
+const mockRegisterRunnerWithToken = mock(async () => {
+  if (registrationTokenConsumed) {
+    return {
+      status: "already_used" as const,
+      runner: null,
+    };
+  }
+
+  registrationTokenConsumed = true;
+
+  return {
+    status: "registered" as const,
+    runner: ownedRunner,
+  };
+});
 const mockUpdateRunner = mock(async () => ownedRunner);
 const mockUpdateRunnerRegistrationToken = mock(async () => activeRegistrationToken);
 
 mock.module("../repositories/workspace-repository", () => ({
   findWorkspaceById: mockFindWorkspaceById,
+  listWorkspaces: mock(async () => [ownedWorkspace, otherWorkspace]),
 }));
 
 mock.module("../repositories/runner-repository", () => ({
@@ -170,12 +186,19 @@ mock.module("../repositories/runner-repository", () => ({
   findRunnerRegistrationTokenById: mockFindRunnerRegistrationTokenById,
   listRunnerRegistrationTokens: mockListRunnerRegistrationTokens,
   listRunners: mockListRunners,
+  registerRunnerWithToken: mockRegisterRunnerWithToken,
   updateRunner: mockUpdateRunner,
   updateRunnerRegistrationToken: mockUpdateRunnerRegistrationToken,
 }));
 
 mock.module("../services/serializers", () => ({
-  serializeRepoConnection: (repoConnection: { createdAt: Date; updatedAt: Date } & Record<string, unknown>) => ({
+  serializePublicationState: () => ({
+    status: "unpublished",
+    pullRequest: null,
+  }),
+  serializeRepoConnection: (
+    repoConnection: { createdAt: Date; updatedAt: Date } & Record<string, unknown>,
+  ) => ({
     ...repoConnection,
     createdAt: repoConnection.createdAt.toISOString(),
     updatedAt: repoConnection.updatedAt.toISOString(),
@@ -201,9 +224,16 @@ mock.module("../services/serializers", () => ({
     createdAt: token.createdAt.toISOString(),
     updatedAt: token.updatedAt.toISOString(),
   }),
+  serializeRun: (run: Record<string, unknown>) => run,
+  serializeRunEvent: (event: Record<string, unknown>) => event,
+  serializeTask: (task: Record<string, unknown>) => task,
 }));
 
-const { runnerService } = await import("../services/runner-service");
+const runnerServiceModulePath = "../services/runner-service.ts?runner-service-test";
+const { runnerService } = (await import(
+  runnerServiceModulePath
+)) as typeof import("../services/runner-service");
+mock.restore();
 
 describe("runner-service", () => {
   beforeEach(() => {
@@ -216,6 +246,7 @@ describe("runner-service", () => {
     mockFindRunnerRegistrationTokenById.mockClear();
     mockListRunnerRegistrationTokens.mockClear();
     mockListRunners.mockClear();
+    mockRegisterRunnerWithToken.mockClear();
     mockUpdateRunner.mockClear();
     mockUpdateRunnerRegistrationToken.mockClear();
   });

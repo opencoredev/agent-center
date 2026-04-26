@@ -11,9 +11,7 @@ export interface AutomationListFilters {
 
 export function listAutomations(filters: AutomationListFilters) {
   return convexServiceClient.query(api.serviceApi.listAutomations, {
-    workspaceId: filters.workspaceId
-      ? asConvexId<"workspaces">(filters.workspaceId)
-      : undefined,
+    workspaceId: filters.workspaceId ? asConvexId<"workspaces">(filters.workspaceId) : undefined,
     projectId: filters.projectId ? asConvexId<"projects">(filters.projectId) : undefined,
     enabled: filters.enabled,
   });

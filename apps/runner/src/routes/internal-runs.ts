@@ -50,12 +50,7 @@ function parseControlBody(body: unknown): RunControlRequest {
   }
 
   return {
-    reason:
-      typeof body.reason === "string"
-        ? body.reason
-        : body.reason === null
-          ? null
-          : undefined,
+    reason: typeof body.reason === "string" ? body.reason : body.reason === null ? null : undefined,
   };
 }
 

@@ -1,4 +1,8 @@
-import { GitHubAppClient, GitHubAppConfigurationError, GitHubAppApiError } from "@agent-center/github";
+import {
+  GitHubAppClient,
+  GitHubAppConfigurationError,
+  GitHubAppApiError,
+} from "@agent-center/github";
 
 import type { DomainMetadata } from "@agent-center/shared";
 
@@ -32,9 +36,7 @@ function asString(value: unknown) {
 }
 
 function asPositiveInteger(value: unknown) {
-  return typeof value === "number" && Number.isInteger(value) && value > 0
-    ? value
-    : null;
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
 
 function getIssueOrigin(metadata: DomainMetadata | null | undefined): IssueOrigin | null {
@@ -58,7 +60,9 @@ function getIssueOrigin(metadata: DomainMetadata | null | undefined): IssueOrigi
   };
 }
 
-function getMentionReaction(metadata: DomainMetadata | null | undefined): MentionReactionMetadata | null {
+function getMentionReaction(
+  metadata: DomainMetadata | null | undefined,
+): MentionReactionMetadata | null {
   const github = asRecord(asRecord(metadata)?.github);
   const reaction = asRecord(github?.mentionReaction);
   const id = asPositiveInteger(reaction?.id);
@@ -75,7 +79,9 @@ function getMentionReaction(metadata: DomainMetadata | null | undefined): Mentio
   };
 }
 
-function getProgressComment(metadata: DomainMetadata | null | undefined): ProgressCommentMetadata | null {
+function getProgressComment(
+  metadata: DomainMetadata | null | undefined,
+): ProgressCommentMetadata | null {
   const github = asRecord(asRecord(metadata)?.github);
   const progressComment = asRecord(github?.progressComment);
   const id = asPositiveInteger(progressComment?.id);

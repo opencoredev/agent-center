@@ -11,7 +11,11 @@ import { listRepoConnections } from "../repositories/repo-connection-repository"
 import { findWorkspaceById } from "../repositories/workspace-repository";
 import { listWorkspaces } from "../repositories/workspace-repository";
 
-const REQUIRED_GITHUB_APP_FIELDS = ["GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"] as const;
+const REQUIRED_GITHUB_APP_FIELDS = [
+  "GITHUB_APP_ID",
+  "GITHUB_APP_SLUG",
+  "GITHUB_APP_PRIVATE_KEY",
+] as const;
 const GITHUB_API_VERSION = "2022-11-28";
 
 function getMissingFields() {
@@ -59,6 +63,14 @@ function createGitHubAppClient() {
   });
 }
 
+function canUseOwnerlessWorkspace(userId?: string) {
+  return process.env.NODE_ENV !== "production" && userId !== undefined;
+}
+
+function canBrowseUnlinkedInstallations(workspace: Record<string, any> | null, userId?: string) {
+  return workspace?.ownerId === undefined && canUseOwnerlessWorkspace(userId);
+}
+
 async function assertWorkspaceScope(workspaceId: string | undefined, userId?: string) {
   if (userId && !workspaceId) {
     throw new ApiError(
@@ -80,7 +92,11 @@ async function assertWorkspaceScope(workspaceId: string | undefined, userId?: st
     });
   }
 
-  if (userId && workspace.ownerId !== userId) {
+  if (
+    userId &&
+    workspace.ownerId !== userId &&
+    !(workspace.ownerId === undefined && canUseOwnerlessWorkspace(userId))
+  ) {
     throw new ApiError(403, "workspace_forbidden", "You do not have access to this workspace", {
       workspaceId,
     });
@@ -103,7 +119,11 @@ async function listScopedWorkspaceIds(input: { workspaceId?: string; userId?: st
   if (input.userId) {
     const workspaces = await listWorkspaces();
     return workspaces
-      .filter((workspace) => workspace.ownerId === input.userId)
+      .filter(
+        (workspace) =>
+          workspace.ownerId === input.userId ||
+          (workspace.ownerId === undefined && canUseOwnerlessWorkspace(input.userId)),
+      )
       .map((workspace) => workspace.id);
   }
 
@@ -188,10 +208,17 @@ export const githubAppService = {
       return createGitHubAppClient().listInstallations();
     }
 
+    if (!input.workspaceId) {
+      return [];
+    }
+
+    const workspace = await assertWorkspaceScope(input.workspaceId, input.userId);
     const scopedInstallationIds = await listScopedInstallationIds(input);
 
     if (scopedInstallationIds.size === 0) {
-      return [];
+      return canBrowseUnlinkedInstallations(workspace, input.userId)
+        ? createGitHubAppClient().listInstallations()
+        : [];
     }
 
     const installations = await createGitHubAppClient().listInstallations();
@@ -204,12 +231,39 @@ export const githubAppService = {
     userId?: string;
     enforceLinkedScope?: boolean;
   }) {
-    await assertWorkspaceScope(input.workspaceId, input.userId);
+    if (input.userId && !input.workspaceId) {
+      throw new ApiError(
+        400,
+        "github_workspace_scope_required",
+        "workspaceId is required to access GitHub App installations in an authenticated workspace scope",
+      );
+    }
+
+    const workspace = input.workspaceId
+      ? await assertWorkspaceScope(input.workspaceId, input.userId)
+      : null;
 
     if (input.userId && (input.enforceLinkedScope ?? true)) {
       const scopedInstallationIds = await listScopedInstallationIds(input);
 
-      if (!scopedInstallationIds.has(input.installationId)) {
+      // Local dev can contain ownerless legacy workspaces. Allow one first
+      // browse there so the existing workspace can attach its initial repo.
+      if (
+        scopedInstallationIds.size === 0 &&
+        !canBrowseUnlinkedInstallations(workspace, input.userId)
+      ) {
+        throw new ApiError(
+          403,
+          "github_installation_unlinked",
+          "Connect the GitHub App installation to this workspace before browsing repositories",
+          {
+            installationId: input.installationId,
+            workspaceId: input.workspaceId ?? null,
+          },
+        );
+      }
+
+      if (scopedInstallationIds.size > 0 && !scopedInstallationIds.has(input.installationId)) {
         throw new ApiError(
           403,
           "github_installation_forbidden",
@@ -235,16 +289,13 @@ export const githubAppService = {
     const login = `${slug}[bot]`;
 
     try {
-      const response = await fetch(
-        `https://api.github.com/users/${encodeURIComponent(login)}`,
-        {
-          headers: {
-            Accept: "application/vnd.github+json",
-            "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            "User-Agent": "@agent-center/github-app",
-          },
+      const response = await fetch(`https://api.github.com/users/${encodeURIComponent(login)}`, {
+        headers: {
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": GITHUB_API_VERSION,
+          "User-Agent": "@agent-center/github-app",
         },
-      );
+      });
 
       if (!response.ok) {
         return null;
@@ -254,10 +305,12 @@ export const githubAppService = {
         id?: unknown;
         login?: unknown;
       };
-      const userId = typeof payload.id === "number" && Number.isFinite(payload.id) ? payload.id : null;
-      const resolvedLogin = typeof payload.login === "string" && payload.login.trim().length > 0
-        ? payload.login.trim()
-        : login;
+      const userId =
+        typeof payload.id === "number" && Number.isFinite(payload.id) ? payload.id : null;
+      const resolvedLogin =
+        typeof payload.login === "string" && payload.login.trim().length > 0
+          ? payload.login.trim()
+          : login;
 
       if (!userId) {
         return null;
@@ -412,10 +465,7 @@ export const githubAppService = {
         source: "github_app_bot" as const,
       };
     } catch (error) {
-      if (
-        error instanceof GitHubAppConfigurationError ||
-        error instanceof GitHubAppApiError
-      ) {
+      if (error instanceof GitHubAppConfigurationError || error instanceof GitHubAppApiError) {
         return {
           email: "automation@agent.center",
           id: null,

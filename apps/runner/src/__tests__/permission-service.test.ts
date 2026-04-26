@@ -30,15 +30,21 @@ describe("permission-service", () => {
     });
 
     test("blocks shutdown/reboot/halt", () => {
-      expect(() => assertCommandAllowed("shutdown -h now", "safe", {})).toThrow(PermissionDeniedError);
+      expect(() => assertCommandAllowed("shutdown -h now", "safe", {})).toThrow(
+        PermissionDeniedError,
+      );
       expect(() => assertCommandAllowed("reboot", "safe", {})).toThrow(PermissionDeniedError);
       expect(() => assertCommandAllowed("halt", "safe", {})).toThrow(PermissionDeniedError);
       expect(() => assertCommandAllowed("poweroff", "safe", {})).toThrow(PermissionDeniedError);
     });
 
     test("blocks dangerous disk commands", () => {
-      expect(() => assertCommandAllowed("mkfs /dev/sda1", "safe", {})).toThrow(PermissionDeniedError);
-      expect(() => assertCommandAllowed("fdisk /dev/sda", "safe", {})).toThrow(PermissionDeniedError);
+      expect(() => assertCommandAllowed("mkfs /dev/sda1", "safe", {})).toThrow(
+        PermissionDeniedError,
+      );
+      expect(() => assertCommandAllowed("fdisk /dev/sda", "safe", {})).toThrow(
+        PermissionDeniedError,
+      );
       expect(() => assertCommandAllowed("dd if=/dev/zero of=/dev/sda", "safe", {})).toThrow(
         PermissionDeniedError,
       );
@@ -81,7 +87,9 @@ describe("permission-service", () => {
     });
 
     test("allows everything with empty blockedCommands", () => {
-      expect(() => assertCommandAllowed("sudo rm -rf /", "custom", { blockedCommands: [] })).not.toThrow();
+      expect(() =>
+        assertCommandAllowed("sudo rm -rf /", "custom", { blockedCommands: [] }),
+      ).not.toThrow();
     });
 
     test("allows everything with no policy", () => {

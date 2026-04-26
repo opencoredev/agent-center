@@ -2,27 +2,27 @@ import { z } from "zod";
 
 import {
   emptyBodySchema,
+  idSchema,
   nullableTextSchema,
   repoConnectionIdParamsSchema,
   repoProviderSchema,
   requiredTextSchema,
-  uuidSchema,
 } from "./common";
 
 export { repoConnectionIdParamsSchema };
 
 export const repoConnectionListQuerySchema = z
   .object({
-    workspaceId: uuidSchema.optional(),
-    projectId: uuidSchema.optional(),
+    workspaceId: idSchema.optional(),
+    projectId: idSchema.optional(),
     provider: repoProviderSchema.optional(),
   })
   .strict();
 
 export const createRepoConnectionSchema = z
   .object({
-    workspaceId: uuidSchema,
-    projectId: z.union([uuidSchema, z.null()]).default(null),
+    workspaceId: idSchema,
+    projectId: z.union([idSchema, z.null()]).default(null),
     provider: repoProviderSchema.default("github"),
     owner: requiredTextSchema,
     repo: requiredTextSchema,

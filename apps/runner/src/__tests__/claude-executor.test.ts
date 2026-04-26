@@ -43,9 +43,8 @@ mock.module("@anthropic-ai/claude-agent-sdk", () => ({
 }));
 
 // Import after mocking
-const { executeClaudeAgent, startClaudeAgent } = await import(
-  "../services/execution/claude-executor"
-);
+const { executeClaudeAgent, startClaudeAgent } =
+  await import("../services/execution/claude-executor");
 
 describe("claude-executor", () => {
   describe("executeClaudeAgent", () => {

@@ -21,7 +21,7 @@ describe("runFlow", () => {
         executeClaudeAgent: async () => undefined,
         executeCodexAgent: async () => undefined,
         executeCommand: async () => undefined,
-        getFailureMessage: (error) => error instanceof Error ? error.message : "Run failed",
+        getFailureMessage: (error) => (error instanceof Error ? error.message : "Run failed"),
         hasRepository: false,
         markRunStarted: () => undefined,
         onWorkspaceCreated: async () => undefined,
@@ -33,9 +33,17 @@ describe("runFlow", () => {
       }),
     );
 
-    expect(transitionStatus).toHaveBeenCalledWith("provisioning", "Provisioning host-local workspace", "running");
+    expect(transitionStatus).toHaveBeenCalledWith(
+      "provisioning",
+      "Provisioning host-local workspace",
+      "running",
+    );
     expect(transitionStatus).toHaveBeenCalledWith("running", "Starting Codex agent session");
-    expect(transitionStatus).toHaveBeenCalledWith("completed", "Run completed successfully", "completed");
+    expect(transitionStatus).toHaveBeenCalledWith(
+      "completed",
+      "Run completed successfully",
+      "completed",
+    );
     expect(appendCompletedEvent).toHaveBeenCalledTimes(1);
     expect(cleanupWorkspace).toHaveBeenCalledWith("completed");
   });
@@ -57,7 +65,7 @@ describe("runFlow", () => {
         executeClaudeAgent: async () => undefined,
         executeCodexAgent: async () => undefined,
         executeCommand: async () => undefined,
-        getFailureMessage: (error) => error instanceof Error ? error.message : "Readable failure",
+        getFailureMessage: (error) => (error instanceof Error ? error.message : "Readable failure"),
         hasRepository: false,
         markRunStarted: () => undefined,
         onWorkspaceCreated: async () => undefined,
@@ -69,7 +77,12 @@ describe("runFlow", () => {
       }),
     );
 
-    expect(transitionStatus).toHaveBeenCalledWith("failed", "Run has no commands configured", "failed", "Run has no commands configured");
+    expect(transitionStatus).toHaveBeenCalledWith(
+      "failed",
+      "Run has no commands configured",
+      "failed",
+      "Run has no commands configured",
+    );
     expect(appendFailedEvent).toHaveBeenCalledWith("Run has no commands configured");
     expect(cleanupWorkspace).toHaveBeenCalledWith("failed");
   });
@@ -90,7 +103,7 @@ describe("runFlow", () => {
         executeClaudeAgent: async () => undefined,
         executeCodexAgent: async () => undefined,
         executeCommand: async () => undefined,
-        getFailureMessage: (error) => error instanceof Error ? error.message : "Run failed",
+        getFailureMessage: (error) => (error instanceof Error ? error.message : "Run failed"),
         hasRepository: true,
         markRunStarted: () => undefined,
         onWorkspaceCreated: async () => undefined,

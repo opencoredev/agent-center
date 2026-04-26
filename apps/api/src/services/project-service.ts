@@ -10,13 +10,15 @@ import { findWorkspaceById } from "../repositories/workspace-repository";
 import { serializeProject } from "./serializers";
 
 function normalizeProjectSlug(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/-{2,}/g, "-")
-    .slice(0, 64) || "project";
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .replace(/-{2,}/g, "-")
+      .slice(0, 64) || "project"
+  );
 }
 
 export const projectService = {

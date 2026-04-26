@@ -52,8 +52,9 @@ export function createConvexServiceClient(options: {
   function withServiceToken<Func extends ConvexServiceFunction<FunctionType>>(
     args: ServiceCallArgs<Func>[0],
   ): FunctionArgs<Func> {
+    const serviceArgs = args ?? {};
     return {
-      ...(args ?? {}),
+      ...serviceArgs,
       serviceToken: options.serviceToken,
     } as FunctionArgs<Func>;
   }
@@ -64,10 +65,9 @@ export function createConvexServiceClient(options: {
       return client.query(query, ...queryArgs);
     },
     mutation(mutation, ...args) {
-      const mutationArgs = [withServiceToken<typeof mutation>(args[0])] as unknown as ArgsAndOptions<
-        typeof mutation,
-        { skipQueue: boolean }
-      >;
+      const mutationArgs = [
+        withServiceToken<typeof mutation>(args[0]),
+      ] as unknown as ArgsAndOptions<typeof mutation, { skipQueue: boolean }>;
       return client.mutation(mutation, ...mutationArgs);
     },
     action(action, ...args) {

@@ -1,10 +1,7 @@
 import { describeError } from "../lib/errors";
 import { processNextDueAutomation } from "../repositories/worker-repository";
 
-export function createAutomationWorker(options: {
-  batchSize: number;
-  workerId: string;
-}) {
+export function createAutomationWorker(options: { batchSize: number; workerId: string }) {
   return {
     async pollOnce() {
       for (let index = 0; index < options.batchSize; index += 1) {

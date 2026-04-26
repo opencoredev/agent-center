@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { InternalApiAuthError, fetchInternalApiJson, type InternalApiFetch } from "../lib/internal-api";
+import {
+  InternalApiAuthError,
+  fetchInternalApiJson,
+  type InternalApiFetch,
+} from "../lib/internal-api";
 
 describe("internal-api", () => {
   test("sends bearer auth when token is configured", async () => {
