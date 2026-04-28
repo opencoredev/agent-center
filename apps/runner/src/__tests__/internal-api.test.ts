@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   InternalApiAuthError,
+  InternalApiError,
   fetchInternalApiJson,
   type InternalApiFetch,
 } from "../lib/internal-api";
@@ -50,5 +51,40 @@ describe("internal-api", () => {
         token: "runner-token",
       }),
     ).rejects.toBeInstanceOf(InternalApiAuthError);
+  });
+
+  test("does not expose credential route response bodies on errors", async () => {
+    const fetchImpl: InternalApiFetch = async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: "no_runner_openai_credentials",
+            details: {
+              provider: "openai",
+              leaked: "sk-test-secret1234567890",
+            },
+            message: "secret body sk-test-secret1234567890",
+          },
+        }),
+        { status: 422, statusText: "Unprocessable Entity" },
+      );
+    };
+
+    try {
+      await fetchInternalApiJson("/internal/credentials/openai/resolve", undefined, {
+        baseUrl: "http://api.example.test",
+        fetchImpl,
+        token: "runner-token",
+      });
+      expect.unreachable("should have thrown");
+    } catch (error) {
+      expect(error).toBeInstanceOf(InternalApiError);
+      const internalError = error as InternalApiError;
+      expect(internalError.body).toBeNull();
+      expect(internalError.code).toBe("no_runner_openai_credentials");
+      expect(internalError.provider).toBe("openai");
+      expect(internalError.message).not.toContain("sk-test-secret");
+      expect(internalError.message).not.toContain("secret body");
+    }
   });
 });

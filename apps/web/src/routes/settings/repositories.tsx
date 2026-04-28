@@ -41,6 +41,10 @@ interface GitHubAppStatus {
   setupUrl: string | null;
 }
 
+interface GitHubInstallUrl {
+  installUrl: string;
+}
+
 interface GitHubInstallation {
   id: number;
   accountLogin: string;
@@ -85,7 +89,11 @@ export function RepositoriesPage() {
 
   const installReturnParams = useMemo(() => {
     if (typeof window === "undefined") {
-      return { installationId: null as number | null, setupAction: null as string | null };
+      return {
+        installationId: null as number | null,
+        setupAction: null as string | null,
+        state: null as string | null,
+      };
     }
 
     const params = new URLSearchParams(window.location.search);
@@ -100,6 +108,7 @@ export function RepositoriesPage() {
           ? parsedInstallationId
           : null,
       setupAction: params.get("setup_action"),
+      state: params.get("state"),
     };
   }, []);
 
@@ -123,15 +132,32 @@ export function RepositoriesPage() {
     staleTime: 60_000,
   });
 
+  const { data: githubInstallUrl } = useQuery({
+    queryKey: ["github-install-url", workspaceId],
+    queryFn: () => apiGet<GitHubInstallUrl>(`/api/github/install-url?workspaceId=${workspaceId}`),
+    staleTime: 5 * 60_000,
+    enabled: githubAppStatus?.configured === true && workspaceId !== null,
+  });
+  const installUrl = githubInstallUrl?.installUrl ?? null;
+
   const {
     data: installations = [],
     isLoading: installationsLoading,
     isFetching: installationsFetching,
     refetch: refetchInstallations,
   } = useQuery({
-    queryKey: ["github-installations", workspaceId],
-    queryFn: () =>
-      apiGet<GitHubInstallation[]>(`/api/github/installations?workspaceId=${workspaceId}`),
+    queryKey: ["github-installations", workspaceId, installReturnParams.installationId],
+    queryFn: () => {
+      const params = new URLSearchParams({ workspaceId: workspaceId! });
+      if (installReturnParams.installationId !== null) {
+        params.set("installationId", String(installReturnParams.installationId));
+      }
+      if (installReturnParams.state) {
+        params.set("state", installReturnParams.state);
+      }
+
+      return apiGet<GitHubInstallation[]>(`/api/github/installations?${params}`);
+    },
     staleTime: 30_000,
     enabled: githubAppStatus?.configured === true && workspaceId !== null,
   });
@@ -153,13 +179,28 @@ export function RepositoriesPage() {
     isFetching: reposFetching,
     refetch: refetchInstallationRepos,
   } = useQuery({
-    queryKey: ["github-installation-repositories", installationId, workspaceId],
-    queryFn: () =>
-      apiGet<GitHubInstallationRepositoryPage>(
-        `/api/github/installations/${installationId}/repositories?workspaceId=${workspaceId}`,
-      ),
+    queryKey: [
+      "github-installation-repositories",
+      installationId,
+      workspaceId,
+      installReturnParams.state,
+    ],
+    queryFn: () => {
+      const params = new URLSearchParams({ workspaceId: workspaceId! });
+      if (installReturnParams.state) {
+        params.set("state", installReturnParams.state);
+      }
+
+      return apiGet<GitHubInstallationRepositoryPage>(
+        `/api/github/installations/${installationId}/repositories?${params}`,
+      );
+    },
     staleTime: 30_000,
-    enabled: installationId !== null && workspaceId !== null,
+    enabled:
+      installationId !== null &&
+      workspaceId !== null &&
+      (installReturnParams.installationId === null ||
+        installations.some((installation) => installation.id === installationId)),
   });
 
   const installationRepos = useMemo(
@@ -282,9 +323,9 @@ export function RepositoriesPage() {
                   : "GitHub App is not configured in this environment."}
               </p>
             </div>
-            {githubAppStatus?.installUrl ? (
+            {installUrl ? (
               <Button asChild size="sm" className="gap-1.5">
-                <a href={githubAppStatus.installUrl} target="_blank" rel="noreferrer">
+                <a href={installUrl} target="_blank" rel="noreferrer">
                   <Link2 className="w-3.5 h-3.5" />
                   Connect GitHub
                 </a>
@@ -308,9 +349,9 @@ export function RepositoriesPage() {
               <RefreshCw className={`w-3.5 h-3.5 ${installationsFetching ? "animate-spin" : ""}`} />
               Refresh Installations
             </Button>
-            {githubAppStatus?.installUrl ? (
+            {installUrl ? (
               <Button asChild variant="ghost" size="sm" className="text-muted-foreground">
-                <a href={githubAppStatus.installUrl} target="_blank" rel="noreferrer">
+                <a href={installUrl} target="_blank" rel="noreferrer">
                   Don&apos;t see a repository? Add more organizations or repos
                 </a>
               </Button>

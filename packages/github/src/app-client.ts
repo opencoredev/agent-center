@@ -194,12 +194,25 @@ export class GitHubAppClient {
   }
 
   async listInstallations(): Promise<GitHubAppInstallation[]> {
-    const response = await this.#requestJson<GitHubAppInstallationResponse[]>({
-      path: "/app/installations",
-      auth: { type: "app" },
-    });
+    const installations: GitHubAppInstallation[] = [];
+    let page = 1;
 
-    return response.map(mapInstallation);
+    while (true) {
+      const response = await this.#requestJson<GitHubAppInstallationResponse[]>({
+        path: `/app/installations?per_page=100&page=${page}`,
+        auth: { type: "app" },
+      });
+
+      installations.push(...response.map(mapInstallation));
+
+      if (response.length < 100) {
+        break;
+      }
+
+      page += 1;
+    }
+
+    return installations;
   }
 
   async listInstallationRepositories(
@@ -454,11 +467,7 @@ export function buildGitHubAppInstallUrl(input: {
   return url.toString();
 }
 
-function buildHeaders(input: {
-  token: string;
-  userAgent: string;
-  hasBody: boolean;
-}) {
+function buildHeaders(input: { token: string; userAgent: string; hasBody: boolean }) {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
     Authorization: `Bearer ${input.token}`,

@@ -8,6 +8,7 @@ import {
 } from "../../repositories/run-repository";
 import type { ControlAction, ControlIntentPayload } from "../../lib/metadata";
 import { withControlIntent } from "../../lib/metadata";
+import { redactSensitiveData, redactString } from "../../lib/redaction";
 
 interface RunPersistenceOptions {
   runId: string;
@@ -337,19 +338,24 @@ export class RunPersistence {
 
   appendEvent(input: EventInput) {
     return this.enqueue(async () => {
+      const message = input.message === undefined ? null : redactSensitiveData(input.message);
+      const payload = input.payload === undefined ? null : redactSensitiveData(input.payload);
+
       await appendRunEvent(this.runId, {
         eventType: input.eventType,
         level: input.level ?? null,
-        message: input.message ?? null,
-        payload: input.payload ?? null,
+        message,
+        payload,
       });
 
       await updateRunMetadata(this.runId, (metadata) =>
-        withUiSummary(metadata as Record<string, unknown>, {
-          eventType: input.eventType,
-          message: input.message ?? null,
-          payload: input.payload ?? null,
-        }),
+        redactSensitiveData(
+          withUiSummary(metadata as Record<string, unknown>, {
+            eventType: input.eventType,
+            message,
+            payload,
+          }),
+        ),
       );
     });
   }
@@ -374,18 +380,22 @@ export class RunPersistence {
 
   recordControlIntent(action: ControlAction, payload: ControlIntentPayload) {
     return this.enqueue(() =>
-      updateRunMetadata(this.runId, (metadata) => withControlIntent(metadata, action, payload)),
+      updateRunMetadata(this.runId, (metadata) =>
+        redactSensitiveData(withControlIntent(metadata, action, payload)),
+      ),
     );
   }
 
   markControlApplied(action: ControlAction, payload: ControlIntentPayload) {
     return this.enqueue(() =>
       updateRunMetadata(this.runId, (metadata) =>
-        withControlIntent(metadata, action, {
-          ...payload,
-          applied: true,
-          appliedAt: new Date().toISOString(),
-        }),
+        redactSensitiveData(
+          withControlIntent(metadata, action, {
+            ...payload,
+            applied: true,
+            appliedAt: new Date().toISOString(),
+          }),
+        ),
       ),
     );
   }
@@ -413,7 +423,7 @@ export class RunPersistence {
 
       if (status === "failed") {
         runValues.failedAt = now;
-        runValues.errorMessage = options.errorMessage ?? options.message;
+        runValues.errorMessage = redactString(options.errorMessage ?? options.message);
       }
 
       if (status === "cancelled") {
@@ -432,11 +442,11 @@ export class RunPersistence {
       await appendRunEvent(this.runId, {
         eventType: "run.status_changed",
         level: options.level ?? "info",
-        message: options.message,
-        payload: {
+        message: redactString(options.message),
+        payload: redactSensitiveData({
           status,
           ...options.payload,
-        },
+        }),
       });
     });
   }

@@ -192,11 +192,15 @@ authGitHubRoutes.get("/github/callback", async (context) => {
 
   const installationId = context.req.query("installation_id");
   const setupAction = context.req.query("setup_action");
+  const state = context.req.query("state");
   if (installationId) {
     params.set("installation_id", installationId);
   }
   if (setupAction) {
     params.set("setup_action", setupAction);
+  }
+  if (state) {
+    params.set("state", state);
   }
 
   const separator = webBase.includes("?") ? "&" : "?";

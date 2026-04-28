@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import type { Context } from "hono";
 
 import { runApiEffect, tryApiPromise } from "../../effect/http";
+import { ApiError } from "../../http/errors";
 import { validateParams, validateQuery } from "../../http/validation";
 import type { ApiEnv } from "../../http/types";
 import { githubAppService } from "../../services/github-app-service";
@@ -17,25 +18,43 @@ const installationIdParamsSchema = z.object({
 
 const githubInstallationsQuerySchema = z
   .object({
+    installationId: z.coerce.number().int().positive().optional(),
+    state: z.string().trim().min(1).optional(),
     workspaceId: uuidSchema.optional(),
+  })
+  .strict();
+
+const githubInstallUrlQuerySchema = z
+  .object({
+    workspaceId: uuidSchema,
   })
   .strict();
 
 export const githubRoutes = new Hono<ApiEnv>();
 
 async function listInstallationsHandler(context: Context<ApiEnv>) {
-  const { workspaceId } = validateQuery(context, githubInstallationsQuerySchema);
+  const { installationId, state, workspaceId } = validateQuery(
+    context,
+    githubInstallationsQuerySchema,
+  );
   const userId = context.get("userId");
 
   return runApiEffect(
     context,
-    tryApiPromise(() => githubAppService.listInstallations({ workspaceId, userId })),
+    tryApiPromise(() =>
+      githubAppService.listInstallations({
+        installationId,
+        state,
+        workspaceId,
+        userId,
+      }),
+    ),
   );
 }
 
 async function listInstallationRepositoriesHandler(context: Context<ApiEnv>) {
   const { installationId } = validateParams(context, installationIdParamsSchema);
-  const { workspaceId } = validateQuery(context, githubInstallationsQuerySchema);
+  const { state, workspaceId } = validateQuery(context, githubInstallationsQuerySchema);
   const userId = context.get("userId");
 
   return runApiEffect(
@@ -43,6 +62,7 @@ async function listInstallationRepositoriesHandler(context: Context<ApiEnv>) {
     tryApiPromise(() =>
       githubAppService.listInstallationRepositories({
         installationId,
+        state,
         workspaceId,
         userId,
       }),
@@ -78,6 +98,19 @@ githubRoutes.get("/app", async (context) => {
   return runApiEffect(
     context,
     tryApiPromise(() => githubAppService.getStatus()),
+  );
+});
+
+githubRoutes.get("/install-url", async (context) => {
+  const { workspaceId } = validateQuery(context, githubInstallUrlQuerySchema);
+  const userId = context.get("userId");
+  if (!userId) {
+    throw new ApiError(401, "unauthorized", "Authentication required");
+  }
+
+  return runApiEffect(
+    context,
+    tryApiPromise(() => githubAppService.createWorkspaceInstallUrl({ workspaceId, userId })),
   );
 });
 

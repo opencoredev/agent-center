@@ -285,6 +285,43 @@ describe("repo-connection-service", () => {
     expect(result.defaultBranch).toBe("main");
   });
 
+  test("creates the first GitHub App repo connection from a bootstrapped installation", async () => {
+    await expect(
+      repoConnectionService.create(
+        {
+          workspaceId: ownedWorkspace.id,
+          projectId: null,
+          provider: "github",
+          owner: "opencodedev",
+          repo: "agent-center",
+          defaultBranch: null,
+          authType: "github_app_installation",
+          connectionMetadata: {
+            installationId: 42,
+          },
+        },
+        "user-1",
+      ),
+    ).resolves.toMatchObject({
+      workspaceId: ownedWorkspace.id,
+      authType: "github_app_installation",
+      connectionMetadata: {
+        installationId: 42,
+      },
+    });
+
+    expect(mockListRepoConnections).toHaveBeenCalled();
+    expect(mockCreateRepoConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: ownedWorkspace.id,
+        owner: "opencodedev",
+        repo: "agent-center",
+        defaultBranch: "main",
+        authType: "github_app_installation",
+      }),
+    );
+  });
+
   test("upgrades an existing repo connection to GitHub App auth metadata", async () => {
     mockListRepoConnections.mockResolvedValueOnce([
       {

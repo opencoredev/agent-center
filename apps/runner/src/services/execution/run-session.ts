@@ -945,7 +945,9 @@ export class RunSession implements CommandExecutionController {
     if (error instanceof InternalApiAuthError) {
       await this.#persistence.appendLog("Internal API rejected credential resolution", {
         ...basePayload,
+        code: error.code,
         error: error.message,
+        responseProvider: error.provider,
         status: error.status,
         type: error.name,
         warning:
@@ -957,7 +959,9 @@ export class RunSession implements CommandExecutionController {
     if (error instanceof InternalApiError) {
       await this.#persistence.appendLog("Internal API credential resolution failed", {
         ...basePayload,
+        code: error.code,
         error: error.message,
+        responseProvider: error.provider,
         status: error.status,
         type: error.name,
       });

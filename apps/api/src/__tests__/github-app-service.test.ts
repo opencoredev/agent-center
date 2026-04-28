@@ -15,6 +15,11 @@ const ownerlessWorkspace = {
   ownerId: undefined,
 };
 
+const bootstrapWorkspace = {
+  id: "44444444-4444-4444-4444-444444444444",
+  ownerId: "user-1",
+};
+
 const mockGetApp = mock(async () => ({
   id: 3332050,
   slug: "agent-center-dev",
@@ -100,10 +105,19 @@ const mockFindWorkspaceById = mock(async (workspaceId: string) => {
     return ownerlessWorkspace;
   }
 
+  if (workspaceId === bootstrapWorkspace.id) {
+    return bootstrapWorkspace;
+  }
+
   return undefined;
 });
 
-const mockListWorkspaces = mock(async () => [ownedWorkspace, otherWorkspace, ownerlessWorkspace]);
+const mockListWorkspaces = mock(async () => [
+  ownedWorkspace,
+  otherWorkspace,
+  ownerlessWorkspace,
+  bootstrapWorkspace,
+]);
 const mockListRepoConnections = mock(async ({ workspaceId }: { workspaceId?: string }) => {
   if (workspaceId === ownedWorkspace.id) {
     return [
@@ -117,6 +131,64 @@ const mockListRepoConnections = mock(async ({ workspaceId }: { workspaceId?: str
   }
 
   return [];
+});
+let installationLinks: Array<Record<string, unknown>> = [];
+let installStates: Array<Record<string, unknown>> = [];
+const mockListGitHubAppInstallations = mock(async (workspaceId: string) =>
+  installationLinks.filter((installation) => installation.workspaceId === workspaceId),
+);
+const mockUpsertGitHubAppInstallation = mock(async (values: Record<string, unknown>) => {
+  const existingIndex = installationLinks.findIndex(
+    (installation) =>
+      installation.workspaceId === values.workspaceId &&
+      installation.installationId === values.installationId,
+  );
+  const record = {
+    id: "github-app-installation-1",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    ...values,
+  };
+
+  if (existingIndex === -1) {
+    installationLinks.push(record);
+  } else {
+    installationLinks[existingIndex] = {
+      ...installationLinks[existingIndex],
+      ...record,
+    };
+  }
+
+  return record;
+});
+const mockCreateGitHubAppInstallState = mock(async (values: Record<string, unknown>) => {
+  const record = {
+    id: "github-app-install-state-1",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    ...values,
+  };
+  installStates.push(record);
+  return record;
+});
+const mockConsumeGitHubAppInstallState = mock(async (values: Record<string, unknown>) => {
+  const index = installStates.findIndex(
+    (state) =>
+      state.workspaceId === values.workspaceId &&
+      state.userId === values.userId &&
+      state.stateHash === values.stateHash &&
+      state.consumedAt === undefined,
+  );
+  if (index === -1) {
+    return null;
+  }
+
+  installStates[index] = {
+    ...installStates[index],
+    consumedAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  return installStates[index];
 });
 
 mock.module("@agent-center/github", () => ({
@@ -144,8 +216,13 @@ mock.module("@agent-center/github", () => ({
   GitHubProviderError: class GitHubProviderError extends Error {
     status = 500;
   },
-  buildGitHubAppInstallUrl: ({ slug }: { slug: string }) =>
-    `https://github.com/apps/${slug}/installations/new`,
+  buildGitHubAppInstallUrl: ({ slug, state }: { slug: string; state?: string }) => {
+    const url = new URL(`https://github.com/apps/${slug}/installations/new`);
+    if (state) {
+      url.searchParams.set("state", state);
+    }
+    return url.toString();
+  },
   createGitHubProvider: () => ({
     testRepositoryAccess: async () => ({
       ok: true,
@@ -168,6 +245,13 @@ mock.module("../repositories/repo-connection-repository", () => ({
   findRepoConnectionByWorkspaceAndId: mock(async () => undefined),
   listRepoConnections: mockListRepoConnections,
   updateRepoConnection: mock(async () => undefined),
+}));
+
+mock.module("../repositories/github-app-installation-repository", () => ({
+  consumeGitHubAppInstallState: mockConsumeGitHubAppInstallState,
+  createGitHubAppInstallState: mockCreateGitHubAppInstallState,
+  listGitHubAppInstallations: mockListGitHubAppInstallations,
+  upsertGitHubAppInstallation: mockUpsertGitHubAppInstallation,
 }));
 
 const { apiEnv } = await import("../env");
@@ -202,9 +286,25 @@ describe("github-app-service", () => {
     mockFindWorkspaceById.mockClear();
     mockListWorkspaces.mockClear();
     mockListRepoConnections.mockClear();
+    mockListGitHubAppInstallations.mockClear();
+    mockUpsertGitHubAppInstallation.mockClear();
+    mockCreateGitHubAppInstallState.mockClear();
+    mockConsumeGitHubAppInstallState.mockClear();
+    installationLinks = [];
+    installStates = [];
 
     Object.assign(apiEnv, originalApiEnv);
   });
+
+  async function createInstallState(workspaceId = bootstrapWorkspace.id) {
+    const { installUrl } = await githubAppService.createWorkspaceInstallUrl({
+      workspaceId,
+      userId: "user-1",
+    });
+    const state = new URL(installUrl).searchParams.get("state");
+    if (!state) throw new Error("Expected signed GitHub App install state");
+    return state;
+  }
 
   test("returns a healthy status when the app is configured", async () => {
     Object.assign(apiEnv, {
@@ -291,6 +391,81 @@ describe("github-app-service", () => {
     expect(result.totalCount).toBe(1);
   });
 
+  test("links a visible installation to an owned workspace during first repository browse", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
+    const state = await createInstallState();
+    const result = await githubAppService.listInstallationRepositories({
+      installationId: 42,
+      workspaceId: bootstrapWorkspace.id,
+      userId: "user-1",
+      state,
+    });
+
+    expect(mockListRepoConnections).toHaveBeenCalledWith({
+      workspaceId: bootstrapWorkspace.id,
+      provider: "github",
+    });
+    expect(mockUpsertGitHubAppInstallation).toHaveBeenCalledWith({
+      workspaceId: bootstrapWorkspace.id,
+      installationId: 42,
+      accountLogin: "opencoded",
+      accountType: "Organization",
+      targetType: "Organization",
+      repositorySelection: "selected",
+      htmlUrl: "https://github.com/organizations/opencoded/settings/installations/42",
+      appId: 3332050,
+    });
+    expect(mockListInstallationRepositories).toHaveBeenCalledWith(42);
+    expect(result.totalCount).toBe(1);
+  });
+
+  test("rejects first repository browse when the installation is not visible to the app", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
+    const state = await createInstallState();
+    await expect(
+      githubAppService.listInstallationRepositories({
+        installationId: 999,
+        workspaceId: bootstrapWorkspace.id,
+        userId: "user-1",
+        state,
+      }),
+    ).rejects.toMatchObject({
+      code: "github_installation_forbidden",
+      status: 403,
+    });
+    expect(mockUpsertGitHubAppInstallation).not.toHaveBeenCalled();
+  });
+
+  test("rejects first repository browse without signed install state", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
+    await expect(
+      githubAppService.listInstallationRepositories({
+        installationId: 42,
+        workspaceId: bootstrapWorkspace.id,
+        userId: "user-1",
+      }),
+    ).rejects.toMatchObject({
+      code: "github_installation_unlinked",
+      status: 403,
+    });
+    expect(mockUpsertGitHubAppInstallation).not.toHaveBeenCalled();
+  });
+
   test("filters installation listings down to linked workspace installations", async () => {
     Object.assign(apiEnv, {
       GITHUB_APP_ID: "3332050",
@@ -309,6 +484,59 @@ describe("github-app-service", () => {
       }),
     ]);
     expect(result).toHaveLength(1);
+  });
+
+  test("lists installations linked explicitly to a workspace with no repo connections", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+    installationLinks = [
+      {
+        workspaceId: bootstrapWorkspace.id,
+        installationId: 42,
+      },
+    ];
+
+    const result = await githubAppService.listInstallations({
+      workspaceId: bootstrapWorkspace.id,
+      userId: "user-1",
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 42,
+      }),
+    ]);
+  });
+
+  test("links and lists a redirect installation for a workspace with no repo connections", async () => {
+    Object.assign(apiEnv, {
+      GITHUB_APP_ID: "3332050",
+      GITHUB_APP_SLUG: "agent-center-dev",
+      GITHUB_APP_PRIVATE_KEY: "/tmp/agent-center-dev.pem",
+    });
+
+    const state = await createInstallState();
+    const result = await githubAppService.listInstallations({
+      workspaceId: bootstrapWorkspace.id,
+      userId: "user-1",
+      installationId: 42,
+      state,
+    });
+
+    expect(mockUpsertGitHubAppInstallation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: bootstrapWorkspace.id,
+        installationId: 42,
+      }),
+    );
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 42,
+      }),
+    ]);
   });
 
   test("allows local ownerless workspaces to browse installations for first connect", async () => {

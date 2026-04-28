@@ -122,6 +122,35 @@ const schema = defineSchema({
     .index("by_workspace_provider_owner_repo", ["workspaceId", "provider", "owner", "repo"])
     .index("by_provider_owner_repo", ["provider", "owner", "repo"]),
 
+  githubAppInstallations: defineTable({
+    workspaceId: v.id("workspaces"),
+    installationId: v.number(),
+    accountLogin: v.string(),
+    accountType: v.string(),
+    targetType: v.string(),
+    repositorySelection: v.string(),
+    htmlUrl: v.optional(v.string()),
+    appId: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_installationId", ["installationId"])
+    .index("by_workspace_installation", ["workspaceId", "installationId"]),
+
+  githubAppInstallStates: defineTable({
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    stateHash: v.string(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_stateHash", ["stateHash"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_user", ["userId"]),
+
   runtimeProviders: defineTable({
     key: v.string(),
     kind: v.union(...RUNTIME_PROVIDER_KINDS.map((value) => v.literal(value))),

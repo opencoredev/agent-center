@@ -1,12 +1,20 @@
 import {
+  type GitHubAppInstallation,
   GitHubAppApiError,
   GitHubAppClient,
   GitHubAppConfigurationError,
   buildGitHubAppInstallUrl,
 } from "@agent-center/github";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { apiEnv } from "../env";
 import { ApiError } from "../http/errors";
+import {
+  consumeGitHubAppInstallState,
+  createGitHubAppInstallState,
+  listGitHubAppInstallations,
+  upsertGitHubAppInstallation,
+} from "../repositories/github-app-installation-repository";
 import { listRepoConnections } from "../repositories/repo-connection-repository";
 import { findWorkspaceById } from "../repositories/workspace-repository";
 import { listWorkspaces } from "../repositories/workspace-repository";
@@ -17,6 +25,15 @@ const REQUIRED_GITHUB_APP_FIELDS = [
   "GITHUB_APP_PRIVATE_KEY",
 ] as const;
 const GITHUB_API_VERSION = "2022-11-28";
+const GITHUB_INSTALL_STATE_TTL_MS = 10 * 60 * 1000;
+
+interface GitHubInstallStatePayload {
+  exp: number;
+  nonce: string;
+  purpose: "github_app_install";
+  userId: string;
+  workspaceId: string;
+}
 
 function getMissingFields() {
   return REQUIRED_GITHUB_APP_FIELDS.filter((field) => {
@@ -33,6 +50,83 @@ function getInstallUrl() {
   return buildGitHubAppInstallUrl({
     slug: apiEnv.GITHUB_APP_SLUG,
   });
+}
+
+function base64UrlEncode(value: string) {
+  return Buffer.from(value, "utf8").toString("base64url");
+}
+
+function base64UrlDecode(value: string) {
+  return Buffer.from(value, "base64url").toString("utf8");
+}
+
+function getInstallStateSecret() {
+  const secret = apiEnv.CREDENTIAL_ENCRYPTION_KEY ?? apiEnv.GITHUB_APP_PRIVATE_KEY;
+  if (!secret) {
+    throw new ApiError(
+      501,
+      "github_app_install_state_not_configured",
+      "GitHub App install state signing is not configured",
+    );
+  }
+
+  return secret;
+}
+
+function signStatePayload(encodedPayload: string) {
+  return createHmac("sha256", getInstallStateSecret()).update(encodedPayload).digest("base64url");
+}
+
+function hashInstallState(state: string) {
+  return createHash("sha256").update(state).digest("hex");
+}
+
+function createInstallState(input: { userId: string; workspaceId: string }) {
+  const payload: GitHubInstallStatePayload = {
+    exp: Date.now() + GITHUB_INSTALL_STATE_TTL_MS,
+    nonce: randomBytes(16).toString("base64url"),
+    purpose: "github_app_install",
+    userId: input.userId,
+    workspaceId: input.workspaceId,
+  };
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  return `${encodedPayload}.${signStatePayload(encodedPayload)}`;
+}
+
+function verifyInstallState(state: string): GitHubInstallStatePayload {
+  const [encodedPayload, signature] = state.split(".");
+  if (!encodedPayload || !signature) {
+    throw new ApiError(403, "github_install_state_invalid", "Invalid GitHub App install state");
+  }
+
+  const expectedSignature = signStatePayload(encodedPayload);
+  const expectedBuffer = Buffer.from(expectedSignature);
+  const receivedBuffer = Buffer.from(signature);
+  if (
+    expectedBuffer.length !== receivedBuffer.length ||
+    !timingSafeEqual(expectedBuffer, receivedBuffer)
+  ) {
+    throw new ApiError(403, "github_install_state_invalid", "Invalid GitHub App install state");
+  }
+
+  let payload: GitHubInstallStatePayload;
+  try {
+    payload = JSON.parse(base64UrlDecode(encodedPayload)) as GitHubInstallStatePayload;
+  } catch {
+    throw new ApiError(403, "github_install_state_invalid", "Invalid GitHub App install state");
+  }
+
+  if (
+    payload.purpose !== "github_app_install" ||
+    typeof payload.userId !== "string" ||
+    typeof payload.workspaceId !== "string" ||
+    typeof payload.exp !== "number" ||
+    payload.exp <= Date.now()
+  ) {
+    throw new ApiError(403, "github_install_state_invalid", "Invalid GitHub App install state");
+  }
+
+  return payload;
 }
 
 function buildBaseStatus() {
@@ -110,6 +204,19 @@ function extractInstallationId(connectionMetadata: Record<string, unknown> | nul
   return Number.isInteger(installationId) && installationId > 0 ? installationId : null;
 }
 
+function getInstallationLinkValues(workspaceId: string, installation: GitHubAppInstallation) {
+  return {
+    workspaceId,
+    installationId: installation.id,
+    accountLogin: installation.accountLogin,
+    accountType: installation.accountType,
+    targetType: installation.targetType,
+    repositorySelection: installation.repositorySelection,
+    htmlUrl: installation.htmlUrl,
+    appId: installation.appId,
+  };
+}
+
 async function listScopedWorkspaceIds(input: { workspaceId?: string; userId?: string }) {
   if (input.workspaceId) {
     await assertWorkspaceScope(input.workspaceId, input.userId);
@@ -141,6 +248,15 @@ async function listScopedInstallationIds(input: { workspaceId?: string; userId?:
   const installationIds = new Set<number>();
 
   for (const workspaceId of workspaceIds) {
+    const installationLinks = await listGitHubAppInstallations(workspaceId);
+
+    for (const installationLink of installationLinks) {
+      const installationId = Number(installationLink.installationId);
+      if (Number.isInteger(installationId) && installationId > 0) {
+        installationIds.add(installationId);
+      }
+    }
+
     const repoConnections = await listRepoConnections({
       workspaceId,
       provider: "github",
@@ -162,6 +278,64 @@ async function listScopedInstallationIds(input: { workspaceId?: string; userId?:
   }
 
   return installationIds;
+}
+
+async function findVisibleInstallation(installationId: number) {
+  const installations = await createGitHubAppClient().listInstallations();
+  return installations.find((installation) => installation.id === installationId) ?? null;
+}
+
+async function linkVisibleInstallationToWorkspace(input: {
+  state: string;
+  workspaceId: string;
+  installationId: number;
+  userId: string;
+}) {
+  const payload = verifyInstallState(input.state);
+  if (payload.workspaceId !== input.workspaceId || payload.userId !== input.userId) {
+    throw new ApiError(
+      403,
+      "github_install_state_forbidden",
+      "GitHub App install state does not match this workspace",
+      {
+        installationId: input.installationId,
+        workspaceId: input.workspaceId,
+      },
+    );
+  }
+
+  const installation = await findVisibleInstallation(input.installationId);
+
+  if (!installation) {
+    throw new ApiError(
+      403,
+      "github_installation_forbidden",
+      "The requested GitHub App installation is not available to this app",
+      {
+        installationId: input.installationId,
+        workspaceId: input.workspaceId,
+      },
+    );
+  }
+
+  const consumedState = await consumeGitHubAppInstallState({
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    stateHash: hashInstallState(input.state),
+  });
+  if (!consumedState) {
+    throw new ApiError(
+      403,
+      "github_install_state_invalid",
+      "GitHub App install state is invalid, expired, or already used",
+      {
+        installationId: input.installationId,
+        workspaceId: input.workspaceId,
+      },
+    );
+  }
+
+  await upsertGitHubAppInstallation(getInstallationLinkValues(input.workspaceId, installation));
 }
 
 export const githubAppService = {
@@ -203,7 +377,39 @@ export const githubAppService = {
     }
   },
 
-  async listInstallations(input: { workspaceId?: string; userId?: string } = {}) {
+  async createWorkspaceInstallUrl(input: { workspaceId: string; userId: string }) {
+    const missingFields = getMissingFields();
+    if (missingFields.length > 0) {
+      throw new ApiError(501, "github_app_not_configured", "GitHub App is not configured", {
+        missingFields,
+      });
+    }
+
+    await assertWorkspaceScope(input.workspaceId, input.userId);
+    const state = createInstallState(input);
+    await createGitHubAppInstallState({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      stateHash: hashInstallState(state),
+      expiresAt: verifyInstallState(state).exp,
+    });
+
+    return {
+      installUrl: buildGitHubAppInstallUrl({
+        slug: apiEnv.GITHUB_APP_SLUG!,
+        state,
+      }),
+    };
+  },
+
+  async listInstallations(
+    input: {
+      installationId?: number;
+      state?: string;
+      workspaceId?: string;
+      userId?: string;
+    } = {},
+  ) {
     if (!input.userId) {
       return createGitHubAppClient().listInstallations();
     }
@@ -214,6 +420,27 @@ export const githubAppService = {
 
     const workspace = await assertWorkspaceScope(input.workspaceId, input.userId);
     const scopedInstallationIds = await listScopedInstallationIds(input);
+
+    if (input.installationId && !scopedInstallationIds.has(input.installationId)) {
+      if (!input.state) {
+        throw new ApiError(
+          403,
+          "github_install_state_required",
+          "GitHub App install state is required to link a new installation",
+          {
+            installationId: input.installationId,
+            workspaceId: input.workspaceId,
+          },
+        );
+      }
+      await linkVisibleInstallationToWorkspace({
+        workspaceId: input.workspaceId,
+        installationId: input.installationId,
+        userId: input.userId,
+        state: input.state,
+      });
+      scopedInstallationIds.add(input.installationId);
+    }
 
     if (scopedInstallationIds.size === 0) {
       return canBrowseUnlinkedInstallations(workspace, input.userId)
@@ -227,6 +454,7 @@ export const githubAppService = {
 
   async listInstallationRepositories(input: {
     installationId: number;
+    state?: string;
     workspaceId?: string;
     userId?: string;
     enforceLinkedScope?: boolean;
@@ -246,33 +474,29 @@ export const githubAppService = {
     if (input.userId && (input.enforceLinkedScope ?? true)) {
       const scopedInstallationIds = await listScopedInstallationIds(input);
 
-      // Local dev can contain ownerless legacy workspaces. Allow one first
-      // browse there so the existing workspace can attach its initial repo.
-      if (
-        scopedInstallationIds.size === 0 &&
-        !canBrowseUnlinkedInstallations(workspace, input.userId)
-      ) {
-        throw new ApiError(
-          403,
-          "github_installation_unlinked",
-          "Connect the GitHub App installation to this workspace before browsing repositories",
-          {
+      if (!scopedInstallationIds.has(input.installationId)) {
+        if (
+          input.workspaceId &&
+          input.state &&
+          !canBrowseUnlinkedInstallations(workspace, input.userId)
+        ) {
+          await linkVisibleInstallationToWorkspace({
+            workspaceId: input.workspaceId,
             installationId: input.installationId,
-            workspaceId: input.workspaceId ?? null,
-          },
-        );
-      }
-
-      if (scopedInstallationIds.size > 0 && !scopedInstallationIds.has(input.installationId)) {
-        throw new ApiError(
-          403,
-          "github_installation_forbidden",
-          "The requested GitHub App installation is not linked to the selected workspace scope",
-          {
-            installationId: input.installationId,
-            workspaceId: input.workspaceId ?? null,
-          },
-        );
+            userId: input.userId,
+            state: input.state,
+          });
+        } else if (!canBrowseUnlinkedInstallations(workspace, input.userId)) {
+          throw new ApiError(
+            403,
+            "github_installation_unlinked",
+            "Connect the GitHub App installation to this workspace before browsing repositories",
+            {
+              installationId: input.installationId,
+              workspaceId: input.workspaceId ?? null,
+            },
+          );
+        }
       }
     }
 

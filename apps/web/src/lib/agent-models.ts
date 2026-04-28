@@ -48,15 +48,17 @@ export const AGENTS: AgentEntry[] = [
     id: "opencode",
     label: "OpenCode",
     logoId: "opencode",
-    localSetupKey: "ac_harness_setup_opencode",
-    disabledReason: "Set up the OpenCode account on this device before choosing its harness.",
+    comingSoon: true,
+    disabledReason:
+      "OpenCode cloud harness support is coming soon. Agent Center will manage this connection here when it is available.",
   },
   {
     id: "cursor",
     label: "Cursor",
     logoId: "cursor",
-    localSetupKey: "ac_harness_setup_cursor",
-    disabledReason: "Set up the Cursor account on this device before choosing its harness.",
+    comingSoon: true,
+    disabledReason:
+      "Cursor cloud harness support is coming soon. Agent Center will manage this connection here when it is available.",
   },
 ];
 
@@ -186,17 +188,19 @@ export const MODELS: ModelEntry[] = [
     id: "opencode-sonnet",
     agentId: "opencode",
     label: "OpenCode Sonnet",
-    description: "OpenCode harness using your local account login",
+    description: "Cloud harness support coming soon",
     context: "200K",
     speed: "Fast",
+    comingSoon: true,
   },
   {
     id: "cursor-agent",
     agentId: "cursor",
     label: "Cursor Agent",
-    description: "Cursor harness using your local account login",
+    description: "Cloud harness support coming soon",
     context: "200K",
     speed: "Fast",
+    comingSoon: true,
   },
 ];
 

@@ -649,8 +649,59 @@ describe("credential-service", () => {
     });
   });
 
+  describe("storeOpenAITokens", () => {
+    test("encrypts Codex id_token before storing credential metadata", async () => {
+      await credentialService.storeOpenAITokens(
+        "oauth-access-token",
+        "oauth-refresh-token",
+        3600,
+        "oauth-id-token",
+        "user-1",
+      );
+
+      expect(mockLastConvexMutationArgs).toMatchObject({
+        provider: "openai",
+        source: "oauth",
+        userId: "user-1",
+      });
+      const metadata = (mockLastConvexMutationArgs as { metadata?: Record<string, unknown> })
+        .metadata;
+      expect(metadata?.idToken).toBeUndefined();
+      expect(typeof metadata?.encryptedIdToken).toBe("string");
+      expect(metadata?.encryptedIdToken).not.toBe("oauth-id-token");
+    });
+  });
+
   describe("resolveCodexCredential", () => {
-    test("returns reconstructed auth.json from stored oauth tokens", async () => {
+    test("returns reconstructed auth.json from stored oauth tokens with encrypted id token", async () => {
+      const encKey = "test-encryption-key-for-unit-tests";
+      const encryptedAccessToken = encrypt("oauth-access-token", encKey);
+      const encryptedRefreshToken = encrypt("oauth-refresh-token", encKey);
+      const encryptedIdToken = encrypt("oauth-id-token", encKey);
+
+      mockSelectResult.push({
+        id: "cred-openai-1",
+        provider: "openai",
+        source: "oauth",
+        encryptedApiKey: null,
+        encryptedAccessToken,
+        encryptedRefreshToken,
+        tokenExpiresAt: null,
+        metadata: { encryptedIdToken },
+      });
+
+      const result = await credentialService.resolveCodexCredential("user-1");
+      expect(result.type).toBe("auth_json");
+      expect(JSON.parse(result.value)).toEqual({
+        tokens: {
+          access_token: "oauth-access-token",
+          refresh_token: "oauth-refresh-token",
+          id_token: "oauth-id-token",
+        },
+      });
+    });
+
+    test("keeps resolving legacy plaintext id token metadata", async () => {
       const encKey = "test-encryption-key-for-unit-tests";
       const encryptedAccessToken = encrypt("oauth-access-token", encKey);
       const encryptedRefreshToken = encrypt("oauth-refresh-token", encKey);
@@ -667,14 +718,7 @@ describe("credential-service", () => {
       });
 
       const result = await credentialService.resolveCodexCredential("user-1");
-      expect(result.type).toBe("auth_json");
-      expect(JSON.parse(result.value)).toEqual({
-        tokens: {
-          access_token: "oauth-access-token",
-          refresh_token: "oauth-refresh-token",
-          id_token: "oauth-id-token",
-        },
-      });
+      expect(JSON.parse(result.value).tokens.id_token).toBe("oauth-id-token");
     });
   });
 
@@ -705,6 +749,7 @@ describe("credential-service", () => {
       const encKey = "test-encryption-key-for-unit-tests";
       const encryptedAccessToken = encrypt("oauth-access-token", encKey);
       const encryptedRefreshToken = encrypt("oauth-refresh-token", encKey);
+      const encryptedIdToken = encrypt("oauth-id-token", encKey);
 
       mockSelectResult.push({
         id: "cred-openai-1",
@@ -714,7 +759,7 @@ describe("credential-service", () => {
         encryptedAccessToken,
         encryptedRefreshToken,
         tokenExpiresAt: null,
-        metadata: { idToken: "oauth-id-token" },
+        metadata: { encryptedIdToken },
       });
 
       try {

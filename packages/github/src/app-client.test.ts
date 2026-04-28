@@ -30,7 +30,7 @@ describe("github app client", () => {
 
   test("lists installations with an app JWT", async () => {
     const fetchMock = mock(async (url: string, init?: RequestInit) => {
-      expect(url).toBe("https://api.github.com/app/installations");
+      expect(url).toBe("https://api.github.com/app/installations?per_page=100&page=1");
       expect(init?.headers).toMatchObject({
         Accept: "application/vnd.github+json",
         Authorization: expect.stringContaining("Bearer "),
@@ -78,6 +78,73 @@ describe("github app client", () => {
         appId: 3332050,
       },
     ]);
+  });
+
+  test("lists all installation pages", async () => {
+    const fetchMock = mock(async (url: string) => {
+      if (url === "https://api.github.com/app/installations?per_page=100&page=1") {
+        return new Response(
+          JSON.stringify(
+            Array.from({ length: 100 }, (_, index) => ({
+              id: index + 1,
+              target_type: "Organization",
+              repository_selection: "selected",
+              html_url: `https://github.com/organizations/org-${index + 1}/settings/installations/${index + 1}`,
+              app_id: 3332050,
+              account: {
+                login: `org-${index + 1}`,
+                type: "Organization",
+              },
+            })),
+          ),
+          {
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      }
+
+      if (url === "https://api.github.com/app/installations?per_page=100&page=2") {
+        return new Response(
+          JSON.stringify([
+            {
+              id: 101,
+              target_type: "Organization",
+              repository_selection: "all",
+              html_url: "https://github.com/organizations/final-org/settings/installations/101",
+              app_id: 3332050,
+              account: {
+                login: "final-org",
+                type: "Organization",
+              },
+            },
+          ]),
+          {
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      }
+
+      throw new Error(`unexpected fetch url: ${url}`);
+    });
+
+    const client = new GitHubAppClient({
+      appId: "3332050",
+      slug: "agent-center-dev",
+      privateKey: createPrivateKeyPem(),
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    const installations = await client.listInstallations();
+
+    expect(installations).toHaveLength(101);
+    expect(installations.at(-1)).toMatchObject({
+      id: 101,
+      accountLogin: "final-org",
+    });
   });
 
   test("creates an installation token before listing installation repositories", async () => {
@@ -177,7 +244,9 @@ describe("github app client", () => {
         });
       }
 
-      if (url === "https://api.github.com/repos/opencoded/agent.center/issues/comments/999/reactions") {
+      if (
+        url === "https://api.github.com/repos/opencoded/agent.center/issues/comments/999/reactions"
+      ) {
         expect(init?.method).toBe("POST");
         expect(init?.headers).toMatchObject({
           Authorization: "Bearer ghs_installation_token",
@@ -288,7 +357,10 @@ describe("github app client", () => {
         return new Response(null, { status: 204 });
       }
 
-      if (url === "https://api.github.com/repos/opencoded/agent.center/issues/comments/999/reactions/502") {
+      if (
+        url ===
+        "https://api.github.com/repos/opencoded/agent.center/issues/comments/999/reactions/502"
+      ) {
         expect(init?.method).toBe("DELETE");
         expect(init?.headers).toMatchObject({
           Authorization: "Bearer ghs_installation_token",

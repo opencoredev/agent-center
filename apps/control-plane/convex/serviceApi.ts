@@ -856,6 +856,138 @@ export const getGitHubAppRepoConnectionByRepository = query({
   },
 });
 
+export const listGitHubAppInstallations = query({
+  args: {
+    ...serviceArgs,
+    workspaceId: v.id("workspaces"),
+  },
+  returns: v.array(v.any()),
+  handler: async (ctx, args) => {
+    requireServiceToken(args.serviceToken);
+
+    const installations = await ctx.db
+      .query("githubAppInstallations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+
+    return sortByCreatedAtDesc(installations).map(toApiRecord);
+  },
+});
+
+export const upsertGitHubAppInstallation = mutation({
+  args: {
+    ...serviceArgs,
+    workspaceId: v.id("workspaces"),
+    installationId: v.number(),
+    accountLogin: v.string(),
+    accountType: v.string(),
+    targetType: v.string(),
+    repositorySelection: v.string(),
+    htmlUrl: optionalNullableString,
+    appId: v.number(),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    requireServiceToken(args.serviceToken);
+
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("githubAppInstallations")
+      .withIndex("by_workspace_installation", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("installationId", args.installationId),
+      )
+      .first();
+    const values = {
+      accountLogin: args.accountLogin,
+      accountType: args.accountType,
+      targetType: args.targetType,
+      repositorySelection: args.repositorySelection,
+      htmlUrl: toNullableField(args.htmlUrl),
+      appId: args.appId,
+      updatedAt: now,
+    };
+
+    if (existing) {
+      await ctx.db.patch(existing._id, values);
+      const installation = await ctx.db.get(existing._id);
+      return installation ? toApiRecord(installation) : null;
+    }
+
+    const installationId = await ctx.db.insert("githubAppInstallations", {
+      workspaceId: args.workspaceId,
+      installationId: args.installationId,
+      ...values,
+      createdAt: now,
+    });
+    const installation = await ctx.db.get(installationId);
+    if (!installation) throw new Error("Failed to create GitHub App installation link");
+    return toApiRecord(installation);
+  },
+});
+
+export const createGitHubAppInstallState = mutation({
+  args: {
+    ...serviceArgs,
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    stateHash: v.string(),
+    expiresAt: v.number(),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    requireServiceToken(args.serviceToken);
+
+    const now = Date.now();
+    const id = await ctx.db.insert("githubAppInstallStates", {
+      workspaceId: args.workspaceId,
+      userId: args.userId,
+      stateHash: args.stateHash,
+      expiresAt: args.expiresAt,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const record = await ctx.db.get(id);
+    if (!record) throw new Error("Failed to create GitHub App install state");
+    return toApiRecord(record);
+  },
+});
+
+export const consumeGitHubAppInstallState = mutation({
+  args: {
+    ...serviceArgs,
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    stateHash: v.string(),
+  },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, args) => {
+    requireServiceToken(args.serviceToken);
+
+    const record = await ctx.db
+      .query("githubAppInstallStates")
+      .withIndex("by_stateHash", (q) => q.eq("stateHash", args.stateHash))
+      .first();
+
+    if (
+      !record ||
+      record.workspaceId !== args.workspaceId ||
+      record.userId !== args.userId ||
+      record.consumedAt !== undefined ||
+      record.expiresAt <= Date.now()
+    ) {
+      return null;
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(record._id, {
+      consumedAt: now,
+      updatedAt: now,
+    });
+    const consumed = await ctx.db.get(record._id);
+    return consumed ? toApiRecord(consumed) : null;
+  },
+});
+
 export const createRepoConnection = mutation({
   args: {
     ...serviceArgs,

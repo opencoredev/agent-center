@@ -2,20 +2,42 @@ import { runnerRuntimeEnv } from "../env";
 
 export class InternalApiError extends Error {
   readonly body: string | null;
+  readonly code: string | null;
+  readonly provider: string | null;
   readonly status: number;
   readonly url: string;
 
-  constructor(message: string, options: { body?: string | null; status: number; url: string }) {
+  constructor(
+    message: string,
+    options: {
+      body?: string | null;
+      code?: string | null;
+      provider?: string | null;
+      status: number;
+      url: string;
+    },
+  ) {
     super(message);
     this.name = "InternalApiError";
     this.body = options.body ?? null;
+    this.code = options.code ?? null;
+    this.provider = options.provider ?? null;
     this.status = options.status;
     this.url = options.url;
   }
 }
 
 export class InternalApiAuthError extends InternalApiError {
-  constructor(message: string, options: { body?: string | null; status: number; url: string }) {
+  constructor(
+    message: string,
+    options: {
+      body?: string | null;
+      code?: string | null;
+      provider?: string | null;
+      status: number;
+      url: string;
+    },
+  ) {
     super(message, options);
     this.name = "InternalApiAuthError";
   }
@@ -62,6 +84,43 @@ async function readResponseBody(response: Response) {
   return body.trim().length > 0 ? body : null;
 }
 
+function isCredentialRoute(path: string) {
+  return path.startsWith("/internal/credentials/");
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function parseCredentialErrorDetails(body: string | null) {
+  if (!body) {
+    return {};
+  }
+
+  try {
+    const parsed = asRecord(JSON.parse(body));
+    const error = asRecord(parsed?.error);
+    const details = asRecord(error?.details);
+    const code = typeof error?.code === "string" ? error.code : null;
+    const provider = typeof details?.provider === "string" ? details.provider : null;
+    return { code, provider };
+  } catch {
+    return {};
+  }
+}
+
+function buildCredentialErrorMessage(status: number, statusText: string, body: string | null) {
+  const details = parseCredentialErrorDetails(body);
+  const code = details.code ? `, code ${details.code}` : "";
+  const provider = details.provider ? `, provider ${details.provider}` : "";
+  return {
+    ...details,
+    message: `Internal credential API request failed (${status} ${statusText}${code}${provider})`,
+  };
+}
+
 export async function fetchInternalApiJson<T>(
   path: string,
   init: RequestInit = {},
@@ -75,11 +134,26 @@ export async function fetchInternalApiJson<T>(
 
   if (!response.ok) {
     const body = await readResponseBody(response);
-    const message = body ?? `${response.status} ${response.statusText}`;
+    const credentialError = isCredentialRoute(path)
+      ? buildCredentialErrorMessage(response.status, response.statusText, body)
+      : null;
+    const message = credentialError?.message ?? body ?? `${response.status} ${response.statusText}`;
     const error =
       response.status === 401 || response.status === 403
-        ? new InternalApiAuthError(message, { body, status: response.status, url })
-        : new InternalApiError(message, { body, status: response.status, url });
+        ? new InternalApiAuthError(message, {
+            body: credentialError ? null : body,
+            code: credentialError?.code,
+            provider: credentialError?.provider,
+            status: response.status,
+            url,
+          })
+        : new InternalApiError(message, {
+            body: credentialError ? null : body,
+            code: credentialError?.code,
+            provider: credentialError?.provider,
+            status: response.status,
+            url,
+          });
     throw error;
   }
 

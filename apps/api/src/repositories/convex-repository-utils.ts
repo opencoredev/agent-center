@@ -2,6 +2,8 @@ import type { Id } from "@agent-center/control-plane/data-model";
 
 type TableName =
   | "automations"
+  | "githubAppInstallations"
+  | "githubAppInstallStates"
   | "projects"
   | "repoConnections"
   | "runnerRegistrationTokens"

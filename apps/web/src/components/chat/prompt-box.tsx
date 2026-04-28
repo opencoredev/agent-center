@@ -506,7 +506,9 @@ function ModelSelector({
     ? "Checking connection..."
     : activeAgent.credentialPath
       ? `Connect ${activeAgent.label}`
-      : `Set up ${activeAgent.label}`;
+      : activeAgent.comingSoon
+        ? "Coming soon in cloud"
+        : `Manage ${activeAgent.label}`;
 
   return (
     <Popover
@@ -681,7 +683,7 @@ function ModelSelector({
                       <p className="text-sm font-medium text-foreground">{activeAgent.label}</p>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">
                         {activeAgent.disabledReason ??
-                          `Connect or set up ${activeAgent.label} before choosing its models.`}
+                          `Connect ${activeAgent.label} in Settings -> Models before choosing its models.`}
                       </p>
                     </div>
                   </div>
@@ -957,7 +959,7 @@ function isSelectableSandboxMode(mode: SandboxMode) {
 
 function getRuntimeSetupDescription(providerKey: string, fallback: string) {
   if (providerKey !== "convex_bash") return fallback;
-  return "Log in with bunx convex dev or bunx convex login, then configure deployment/runtime";
+  return "Hosted cloud runtime managed by Agent Center";
 }
 
 export function runtimeForSandboxMode(mode: SandboxMode): ExecutionRuntime {
@@ -1064,9 +1066,9 @@ function SandboxSelector({
     },
     {
       value: "cloud_light",
-      label: "Convex Bash",
+      label: "Hosted Cloud",
       icon: Cloud,
-      desc: "Log in with bunx convex dev or bunx convex login, then configure deployment/runtime",
+      desc: "Hosted cloud runtime managed by Agent Center",
     },
     {
       value: "cloud_full",
@@ -1718,7 +1720,7 @@ export function PromptBox({
     placeholder || (compact ? "Send a message..." : "Describe what you want to build...");
   const providerNotice =
     !isCredentialLoading && !hasProviderCredentials
-      ? `${selectedAgent.label} is not ready. Connect or set up the harness account in Settings -> Models before starting a run.`
+      ? `${selectedAgent.label} is not ready. Connect the harness account in Settings -> Models before starting a run.`
       : null;
   const repoNotice = selectedRepoId === null ? "Select a repository before starting a run." : null;
 

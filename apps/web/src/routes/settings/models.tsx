@@ -4,11 +4,11 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Copy,
   ExternalLink,
   Loader2,
   LogOut,
   ShieldCheck,
-  Terminal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiDelete, apiGet, apiPost } from "@/lib/api-client";
@@ -65,35 +65,30 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
   },
 ];
 
-interface LocalSetupConfig {
+interface HarnessSupportConfig {
   id: "opencode" | "cursor";
   title: string;
   logoId: AgentEntry["logoId"];
-  storageKey: string;
-  command: string;
   description: string;
   detail: string;
 }
 
-const LOCAL_SETUP_CONFIGS: LocalSetupConfig[] = [
+const CODEX_AUTH_IMPORT_COMMAND = `codex login && if command -v pbcopy >/dev/null 2>&1; then pbcopy < ~/.codex/auth.json && echo "Copied ~/.codex/auth.json to clipboard"; elif command -v wl-copy >/dev/null 2>&1; then wl-copy < ~/.codex/auth.json && echo "Copied ~/.codex/auth.json to clipboard"; elif command -v xclip >/dev/null 2>&1; then xclip -selection clipboard < ~/.codex/auth.json && echo "Copied ~/.codex/auth.json to clipboard"; else cat ~/.codex/auth.json; fi`;
+
+const HARNESS_SUPPORT_CONFIGS: HarnessSupportConfig[] = [
   {
     id: "opencode",
     title: "OpenCode",
     logoId: "opencode",
-    storageKey: "ac_harness_setup_opencode",
-    command: "opencode auth login",
-    description: "Device/session setup for the OpenCode harness.",
-    detail: "Run the login command in this repo shell, then mark this device ready.",
+    description: "Cloud harness support for OpenCode is coming soon.",
+    detail: "Agent Center will manage this account connection here when hosted support is available.",
   },
   {
     id: "cursor",
     title: "Cursor",
     logoId: "cursor",
-    storageKey: "ac_harness_setup_cursor",
-    command: "cursor-agent login",
-    description: "Device/session setup for the Cursor harness.",
-    detail:
-      "Run the login command in the same environment that launches tasks, then mark this device ready.",
+    description: "Cloud harness support for Cursor is coming soon.",
+    detail: "Agent Center will manage this account connection here when hosted support is available.",
   },
 ];
 
@@ -306,6 +301,7 @@ function ProviderConnectionCard({ config }: { config: ProviderConfig }) {
   const isConnected = credStatus?.connected === true;
   const isMutating =
     exchangeClaudeMutation.isPending || saveCodexMutation.isPending || disconnectMutation.isPending;
+  const [copyCommandLabel, setCopyCommandLabel] = useState("Copy command");
 
   async function startClaudeConnect() {
     try {
@@ -318,6 +314,17 @@ function ProviderConnectionCard({ config }: { config: ProviderConfig }) {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start Claude sign-in");
+    }
+  }
+
+  async function copyCodexImportCommand() {
+    try {
+      await navigator.clipboard.writeText(CODEX_AUTH_IMPORT_COMMAND);
+      setCopyCommandLabel("Copied");
+      window.setTimeout(() => setCopyCommandLabel("Copy command"), 1800);
+    } catch {
+      setCopyCommandLabel("Copy failed");
+      window.setTimeout(() => setCopyCommandLabel("Copy command"), 1800);
     }
   }
 
@@ -444,6 +451,28 @@ function ProviderConnectionCard({ config }: { config: ProviderConfig }) {
               <label className="text-xs font-medium text-foreground" htmlFor="codex-auth-json">
                 Paste your Codex account session
               </label>
+              <div className="mt-2 rounded-md border border-border/70 bg-background p-2">
+                <div className="flex items-start gap-2">
+                  <code className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-foreground">
+                    {CODEX_AUTH_IMPORT_COMMAND}
+                  </code>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 gap-1.5"
+                    onClick={() => void copyCodexImportCommand()}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    {copyCommandLabel}
+                  </Button>
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                  Run this on macOS or Linux. It opens Codex login, then copies
+                  <code className="mx-1 rounded bg-muted px-1 py-0.5">~/.codex/auth.json</code>
+                  to your clipboard when possible, or prints it for paste.
+                </p>
+              </div>
               <textarea
                 id="codex-auth-json"
                 value={codexAuthJson}
@@ -454,8 +483,8 @@ function ProviderConnectionCard({ config }: { config: ProviderConfig }) {
               />
               <div className="mt-2 flex items-center justify-between gap-3">
                 <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  Run <code className="rounded bg-muted px-1 py-0.5">codex login</code>, then paste
-                  the local auth JSON. This uses your account session.
+                  Paste the auth JSON here to connect your Codex account session to this Agent
+                  Center workspace.
                 </p>
                 <Button
                   type="submit"
@@ -476,19 +505,7 @@ function ProviderConnectionCard({ config }: { config: ProviderConfig }) {
   );
 }
 
-function LocalSetupRow({ config }: { config: LocalSetupConfig }) {
-  const [isReady, setIsReady] = useState(() => localStorage.getItem(config.storageKey) === "true");
-
-  const setReady = (nextReady: boolean) => {
-    setIsReady(nextReady);
-    if (nextReady) {
-      localStorage.setItem(config.storageKey, "true");
-    } else {
-      localStorage.removeItem(config.storageKey);
-    }
-    window.dispatchEvent(new Event("agent-harness-setup-change"));
-  };
-
+function HarnessSupportRow({ config }: { config: HarnessSupportConfig }) {
   return (
     <div className="py-5 border-b border-border/50 last:border-0">
       <div className="flex items-start gap-4">
@@ -498,73 +515,15 @@ function LocalSetupRow({ config }: { config: LocalSetupConfig }) {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-medium text-foreground">{config.title}</h3>
-                {isReady && (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-status-success/30 bg-status-success/10 px-2 py-0.5 text-[11px] font-medium text-status-success">
-                    <ShieldCheck className="h-3 w-3" />
-                    Device ready
-                  </span>
-                )}
+                <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  Coming soon in cloud
+                </span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">{config.description}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <code className="rounded-md border border-border/70 bg-muted/40 px-2 py-1 font-mono text-xs text-foreground">
-                  {config.command}
-                </code>
-                <span className="text-[11px] text-muted-foreground">{config.detail}</span>
-              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                {config.detail}
+              </p>
             </div>
-            <Button
-              variant={isReady ? "ghost" : "outline"}
-              size="sm"
-              className="h-8 shrink-0 gap-1.5"
-              onClick={() => setReady(!isReady)}
-            >
-              {isReady ? (
-                <>
-                  <LogOut className="h-3.5 w-3.5" />
-                  Clear
-                </>
-              ) : (
-                <>
-                  <Check className="h-3.5 w-3.5" />
-                  Mark ready
-                </>
-              )}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RuntimeSetupRow() {
-  return (
-    <div className="py-5 border-b border-border/50 last:border-0">
-      <div className="flex items-start gap-4">
-        <ProviderLogo logoId="convex" className="w-6 h-6 text-foreground shrink-0 mt-0.5" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-medium text-foreground">Convex Runtime</h3>
-            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-              <Terminal className="h-3 w-3" />
-              Repo setup
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            Log in to Convex from this repo, then configure the deployment/runtime for task
-            launches.
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <code className="rounded-md border border-border/70 bg-muted/40 px-2 py-1 font-mono text-xs text-foreground">
-              bunx convex dev
-            </code>
-            <code className="rounded-md border border-border/70 bg-muted/40 px-2 py-1 font-mono text-xs text-foreground">
-              bunx convex login
-            </code>
-            <span className="text-[11px] text-muted-foreground">
-              Use the repo convention before selecting a managed runtime.
-            </span>
           </div>
         </div>
       </div>
@@ -602,16 +561,15 @@ export function ModelsPage() {
       <section>
         <h2 className="text-sm font-medium text-foreground mb-1">Account Connections</h2>
         <p className="text-xs text-muted-foreground mb-4">
-          Connect or set up harness accounts to enable model choices for task runs.
+          Connect hosted account sessions for agent harnesses in this workspace.
         </p>
         <div className="rounded-lg border border-border bg-card px-4">
           {PROVIDER_CONFIGS.map((config) => (
             <ProviderConnectionCard key={config.id} config={config} />
           ))}
-          {LOCAL_SETUP_CONFIGS.map((config) => (
-            <LocalSetupRow key={config.id} config={config} />
+          {HARNESS_SUPPORT_CONFIGS.map((config) => (
+            <HarnessSupportRow key={config.id} config={config} />
           ))}
-          <RuntimeSetupRow />
         </div>
       </section>
     </div>

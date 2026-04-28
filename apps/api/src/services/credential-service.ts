@@ -7,6 +7,10 @@ import { apiEnv } from "../env";
 import { convexServiceClient } from "./convex-service-client";
 
 type Provider = "claude" | "openai";
+type OpenAICredentialMetadata = {
+  encryptedIdToken?: unknown;
+  idToken?: unknown;
+};
 
 function getEncryptionKey(): string {
   const key = apiEnv.CREDENTIAL_ENCRYPTION_KEY;
@@ -164,9 +168,18 @@ async function storeOpenAITokens(
     encryptedAccessToken: encrypt(accessToken, key),
     encryptedRefreshToken: encrypt(refreshToken, key),
     encryptedApiKey: null,
-    metadata: idToken ? { idToken } : {},
+    metadata: idToken ? { encryptedIdToken: encrypt(idToken, key) } : {},
     tokenExpiresAt: expiresIn ? Date.now() + expiresIn * 1000 : null,
   });
+}
+
+function decryptOpenAIIdToken(metadata: unknown, key: string) {
+  const openAIMetadata = metadata as OpenAICredentialMetadata | null;
+  if (typeof openAIMetadata?.encryptedIdToken === "string") {
+    return decrypt(openAIMetadata.encryptedIdToken, key);
+  }
+
+  return typeof openAIMetadata?.idToken === "string" ? openAIMetadata.idToken : undefined;
 }
 
 async function resolveOpenAICredential(userId: string): Promise<ResolvedCredential> {
@@ -187,8 +200,7 @@ async function resolveOpenAICredential(userId: string): Promise<ResolvedCredenti
     const key = getEncryptionKey();
     const accessToken = decrypt(row.encryptedAccessToken, key);
     const refreshToken = decrypt(row.encryptedRefreshToken, key);
-    const metadata = row.metadata as { idToken?: unknown } | null;
-    const idToken = typeof metadata?.idToken === "string" ? metadata.idToken : undefined;
+    const idToken = decryptOpenAIIdToken(row.metadata, key);
 
     return {
       type: "auth_json",
@@ -289,8 +301,7 @@ async function resolveGlobalProviderCredential(
     const key = getEncryptionKey();
     const accessToken = decrypt(row.encryptedAccessToken, key);
     const refreshToken = decrypt(row.encryptedRefreshToken, key);
-    const metadata = row.metadata as { idToken?: unknown } | null;
-    const idToken = typeof metadata?.idToken === "string" ? metadata.idToken : undefined;
+    const idToken = decryptOpenAIIdToken(row.metadata, key);
 
     return {
       type: "auth_json",
