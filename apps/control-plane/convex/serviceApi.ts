@@ -128,6 +128,63 @@ export const upsertGoogleUser = mutation({
   },
 });
 
+export const upsertGitHubOAuthUser = mutation({
+  args: {
+    ...serviceArgs,
+    email: v.string(),
+    githubId: v.string(),
+    login: v.string(),
+    name: v.optional(v.string()),
+    avatarUrl: v.optional(v.string()),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    requireServiceToken(args.serviceToken);
+
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .unique();
+
+    if (existing) {
+      const linkedAuth =
+        existing.authProvider === "github"
+          ? {
+              authProvider: "github",
+              authProviderId: args.githubId,
+            }
+          : {};
+      const patch = {
+        ...linkedAuth,
+        name: args.name ?? args.login,
+        avatarUrl: args.avatarUrl ?? existing.avatarUrl,
+        updatedAt: now,
+      };
+
+      await ctx.db.patch(existing._id, patch);
+
+      return toApiRecord({
+        ...existing,
+        ...patch,
+      });
+    }
+
+    const userId = await ctx.db.insert("users", {
+      email: args.email,
+      name: args.name ?? args.login,
+      avatarUrl: args.avatarUrl,
+      authProvider: "github",
+      authProviderId: args.githubId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const user = await ctx.db.get(userId);
+    return user ? toApiRecord(user) : null;
+  },
+});
+
 export const upsertLocalBasicAuthUser = mutation({
   args: {
     ...serviceArgs,
@@ -196,6 +253,7 @@ export const createLocalPasswordUser = mutation({
   args: {
     ...serviceArgs,
     username: v.string(),
+    email: v.optional(v.string()),
     passwordHash: v.string(),
   },
   returns: v.any(),
@@ -213,10 +271,19 @@ export const createLocalPasswordUser = mutation({
       return null;
     }
 
+    const existingEmail = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email ?? args.username))
+      .unique();
+
+    if (existingEmail) {
+      return null;
+    }
+
     const now = Date.now();
     const userId = await ctx.db.insert("users", {
-      email: `${args.username}@local.agent.center`,
-      name: args.username,
+      email: args.email ?? `${args.username}@local.agent.center`,
+      name: args.email ?? args.username,
       authProvider: "local-password",
       authProviderId: args.username,
       passwordHash: args.passwordHash,

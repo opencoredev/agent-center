@@ -22,12 +22,13 @@ const pbkdf2 = promisify(pbkdf2Callback);
 
 type LocalPasswordUser = {
   id: string;
+  email?: string;
   name?: string;
   passwordHash?: string;
 };
 
-function normalizeUsername(username: string) {
-  return username.trim().toLowerCase();
+function normalizeIdentifier(identifier: string) {
+  return identifier.trim().toLowerCase();
 }
 
 function isSignupDisabled() {
@@ -42,30 +43,26 @@ function safeEqual(left: string, right: string) {
   }
 }
 
-function validateCredentials(username: string | undefined, password: string | undefined) {
-  const normalizedUsername = normalizeUsername(username ?? "");
+function getEmailFromBody(body: { email?: string; username?: string }) {
+  return normalizeIdentifier(body.email ?? body.username ?? "");
+}
 
-  if (!normalizedUsername || !password) {
-    throw new ApiError(400, "bad_request", "Username and password are required");
+function validateCredentials(email: string | undefined, password: string | undefined) {
+  const normalizedEmail = normalizeIdentifier(email ?? "");
+
+  if (!normalizedEmail || !password) {
+    throw new ApiError(400, "bad_request", "Email and password are required");
   }
 
-  if (normalizedUsername.length < 3 || normalizedUsername.length > 64) {
-    throw new ApiError(400, "bad_request", "Username must be between 3 and 64 characters");
-  }
-
-  if (!/^[a-z0-9._-]+$/.test(normalizedUsername)) {
-    throw new ApiError(
-      400,
-      "bad_request",
-      "Username may only include letters, numbers, dots, underscores, and hyphens",
-    );
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedEmail.length > 254) {
+    throw new ApiError(400, "bad_request", "Enter a valid email address");
   }
 
   if (password.length < 8 || password.length > 256) {
     throw new ApiError(400, "bad_request", "Password must be between 8 and 256 characters");
   }
 
-  return { username: normalizedUsername, password };
+  return { email: normalizedEmail, password };
 }
 
 async function hashPassword(password: string) {
@@ -181,10 +178,11 @@ authLoginRoutes.post("/login", async (context) => {
   const authUsername = process.env.AUTH_USERNAME;
   const authPassword = process.env.AUTH_PASSWORD;
 
-  const body = await context.req.json<{ username: string; password: string }>();
+  const body = await context.req.json<{ email?: string; username?: string; password: string }>();
+  const identifier = getEmailFromBody(body);
 
-  if (!body.username || !body.password) {
-    throw new ApiError(400, "bad_request", "Username and password are required");
+  if (!identifier || !body.password) {
+    throw new ApiError(400, "bad_request", "Email and password are required");
   }
 
   const expiresAt = Date.now() + TOKEN_EXPIRY_MS;
@@ -192,7 +190,7 @@ authLoginRoutes.post("/login", async (context) => {
   if (
     authUsername &&
     authPassword &&
-    safeEqual(body.username, authUsername) &&
+    safeEqual(identifier, authUsername) &&
     safeEqual(body.password, authPassword)
   ) {
     let token: string;
@@ -210,13 +208,12 @@ authLoginRoutes.post("/login", async (context) => {
     });
   }
 
-  const username = normalizeUsername(body.username);
   const user = (await convexServiceClient.query(api.serviceApi.getLocalPasswordUser, {
-    username,
+    username: identifier,
   })) as LocalPasswordUser | null;
 
   if (!user || !(await verifyPassword(body.password, user.passwordHash))) {
-    throw new ApiError(401, "invalid_credentials", "Invalid username or password");
+    throw new ApiError(401, "invalid_credentials", "Invalid email or password");
   }
 
   const token = await createSessionForUser(user.id as Id<"users">, expiresAt);
@@ -232,24 +229,25 @@ authLoginRoutes.post("/signup", async (context) => {
     throw new ApiError(403, "signup_disabled", "Sign up is currently disabled");
   }
 
-  const body = await context.req.json<{ username: string; password: string }>();
-  const { username, password } = validateCredentials(body.username, body.password);
+  const body = await context.req.json<{ email?: string; username?: string; password: string }>();
+  const { email, password } = validateCredentials(getEmailFromBody(body), body.password);
   const existingUser = await convexServiceClient.query(api.serviceApi.getLocalPasswordUser, {
-    username,
+    username: email,
   });
 
   if (existingUser) {
-    throw new ApiError(409, "username_taken", "That username is already taken");
+    throw new ApiError(409, "email_taken", "That email is already in use");
   }
 
   const passwordHash = await hashPassword(password);
   const user = (await convexServiceClient.mutation(api.serviceApi.createLocalPasswordUser, {
-    username,
+    username: email,
+    email,
     passwordHash,
   })) as LocalPasswordUser | null;
 
   if (!user) {
-    throw new ApiError(409, "username_taken", "That username is already taken");
+    throw new ApiError(409, "email_taken", "That email is already in use");
   }
 
   const expiresAt = Date.now() + TOKEN_EXPIRY_MS;

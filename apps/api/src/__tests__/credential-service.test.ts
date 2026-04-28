@@ -125,10 +125,14 @@ const mockConvexMutation = mock(async (_ref: unknown, args: unknown) => {
 
   if (args && typeof args === "object") {
     if ("username" in args && "passwordHash" in args) {
+      const email =
+        "email" in args && typeof args.email === "string"
+          ? args.email
+          : `${args.username}@local.agent.center`;
       return {
         id: "local-password-user-1",
-        email: `${args.username}@local.agent.center`,
-        name: args.username,
+        email,
+        name: email,
         authProvider: "local-password",
         authProviderId: args.username,
         passwordHash: args.passwordHash,
@@ -378,7 +382,7 @@ describe("credential-service", () => {
     test("signup creates a local password user and persistent sess token", async () => {
       const response = await createLoginTestApp().request("/api/auth/signup", {
         method: "POST",
-        body: JSON.stringify({ username: "New.User", password: "secret123" }),
+        body: JSON.stringify({ email: "New.User@example.com", password: "secret123" }),
         headers: { "content-type": "application/json" },
       });
 
@@ -395,32 +399,34 @@ describe("credential-service", () => {
       const createUserCall = mockConvexMutationCalls.find(
         (call) =>
           typeof call === "object" && call !== null && "username" in call && "passwordHash" in call,
-      ) as { username: string; passwordHash: string } | undefined;
+      ) as { email?: string; username: string; passwordHash: string } | undefined;
 
       expect(createUserCall).toBeDefined();
-      expect(createUserCall?.username).toBe("new.user");
+      expect(createUserCall?.username).toBe("new.user@example.com");
+      expect(createUserCall?.email).toBe("new.user@example.com");
       expect(createUserCall?.passwordHash.startsWith("pbkdf2$")).toBe(true);
       expect(createUserCall?.passwordHash).not.toContain("secret123");
     });
 
-    test("signup returns a helpful conflict for duplicate usernames", async () => {
+    test("signup returns a helpful conflict for duplicate emails", async () => {
       mockSelectResult.push({
         id: "existing-user",
-        name: "taken",
+        email: "taken@example.com",
+        name: "taken@example.com",
         authProvider: "local-password",
-        authProviderId: "taken",
+        authProviderId: "taken@example.com",
         passwordHash: "pbkdf2$310000$sha256$salt$key",
       });
 
       const response = await createLoginTestApp().request("/api/auth/signup", {
         method: "POST",
-        body: JSON.stringify({ username: "taken", password: "secret123" }),
+        body: JSON.stringify({ email: "taken@example.com", password: "secret123" }),
         headers: { "content-type": "application/json" },
       });
 
       expect(response.status).toBe(409);
       expect(await response.json()).toMatchObject({
-        code: "username_taken",
+        code: "email_taken",
       });
       expect(mockConvexMutationCalled).toBe(false);
     });
@@ -428,7 +434,7 @@ describe("credential-service", () => {
     test("local password login creates a persistent sess token", async () => {
       const signupResponse = await createLoginTestApp().request("/api/auth/signup", {
         method: "POST",
-        body: JSON.stringify({ username: "member", password: "secret123" }),
+        body: JSON.stringify({ email: "member@example.com", password: "secret123" }),
         headers: { "content-type": "application/json" },
       });
       expect(signupResponse.status).toBe(201);
@@ -441,16 +447,17 @@ describe("credential-service", () => {
 
       mockSelectResult.push({
         id: "local-password-user-1",
-        name: "member",
+        email: "member@example.com",
+        name: "member@example.com",
         authProvider: "local-password",
-        authProviderId: "member",
+        authProviderId: "member@example.com",
         passwordHash: createUserCall?.passwordHash,
       });
       mockConvexMutationCalls.length = 0;
 
       const response = await createLoginTestApp().request("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ username: "member", password: "secret123" }),
+        body: JSON.stringify({ email: "member@example.com", password: "secret123" }),
         headers: { "content-type": "application/json" },
       });
 
