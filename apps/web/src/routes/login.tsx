@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch } from "@/lib/api-client";
-import { getApiUrl } from "@/lib/config";
 import { useAuth } from "@/contexts/auth-context";
 
 type AuthMode = "login" | "signup";
@@ -116,18 +115,12 @@ export function AuthPage({ mode }: AuthPageProps) {
     }
   }
 
-  function handleGoogleLogin() {
-    window.location.href = `${getApiUrl()}/api/auth/google/start`;
-  }
-
   return (
     <div className="grid min-h-svh bg-background lg:grid-cols-2">
       <div className="flex min-h-svh flex-col gap-4 p-6 md:p-10">
         <div className="flex justify-center gap-2 md:justify-start">
           <Link to="/" className="flex items-center gap-2 font-medium">
-            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              A
-            </span>
+            <img src="/favicon.svg" alt="" className="h-7 w-7 rounded-lg" />
             Agent Center
           </Link>
         </div>
@@ -167,19 +160,6 @@ export function AuthPage({ mode }: AuthPageProps) {
                 <Button type="submit" className="w-full" disabled={loading}>
                   {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                   {loading ? copy.loading : copy.button}
-                </Button>
-                <div className="relative text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-border">
-                  <span className="relative z-10 bg-background px-2 text-muted-foreground">
-                    Or continue with
-                  </span>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  onClick={handleGoogleLogin}
-                >
-                  Continue with Google
                 </Button>
               </div>
               <div className="text-center text-sm">
