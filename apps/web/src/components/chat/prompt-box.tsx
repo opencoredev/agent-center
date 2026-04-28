@@ -1652,7 +1652,7 @@ export function PromptBox({
     placeholder || (compact ? "Send a message..." : "Describe what you want to build...");
   const providerNotice =
     !isCredentialLoading && !hasProviderCredentials
-      ? `${selectedAgent.label} is not connected. Add credentials in Settings -> Models before starting a run.`
+      ? `${selectedAgent.label} is not connected. Connect your account in Settings -> Models before starting a run.`
       : null;
   const repoNotice = selectedRepoId === null ? "Select a repository before starting a run." : null;
 

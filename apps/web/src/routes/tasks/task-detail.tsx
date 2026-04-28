@@ -870,11 +870,11 @@ function getRunErrorGuidance(message: string | null) {
   }
 
   if (message.includes('No Claude credentials configured')) {
-    return 'Claude is not connected for this workspace. Open Settings -> Models and add Claude credentials, or switch the task to Codex.';
+    return 'Claude is not connected for this workspace. Open Settings -> Models and connect your Claude account, or switch the task to Codex.';
   }
 
   if (message.includes('No OpenAI credentials configured')) {
-    return 'Codex is not connected for this workspace. Open Settings -> Models and connect OpenAI/Codex credentials, then retry.';
+    return 'Codex is not connected for this workspace. Open Settings -> Models and connect your Codex account, then retry.';
   }
 
   if (message.includes('Git command failed')) {

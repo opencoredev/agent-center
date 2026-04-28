@@ -1,18 +1,22 @@
 import React, { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { Eye, EyeOff } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Loader2,
+  LogOut,
+  ShieldCheck,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { apiGet, apiPost, apiDelete } from '@/lib/api-client';
+import { apiDelete, apiGet, apiPost } from '@/lib/api-client';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Check, ChevronDown, ChevronRight } from 'lucide-react';
 import { AGENTS, MODELS, ProviderLogo, type AgentEntry, type ModelEntry } from '@/lib/agent-models';
-
-// ── Types ───────────────────────────────────────────────────────────────────
 
 interface CredentialStatus {
   connected: boolean;
@@ -23,15 +27,21 @@ interface CredentialStatus {
 }
 
 interface ProviderConfig {
-  id: string;
+  id: 'claude' | 'openai';
   agentId: string;
   title: string;
   credentialPath: string;
-  consoleUrl: string;
-  consoleDomain: string;
-  keyPlaceholder: string;
   logoId: AgentEntry['logoId'];
+  connectKind: 'claude-oauth' | 'codex-auth';
+  description: string;
+  connectedDescription: string;
+  connectLabel: string;
 }
+
+const CLAUDE_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+const CLAUDE_REDIRECT_URI = 'https://console.anthropic.com/oauth/code/callback';
+const CLAUDE_AUTH_URL = 'https://claude.ai/oauth/authorize';
+const CLAUDE_SCOPES = 'org:create_api_key user:profile user:inference';
 
 const PROVIDER_CONFIGS: ProviderConfig[] = [
   {
@@ -39,24 +49,80 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
     agentId: 'claude',
     title: 'Claude',
     credentialPath: '/api/credentials/claude',
-    consoleUrl: 'https://console.anthropic.com',
-    consoleDomain: 'console.anthropic.com',
-    keyPlaceholder: 'sk-ant-...',
     logoId: 'anthropic',
+    connectKind: 'claude-oauth',
+    description: 'Connect your Claude account so Claude Code can run tasks in Agent Center.',
+    connectedDescription: 'Claude account connected for this workspace.',
+    connectLabel: 'Connect Claude',
   },
   {
     id: 'openai',
     agentId: 'codex',
-    title: 'OpenAI',
+    title: 'Codex',
     credentialPath: '/api/credentials/openai',
-    consoleUrl: 'https://platform.openai.com/api-keys',
-    consoleDomain: 'platform.openai.com',
-    keyPlaceholder: 'sk-...',
     logoId: 'openai',
+    connectKind: 'codex-auth',
+    description: 'Connect your Codex account session so Codex can run tasks in Agent Center.',
+    connectedDescription: 'Codex account connected for this workspace.',
+    connectLabel: 'Connect Codex',
   },
 ];
 
-// ── Default Model Picker ────────────────────────────────────────────────────
+function toBase64Url(bytes: Uint8Array) {
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function randomBase64Url(byteLength = 32) {
+  const bytes = new Uint8Array(byteLength);
+  window.crypto.getRandomValues(bytes);
+  return toBase64Url(bytes);
+}
+
+async function createCodeChallenge(verifier: string) {
+  const digest = await window.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(verifier),
+  );
+  return toBase64Url(new Uint8Array(digest));
+}
+
+async function createClaudeAuthorization() {
+  const codeVerifier = randomBase64Url(48);
+  const codeChallenge = await createCodeChallenge(codeVerifier);
+  const state = randomBase64Url(24);
+  const params = new URLSearchParams({
+    code: 'true',
+    client_id: CLAUDE_CLIENT_ID,
+    response_type: 'code',
+    redirect_uri: CLAUDE_REDIRECT_URI,
+    scope: CLAUDE_SCOPES,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+    state,
+  });
+
+  return {
+    codeVerifier,
+    url: `${CLAUDE_AUTH_URL}?${params.toString()}`,
+  };
+}
+
+function getCredentialCopy(status: CredentialStatus | undefined) {
+  if (!status?.connected) return 'Not connected';
+  if (status.source === 'api_key') return 'Legacy connection';
+  return 'Account connected';
+}
+
+function getCredentialDetail(status: CredentialStatus | undefined, fallback: string) {
+  if (!status?.connected) return fallback;
+  if (status.email) return status.email;
+  if (status.subscriptionType) return status.subscriptionType;
+  return 'Ready to run tasks';
+}
 
 function DefaultModelPicker({
   selectedModelId,
@@ -94,7 +160,6 @@ function DefaultModelPicker({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-auto p-0 overflow-hidden" sideOffset={4}>
         <div className="flex w-[400px]">
-          {/* Agent list */}
           <div className="w-[150px] shrink-0 border-r border-border/40 py-1 px-1">
             {selectableAgents.map((agent) => {
               const isActive = activeAgentId === agent.id;
@@ -113,7 +178,6 @@ function DefaultModelPicker({
               );
             })}
           </div>
-          {/* Models */}
           <div className="flex-1 min-w-0 overflow-y-auto max-h-[300px] py-1 px-1" style={{ scrollbarWidth: 'thin' }}>
             {activeModels.map((model) => {
               const isSelected = model.id === selectedModelId;
@@ -140,12 +204,13 @@ function DefaultModelPicker({
   );
 }
 
-// ── API Key Row ─────────────────────────────────────────────────────────────
-
-function ApiKeyRow({ config }: { config: ProviderConfig }) {
-  const [apiKey, setApiKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
+function ProviderConnectionCard({ config }: { config: ProviderConfig }) {
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [claudeCodeVerifier, setClaudeCodeVerifier] = useState<string | null>(null);
+  const [claudeCode, setClaudeCode] = useState('');
+  const [showCodexImport, setShowCodexImport] = useState(false);
+  const [codexAuthJson, setCodexAuthJson] = useState('');
 
   const { data: credStatus, refetch, isLoading } = useQuery({
     queryKey: ['credentials', config.id],
@@ -153,118 +218,214 @@ function ApiKeyRow({ config }: { config: ProviderConfig }) {
     staleTime: 60_000,
   });
 
-  const saveMutation = useMutation({
-    mutationFn: (key: string) =>
-      apiPost<CredentialStatus>(`${config.credentialPath}/api-key`, { apiKey: key }),
+  const exchangeClaudeMutation = useMutation({
+    mutationFn: (payload: { code: string; codeVerifier: string }) =>
+      apiPost<CredentialStatus>('/api/auth/claude/exchange', payload),
     onSuccess: () => {
-      setApiKey('');
+      setClaudeCode('');
+      setClaudeCodeVerifier(null);
       setError(null);
       void refetch();
+      void queryClient.invalidateQueries({ queryKey: ['prompt-credentials'] });
     },
-    onError: (err: Error) => setError(err.message ?? 'Failed to save'),
+    onError: (err: Error) => setError(err.message ?? 'Failed to connect Claude'),
+  });
+
+  const saveCodexMutation = useMutation({
+    mutationFn: (authJson: string) =>
+      apiPost<CredentialStatus>('/api/auth/codex/save-auth', { authJson }),
+    onSuccess: () => {
+      setCodexAuthJson('');
+      setShowCodexImport(false);
+      setError(null);
+      void refetch();
+      void queryClient.invalidateQueries({ queryKey: ['prompt-credentials'] });
+    },
+    onError: (err: Error) => setError(err.message ?? 'Failed to connect Codex'),
   });
 
   const disconnectMutation = useMutation({
     mutationFn: () => apiDelete<{ deleted: boolean }>(config.credentialPath),
-    onSuccess: () => void refetch(),
+    onSuccess: () => {
+      setError(null);
+      void refetch();
+      void queryClient.invalidateQueries({ queryKey: ['prompt-credentials'] });
+    },
+    onError: (err: Error) => setError(err.message ?? 'Failed to disconnect'),
   });
 
   const isConnected = credStatus?.connected === true;
-  const isMutating = saveMutation.isPending || disconnectMutation.isPending;
+  const isMutating =
+    exchangeClaudeMutation.isPending ||
+    saveCodexMutation.isPending ||
+    disconnectMutation.isPending;
+
+  async function startClaudeConnect() {
+    try {
+      const auth = await createClaudeAuthorization();
+      setClaudeCodeVerifier(auth.codeVerifier);
+      setError(null);
+      const popup = window.open(auth.url, '_blank', 'noopener,noreferrer,width=560,height=720');
+      if (!popup) {
+        setError('Popup blocked. Allow popups for Agent Center, then try Connect Claude again.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start Claude sign-in');
+    }
+  }
 
   return (
-    <div className="flex items-start gap-4 py-4 border-b border-border/50 last:border-0">
-      {/* Provider info */}
-      <div className="flex items-center gap-3 w-[140px] shrink-0 pt-1">
-        <ProviderLogo logoId={config.logoId} className="w-5 h-5 text-current" />
-        <div>
-          <p className="text-sm font-medium text-foreground">{config.title}</p>
-          {isLoading ? (
-            <div className="h-3 w-16 rounded bg-muted animate-pulse mt-1" />
-          ) : isConnected ? (
-            <p className="text-[11px] text-status-success">Connected</p>
-          ) : (
-            <p className="text-[11px] text-muted-foreground/60">Not connected</p>
-          )}
-        </div>
-      </div>
-
-      {/* Key input / status */}
-      <div className="flex-1 min-w-0">
-        {isConnected ? (
-          <div className="flex items-center gap-3">
-            <p className="text-sm text-muted-foreground">
-              API key saved
-              {credStatus?.source === 'api_key' && ' (direct key)'}
-            </p>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 text-xs"
-              onClick={() => disconnectMutation.mutate()}
-              disabled={isMutating}
-            >
-              {disconnectMutation.isPending ? 'Removing...' : 'Remove'}
-            </Button>
-          </div>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const trimmed = apiKey.trim();
-              if (!trimmed) return;
-              saveMutation.mutate(trimmed);
-            }}
-            className="flex items-center gap-2"
-          >
-            <div className="relative flex-1">
-              <Input
-                type={showKey ? 'text' : 'password'}
-                placeholder={config.keyPlaceholder}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                className="pr-9 h-8 text-sm font-mono"
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey(!showKey)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              </button>
+    <div className="py-5 border-b border-border/50 last:border-0">
+      <div className="flex items-start gap-4">
+        <ProviderLogo logoId={config.logoId} className="w-6 h-6 text-foreground shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-medium text-foreground">{config.title}</h3>
+                {!isLoading && isConnected && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-status-success/30 bg-status-success/10 px-2 py-0.5 text-[11px] font-medium text-status-success">
+                    <ShieldCheck className="h-3 w-3" />
+                    {getCredentialCopy(credStatus)}
+                  </span>
+                )}
+              </div>
+              {isLoading ? (
+                <div className="h-3 w-32 rounded bg-muted animate-pulse mt-2" />
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {getCredentialDetail(
+                    credStatus,
+                    isConnected ? config.connectedDescription : config.description,
+                  )}
+                </p>
+              )}
             </div>
-            <Button
-              type="submit"
-              size="sm"
-              className="h-8"
-              disabled={!apiKey.trim() || saveMutation.isPending}
+            {isConnected ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 text-muted-foreground hover:text-destructive"
+                onClick={() => disconnectMutation.mutate()}
+                disabled={isMutating}
+              >
+                {disconnectMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <LogOut className="h-3.5 w-3.5" />
+                )}
+                Disconnect
+              </Button>
+            ) : config.connectKind === 'claude-oauth' ? (
+              <Button
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() => void startClaudeConnect()}
+                disabled={isMutating}
+              >
+                {exchangeClaudeMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ExternalLink className="h-3.5 w-3.5" />
+                )}
+                {config.connectLabel}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                className="h-8"
+                onClick={() => {
+                  setShowCodexImport(true);
+                  setError(null);
+                }}
+                disabled={isMutating}
+              >
+                {config.connectLabel}
+              </Button>
+            )}
+          </div>
+
+          {config.connectKind === 'claude-oauth' && claudeCodeVerifier && !isConnected && (
+            <form
+              className="mt-4 rounded-lg border border-border/70 bg-muted/20 p-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const code = claudeCode.trim();
+                if (!code || !claudeCodeVerifier) return;
+                exchangeClaudeMutation.mutate({ code, codeVerifier: claudeCodeVerifier });
+              }}
             >
-              {saveMutation.isPending ? 'Saving...' : 'Save'}
-            </Button>
-          </form>
-        )}
-        {error && <p className="text-xs text-destructive mt-1">{error}</p>}
-        {!isConnected && (
-          <p className="text-[11px] text-muted-foreground/50 mt-1.5">
-            Get your key from{' '}
-            <a
-              href={config.consoleUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-foreground/70 underline underline-offset-2 hover:text-primary"
+              <label className="text-xs font-medium text-foreground" htmlFor="claude-oauth-code">
+                Paste the Claude authorization code
+              </label>
+              <div className="mt-2 flex gap-2">
+                <input
+                  id="claude-oauth-code"
+                  value={claudeCode}
+                  onChange={(event) => setClaudeCode(event.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+                  placeholder="Returned code from Claude"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-9"
+                  disabled={!claudeCode.trim() || exchangeClaudeMutation.isPending}
+                >
+                  {exchangeClaudeMutation.isPending ? 'Finishing...' : 'Finish'}
+                </Button>
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                Claude opens its authorization page in a new window. After approval, paste the returned code here.
+              </p>
+            </form>
+          )}
+
+          {config.connectKind === 'codex-auth' && showCodexImport && !isConnected && (
+            <form
+              className="mt-4 rounded-lg border border-border/70 bg-muted/20 p-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const authJson = codexAuthJson.trim();
+                if (!authJson) return;
+                saveCodexMutation.mutate(authJson);
+              }}
             >
-              {config.consoleDomain}
-            </a>
-          </p>
-        )}
+              <label className="text-xs font-medium text-foreground" htmlFor="codex-auth-json">
+                Paste your Codex account session
+              </label>
+              <textarea
+                id="codex-auth-json"
+                value={codexAuthJson}
+                onChange={(event) => setCodexAuthJson(event.target.value)}
+                spellCheck={false}
+                className="mt-2 min-h-[120px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+                placeholder='Contents of ~/.codex/auth.json after running "codex login"'
+              />
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Run <code className="rounded bg-muted px-1 py-0.5">codex login</code>, then paste the local auth JSON. This uses your account session.
+                </p>
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-8 shrink-0"
+                  disabled={!codexAuthJson.trim() || saveCodexMutation.isPending}
+                >
+                  {saveCodexMutation.isPending ? 'Connecting...' : 'Save session'}
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+        </div>
       </div>
     </div>
   );
 }
-
-// ── Page ─────────────────────────────────────────────────────────────────────
 
 export function ModelsPage() {
   const [defaultModelId, setDefaultModelId] = useState('claude-opus-4-6');
@@ -274,11 +435,10 @@ export function ModelsPage() {
       <div className="mb-8">
         <h1 className="text-xl font-semibold text-foreground">Models</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage models and their settings
+          Manage model defaults and account connections.
         </p>
       </div>
 
-      {/* Default Agent/Model */}
       <section className="mb-8">
         <div className="flex items-center justify-between mb-3">
           <div>
@@ -294,15 +454,14 @@ export function ModelsPage() {
         </div>
       </section>
 
-      {/* API Keys */}
       <section>
-        <h2 className="text-sm font-medium text-foreground mb-1">API Keys</h2>
+        <h2 className="text-sm font-medium text-foreground mb-1">Account Connections</h2>
         <p className="text-xs text-muted-foreground mb-4">
-          Enter API keys for each provider to enable their models.
+          Connect provider accounts to enable their models for task runs.
         </p>
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-lg border border-border bg-card px-4">
           {PROVIDER_CONFIGS.map((config) => (
-            <ApiKeyRow key={config.id} config={config} />
+            <ProviderConnectionCard key={config.id} config={config} />
           ))}
         </div>
       </section>

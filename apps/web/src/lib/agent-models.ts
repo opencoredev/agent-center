@@ -228,7 +228,7 @@ export function ProviderLogo({ agent, logoId, title, className }: ProviderLogoPr
         fill: "currentColor",
       },
       React.createElement("path", {
-        d: "M12 2 2.5 21h4.15l1.95-4.15h6.78L17.33 21h4.17L12 2Zm-1.9 11.55L12 9.43l1.9 4.12h-3.8Z",
+        d: "M12 1.75 14 7.5 19.5 5 17 10.5 22.75 12.5 17 14.5 19.5 20 14 17.5 12 23.25 10 17.5 4.5 20 7 14.5 1.25 12.5 7 10.5 4.5 5 10 7.5 12 1.75Z",
       }),
     );
   }
@@ -265,9 +265,18 @@ export function ProviderLogo({ agent, logoId, title, className }: ProviderLogoPr
         ...a11yProps,
         viewBox: "0 0 24 24",
         className,
-        fill: "currentColor",
+        fill: "none",
       },
-      React.createElement("path", { d: "m4 3 16 7.2-6.85 1.6L10.6 20 4 3Z" }),
+      React.createElement("path", {
+        d: "M4 3.5 20.5 11 13.15 12.75 10.75 20.5 4 3.5Z",
+        fill: "currentColor",
+      }),
+      React.createElement("path", {
+        d: "m13.15 12.75 4.5 4.5",
+        stroke: "currentColor",
+        strokeWidth: "2",
+        strokeLinecap: "round",
+      }),
     );
   }
 
@@ -279,8 +288,17 @@ export function ProviderLogo({ agent, logoId, title, className }: ProviderLogoPr
       className,
       fill: "none",
     },
+    React.createElement("rect", {
+      x: "4.25",
+      y: "4",
+      width: "15.5",
+      height: "16",
+      rx: "2.25",
+      stroke: "currentColor",
+      strokeWidth: "1.8",
+    }),
     React.createElement("path", {
-      d: "M6 5h12v14H6V5Zm3.5 4h5M9.5 12h3M9.5 15h6",
+      d: "m8.25 9 2.6 3-2.6 3M12.75 15h3.25",
       stroke: "currentColor",
       strokeWidth: "1.8",
       strokeLinecap: "round",
