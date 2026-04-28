@@ -23,7 +23,14 @@ import {
 
 describe("domain enums", () => {
   test("TASK_STATUSES contains required values", () => {
-    const required: TaskStatus[] = ["pending", "queued", "running", "completed", "failed", "cancelled"];
+    const required: TaskStatus[] = [
+      "pending",
+      "queued",
+      "running",
+      "completed",
+      "failed",
+      "cancelled",
+    ];
     for (const status of required) {
       expect(TASK_STATUSES).toContain(status);
     }
@@ -94,7 +101,7 @@ describe("domain enums", () => {
   });
 
   test("AGENT_PROVIDERS contains required values", () => {
-    const required: AgentProvider[] = ["none", "claude", "codex"];
+    const required: AgentProvider[] = ["none", "claude", "codex", "opencode", "cursor"];
     for (const provider of required) {
       expect(AGENT_PROVIDERS).toContain(provider);
     }

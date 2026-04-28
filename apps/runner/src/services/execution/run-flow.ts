@@ -18,6 +18,8 @@ interface RunFlowDeps {
   appendFailedEvent: (message: string) => Promise<void>;
   executeClaudeAgent: () => Promise<void>;
   executeCodexAgent: () => Promise<void>;
+  executeOpenCodeAgent: () => Promise<void>;
+  executeCursorAgent: () => Promise<void>;
   executeCommand: (command: ExecutionCommand, index: number, total: number) => Promise<void>;
   getFailureMessage: (error: unknown) => string;
   hasRepository: boolean;
@@ -88,6 +90,18 @@ export function runFlow(deps: RunFlowDeps) {
       yield* fromPromise(() => deps.transitionStatus("running", "Starting Codex agent session"));
       yield* fromPromise(deps.waitUntilRunnable);
       yield* fromPromise(deps.executeCodexAgent);
+    }
+
+    if (deps.agentProvider === "opencode") {
+      yield* fromPromise(() => deps.transitionStatus("running", "Starting OpenCode agent session"));
+      yield* fromPromise(deps.waitUntilRunnable);
+      yield* fromPromise(deps.executeOpenCodeAgent);
+    }
+
+    if (deps.agentProvider === "cursor") {
+      yield* fromPromise(() => deps.transitionStatus("running", "Starting Cursor agent session"));
+      yield* fromPromise(deps.waitUntilRunnable);
+      yield* fromPromise(deps.executeCursorAgent);
     }
 
     if (deps.commands.length === 0 && deps.agentProvider === "none") {

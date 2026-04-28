@@ -58,10 +58,13 @@ export type RuntimeTarget = (typeof RUNTIME_TARGETS)[number];
 export type RuntimeProvider = (typeof RUNTIME_PROVIDERS)[number];
 export type SandboxProfile = (typeof SANDBOX_PROFILES)[number];
 export type SandboxIdlePolicy = (typeof SANDBOX_IDLE_POLICIES)[number];
-export const AGENT_PROVIDERS = ["none", "claude", "codex"] as const satisfies readonly [
-  string,
-  ...string[],
-];
+export const AGENT_PROVIDERS = [
+  "none",
+  "claude",
+  "codex",
+  "opencode",
+  "cursor",
+] as const satisfies readonly [string, ...string[]];
 
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];

@@ -88,6 +88,13 @@ describe("executionConfigSchema", () => {
     expect(result.agentProvider).toBe("codex");
   });
 
+  test("accepts host-auth CLI providers", () => {
+    expect(executionConfigSchema.parse({ agentProvider: "opencode" }).agentProvider).toBe(
+      "opencode",
+    );
+    expect(executionConfigSchema.parse({ agentProvider: "cursor" }).agentProvider).toBe("cursor");
+  });
+
   test("rejects invalid provider", () => {
     expect(() => executionConfigSchema.parse({ agentProvider: "gpt5" })).toThrow();
   });

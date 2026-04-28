@@ -212,7 +212,7 @@ export function ChatPage() {
         branchName,
         sandboxSize: sandboxSizeForRuntime(promptConfig.runtime),
         config: {
-          agentProvider: promptConfig.agentProvider as "claude" | "codex",
+          agentProvider: promptConfig.agentProvider as "claude" | "codex" | "opencode" | "cursor",
           agentModel: promptConfig.agentModel,
           agentReasoningEffort: promptConfig.agentReasoningEffort,
           agentThinkingEnabled: promptConfig.agentThinkingEnabled,

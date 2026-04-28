@@ -18,7 +18,7 @@ export const RUN_STATUSES = [
 ] as const;
 export const SANDBOX_SIZES = ["small", "medium", "large"] as const;
 export const PERMISSION_MODES = ["yolo", "safe", "custom"] as const;
-export const AGENT_PROVIDERS = ["none", "claude", "codex"] as const;
+export const AGENT_PROVIDERS = ["none", "claude", "codex", "opencode", "cursor"] as const;
 export const RUNTIME_PROVIDER_KINDS = ["lightweight", "full_sandbox", "self_hosted"] as const;
 export const MESSAGE_ROLES = ["system", "user", "assistant", "tool", "developer"] as const;
 export const REPO_PROVIDERS = ["github"] as const;

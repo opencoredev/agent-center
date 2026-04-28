@@ -44,6 +44,7 @@ describe("runtime routes", () => {
       "claude",
       "codex",
       "opencode",
+      "cursor",
     ]);
   });
 

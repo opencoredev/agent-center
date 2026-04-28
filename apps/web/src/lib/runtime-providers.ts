@@ -10,8 +10,8 @@ export type RuntimeProviderId =
 export type RuntimeProviderTemplate = {
   id: string;
   label: string;
-  agentProvider: "claude" | "codex" | "opencode";
-  requiredCredential: "anthropic" | "openai" | "provider";
+  agentProvider: "claude" | "codex" | "opencode" | "cursor";
+  requiredCredential: "claude" | "anthropic" | "codex" | "openai" | "provider";
 };
 
 export type RuntimeProviderStatus = {

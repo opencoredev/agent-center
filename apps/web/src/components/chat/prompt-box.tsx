@@ -432,19 +432,24 @@ function RepoSelector({
 function isAgentSelectable(
   agent: AgentEntry,
   credentialStatuses: Record<string, CredentialStatus>,
+  localSetupStatuses: Record<string, boolean> = {},
 ) {
-  if (agent.disabled || agent.comingSoon || !agent.credentialPath) return false;
-  return credentialStatuses[agent.id]?.connected === true;
+  if (agent.disabled || agent.comingSoon) return false;
+  if (agent.credentialPath) return credentialStatuses[agent.id]?.connected === true;
+  if (agent.localSetupKey) return localSetupStatuses[agent.id] === true;
+  return true;
 }
 
 function ModelSelector({
   selectedModelId,
   credentialStatuses,
+  localSetupStatuses,
   isCredentialLoading,
   onSelect,
 }: {
   selectedModelId: string;
   credentialStatuses: Record<string, CredentialStatus>;
+  localSetupStatuses: Record<string, boolean>;
   isCredentialLoading: boolean;
   onSelect: (model: ModelEntry) => void;
 }) {
@@ -466,7 +471,7 @@ function ModelSelector({
   const resolvedActiveAgentId = activeAgentId ?? selectedAgent.id;
   const activeAgent =
     AGENTS.find((agent) => agent.id === resolvedActiveAgentId) ?? selectedAgent ?? AGENTS[0]!;
-  const activeAgentConnected = isAgentSelectable(activeAgent, credentialStatuses);
+  const activeAgentReady = isAgentSelectable(activeAgent, credentialStatuses, localSetupStatuses);
   const normalizedSearch = deferredSearch.trim().toLowerCase();
   const favorites = MODELS.filter((model) => favoriteModelIds.has(model.id));
   const activeModels = MODELS.filter((model) => model.agentId === activeAgent.id);
@@ -496,12 +501,12 @@ function ModelSelector({
     persistFavorites(nextFavorites);
   };
 
-  const connectLabel =
-    activeAgent.disabled || activeAgent.comingSoon
-      ? "Backend support needed"
-      : isCredentialLoading
-        ? "Checking connection..."
-        : `Connect ${activeAgent.label}`;
+  const activeAgentCredentialLoading = Boolean(activeAgent.credentialPath) && isCredentialLoading;
+  const connectLabel = activeAgentCredentialLoading
+    ? "Checking connection..."
+    : activeAgent.credentialPath
+      ? `Connect ${activeAgent.label}`
+      : `Set up ${activeAgent.label}`;
 
   return (
     <Popover
@@ -530,7 +535,7 @@ function ModelSelector({
           <div className="w-14 shrink-0 border-r border-border/50 py-2 px-1.5">
             {AGENTS.map((agent) => {
               const isActive = activeAgent.id === agent.id;
-              const isConnected = isAgentSelectable(agent, credentialStatuses);
+              const isConnected = isAgentSelectable(agent, credentialStatuses, localSetupStatuses);
               return (
                 <button
                   key={agent.id}
@@ -568,13 +573,17 @@ function ModelSelector({
               <div
                 className={cn(
                   "max-h-[304px] overflow-y-auto p-2 transition",
-                  !activeAgentConnected && !normalizedSearch && "blur-[1.5px]",
+                  !activeAgentReady && !normalizedSearch && "blur-[1.5px]",
                 )}
                 style={{ scrollbarWidth: "thin" }}
               >
                 {filteredModels.map((model, index) => {
                   const agent = AGENTS.find((entry) => entry.id === model.agentId) ?? activeAgent;
-                  const agentConnected = isAgentSelectable(agent, credentialStatuses);
+                  const agentConnected = isAgentSelectable(
+                    agent,
+                    credentialStatuses,
+                    localSetupStatuses,
+                  );
                   const isDisabled = model.disabled || model.comingSoon || !agentConnected;
                   const isSelected = model.id === selectedModelId;
                   const isFavorite = favoriteModelIds.has(model.id);
@@ -662,7 +671,7 @@ function ModelSelector({
                 )}
               </div>
 
-              {!activeAgentConnected && !normalizedSearch && (
+              {!activeAgentReady && !normalizedSearch && (
                 <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 rounded-md border border-border bg-popover/95 p-4 shadow-lg">
                   <div className="flex items-start gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-foreground">
@@ -672,13 +681,15 @@ function ModelSelector({
                       <p className="text-sm font-medium text-foreground">{activeAgent.label}</p>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">
                         {activeAgent.disabledReason ??
-                          `Connect ${activeAgent.label} before choosing its models.`}
+                          `Connect or set up ${activeAgent.label} before choosing its models.`}
                       </p>
                     </div>
                   </div>
                   <button
                     type="button"
-                    disabled={activeAgent.disabled || activeAgent.comingSoon || isCredentialLoading}
+                    disabled={
+                      activeAgent.disabled || activeAgent.comingSoon || activeAgentCredentialLoading
+                    }
                     onClick={() => {
                       if (activeAgent.disabled || activeAgent.comingSoon) return;
                       setOpen(false);
@@ -686,7 +697,7 @@ function ModelSelector({
                     }}
                     className={cn(
                       "mt-4 flex h-9 w-full items-center justify-center rounded-md px-3 text-sm font-medium transition-colors",
-                      activeAgent.disabled || activeAgent.comingSoon || isCredentialLoading
+                      activeAgent.disabled || activeAgent.comingSoon || activeAgentCredentialLoading
                         ? "cursor-not-allowed bg-muted text-muted-foreground"
                         : "bg-primary text-primary-foreground hover:bg-primary/90",
                     )}
@@ -944,6 +955,11 @@ function isSelectableSandboxMode(mode: SandboxMode) {
   return isLaunchReadySandboxMode(mode) && !isHostedProductionHiddenSandboxMode(mode);
 }
 
+function getRuntimeSetupDescription(providerKey: string, fallback: string) {
+  if (providerKey !== "convex_bash") return fallback;
+  return "Log in with bunx convex dev or bunx convex login, then configure deployment/runtime";
+}
+
 export function runtimeForSandboxMode(mode: SandboxMode): ExecutionRuntime {
   switch (mode) {
     case "cloud_light":
@@ -1050,7 +1066,7 @@ function SandboxSelector({
       value: "cloud_light",
       label: "Convex Bash",
       icon: Cloud,
-      desc: "Low-cost lightweight runtime for quick tasks and follow-ups",
+      desc: "Log in with bunx convex dev or bunx convex login, then configure deployment/runtime",
     },
     {
       value: "cloud_full",
@@ -1081,14 +1097,21 @@ function SandboxSelector({
       value: sandboxModeForProviderKey(provider.id),
       label: provider.label,
       icon:
-        provider.target === "self_hosted" ? Settings : provider.target === "cloud" ? Cloud : Monitor,
-      desc: provider.launchReady
-        ? provider.configured
-          ? "Configured and launch-ready"
-          : "Launch-ready after configuration"
-        : provider.configured
-          ? "Configured, not launch-ready"
-          : "Not configured, not launch-ready",
+        provider.target === "self_hosted"
+          ? Settings
+          : provider.target === "cloud"
+            ? Cloud
+            : Monitor,
+      desc: getRuntimeSetupDescription(
+        provider.id,
+        provider.launchReady
+          ? provider.configured
+            ? "Configured and launch-ready"
+            : "Launch-ready after configuration"
+          : provider.configured
+            ? "Configured, not launch-ready"
+            : "Not configured, not launch-ready",
+      ),
       disabled: !provider.launchReady,
     })) ?? [];
 
@@ -1113,7 +1136,10 @@ function SandboxSelector({
               desc:
                 provider.key === "self_hosted_runner" && !selfHostedConnector
                   ? "Configure a connector in Settings -> Workspace"
-                  : (provider.description ?? "Control plane runtime"),
+                  : getRuntimeSetupDescription(
+                      provider.key,
+                      provider.description ?? "Control plane runtime",
+                    ),
               disabled: provider.key === "self_hosted_runner" && !selfHostedConnector,
             })),
         ]
@@ -1244,6 +1270,14 @@ export function PromptBox({
   });
   const [contextOpen, setContextOpen] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
+  const [localSetupStatuses, setLocalSetupStatuses] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(
+      AGENTS.filter((agent) => agent.localSetupKey).map((agent) => [
+        agent.id,
+        localStorage.getItem(agent.localSetupKey!) === "true",
+      ]),
+    ),
+  );
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1281,6 +1315,27 @@ export function PromptBox({
     },
     staleTime: 30_000,
   });
+
+  useEffect(() => {
+    const refreshLocalSetupStatuses = () => {
+      setLocalSetupStatuses(
+        Object.fromEntries(
+          AGENTS.filter((agent) => agent.localSetupKey).map((agent) => [
+            agent.id,
+            localStorage.getItem(agent.localSetupKey!) === "true",
+          ]),
+        ),
+      );
+    };
+
+    window.addEventListener("storage", refreshLocalSetupStatuses);
+    window.addEventListener("agent-harness-setup-change", refreshLocalSetupStatuses);
+    return () => {
+      window.removeEventListener("storage", refreshLocalSetupStatuses);
+      window.removeEventListener("agent-harness-setup-change", refreshLocalSetupStatuses);
+    };
+  }, []);
+
   useEffect(() => {
     if (defaultValue !== undefined) {
       setValue(defaultValue);
@@ -1297,9 +1352,11 @@ export function PromptBox({
 
   useEffect(() => {
     if (isCredentialLoading) return;
-    if (isAgentSelectable(selectedAgent, credentialStatuses)) return;
+    if (isAgentSelectable(selectedAgent, credentialStatuses, localSetupStatuses)) return;
 
-    const fallbackAgent = AGENTS.find((agent) => credentialStatuses[agent.id]?.connected === true);
+    const fallbackAgent = AGENTS.find((agent) =>
+      isAgentSelectable(agent, credentialStatuses, localSetupStatuses),
+    );
     if (!fallbackAgent || fallbackAgent.id === selectedAgent.id) return;
 
     const fallbackModelId =
@@ -1314,7 +1371,7 @@ export function PromptBox({
     setReasoningEffort(fallbackModel ? getDefaultReasoningEffort(fallbackModel) : undefined);
     setThinkingEnabled(fallbackModel?.supportsThinkingToggle ? true : undefined);
     localStorage.setItem("ac_default_model", fallbackModelId);
-  }, [credentialStatuses, isCredentialLoading, selectedAgent]);
+  }, [credentialStatuses, isCredentialLoading, localSetupStatuses, selectedAgent]);
 
   useEffect(() => {
     if (isSelectableSandboxMode(sandboxMode)) return;
@@ -1401,7 +1458,11 @@ export function PromptBox({
   const handleSubmit = useCallback(
     (mode: "send" | "queue" | "steer" = "send") => {
       if (isSubmitting) return;
-      if (!isCredentialLoading && !isAgentSelectable(selectedAgent, credentialStatuses)) return;
+      if (
+        !isCredentialLoading &&
+        !isAgentSelectable(selectedAgent, credentialStatuses, localSetupStatuses)
+      )
+        return;
       if (files.some((file) => file.status === "uploading")) return;
       const trimmed = value.trim();
       const uploadedFiles = files.filter((file) => file.status === "uploaded");
@@ -1440,6 +1501,7 @@ export function PromptBox({
       onStop,
       onSubmit,
       credentialStatuses,
+      localSetupStatuses,
       selectedAgent,
       value,
     ],
@@ -1645,14 +1707,18 @@ export function PromptBox({
     }
   };
 
-  const hasProviderCredentials = isAgentSelectable(selectedAgent, credentialStatuses);
+  const hasProviderCredentials = isAgentSelectable(
+    selectedAgent,
+    credentialStatuses,
+    localSetupStatuses,
+  );
   const hasPendingUploads = files.some((file) => file.status === "uploading");
 
   const resolvedPlaceholder =
     placeholder || (compact ? "Send a message..." : "Describe what you want to build...");
   const providerNotice =
     !isCredentialLoading && !hasProviderCredentials
-      ? `${selectedAgent.label} is not connected. Connect your account in Settings -> Models before starting a run.`
+      ? `${selectedAgent.label} is not ready. Connect or set up the harness account in Settings -> Models before starting a run.`
       : null;
   const repoNotice = selectedRepoId === null ? "Select a repository before starting a run." : null;
 
@@ -1766,6 +1832,7 @@ export function PromptBox({
             <ModelSelector
               selectedModelId={selectedModelId}
               credentialStatuses={credentialStatuses}
+              localSetupStatuses={localSetupStatuses}
               isCredentialLoading={isCredentialLoading}
               onSelect={handleModelPick}
             />

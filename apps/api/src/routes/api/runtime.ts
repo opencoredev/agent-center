@@ -8,7 +8,7 @@ import { ok } from "../../http/responses";
 type RuntimeTemplate = {
   id: string;
   label: string;
-  agentProvider: "claude" | "codex" | "opencode";
+  agentProvider: "claude" | "codex" | "opencode" | "cursor";
   requiredCredential: "anthropic" | "openai" | "provider";
 };
 
@@ -40,6 +40,12 @@ const e2bTemplates = [
     id: "opencode",
     label: "OpenCode",
     agentProvider: "opencode",
+    requiredCredential: "provider",
+  },
+  {
+    id: "cursor",
+    label: "Cursor Agent",
+    agentProvider: "cursor",
     requiredCredential: "provider",
   },
 ] satisfies RuntimeTemplate[];

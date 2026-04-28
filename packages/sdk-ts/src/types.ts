@@ -95,7 +95,7 @@ export interface ExecutionRuntime {
 
 export interface ExecutionConfig {
   commands: ExecutionCommand[];
-  agentProvider?: "none" | "claude" | "codex";
+  agentProvider?: "none" | "claude" | "codex" | "opencode" | "cursor";
   agentModel?: string;
   agentPrompt?: string;
   runtime?: ExecutionRuntime;

@@ -20,6 +20,8 @@ describe("runFlow", () => {
         cleanupWorkspace,
         executeClaudeAgent: async () => undefined,
         executeCodexAgent: async () => undefined,
+        executeOpenCodeAgent: async () => undefined,
+        executeCursorAgent: async () => undefined,
         executeCommand: async () => undefined,
         getFailureMessage: (error) => (error instanceof Error ? error.message : "Run failed"),
         hasRepository: false,
@@ -64,6 +66,8 @@ describe("runFlow", () => {
         cleanupWorkspace,
         executeClaudeAgent: async () => undefined,
         executeCodexAgent: async () => undefined,
+        executeOpenCodeAgent: async () => undefined,
+        executeCursorAgent: async () => undefined,
         executeCommand: async () => undefined,
         getFailureMessage: (error) => (error instanceof Error ? error.message : "Readable failure"),
         hasRepository: false,
@@ -102,6 +106,8 @@ describe("runFlow", () => {
         cleanupWorkspace: async () => undefined,
         executeClaudeAgent: async () => undefined,
         executeCodexAgent: async () => undefined,
+        executeOpenCodeAgent: async () => undefined,
+        executeCursorAgent: async () => undefined,
         executeCommand: async () => undefined,
         getFailureMessage: (error) => (error instanceof Error ? error.message : "Run failed"),
         hasRepository: true,
@@ -117,5 +123,48 @@ describe("runFlow", () => {
 
     expect(transitionStatus).toHaveBeenCalledWith("cloning", "Refreshing repository workspace");
     expect(prepareBranch).toHaveBeenCalledTimes(1);
+  });
+
+  test("dispatches host-auth CLI agent providers", async () => {
+    const transitionStatus = mock(async () => undefined);
+    const executeOpenCodeAgent = mock(async () => undefined);
+    const executeCursorAgent = mock(async () => undefined);
+
+    for (const agentProvider of ["opencode", "cursor"] as const) {
+      await Effect.runPromise(
+        runFlow({
+          agentProvider,
+          commands: [],
+          getReusableWorkspace: async () => null,
+          createWorkspace: async () => ({
+            id: `run-${agentProvider}`,
+            path: "/tmp/run",
+            backend: "local",
+          }),
+          appendCompletedEvent: async () => undefined,
+          appendFailedEvent: async () => undefined,
+          cleanupWorkspace: async () => undefined,
+          executeClaudeAgent: async () => undefined,
+          executeCodexAgent: async () => undefined,
+          executeOpenCodeAgent,
+          executeCursorAgent,
+          executeCommand: async () => undefined,
+          getFailureMessage: (error) => (error instanceof Error ? error.message : "Run failed"),
+          hasRepository: false,
+          markRunStarted: () => undefined,
+          onWorkspaceCreated: async () => undefined,
+          onWorkspaceReused: async () => undefined,
+          prepareBranch: async () => undefined,
+          cloneRepository: async () => undefined,
+          transitionStatus,
+          waitUntilRunnable: async () => undefined,
+        }),
+      );
+    }
+
+    expect(transitionStatus).toHaveBeenCalledWith("running", "Starting OpenCode agent session");
+    expect(transitionStatus).toHaveBeenCalledWith("running", "Starting Cursor agent session");
+    expect(executeOpenCodeAgent).toHaveBeenCalledTimes(1);
+    expect(executeCursorAgent).toHaveBeenCalledTimes(1);
   });
 });

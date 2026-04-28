@@ -10,7 +10,7 @@ const DEFAULT_RUNTIME_PROVIDERS = [
     name: "Local Bash",
     description: "Cheap shell execution on a host-managed runner.",
     supportedSandboxSizes: ["small", "medium"],
-    supportedAgentProviders: ["none", "claude", "codex"],
+    supportedAgentProviders: ["none", "claude", "codex", "opencode", "cursor"],
     capabilities: {
       persistentFs: false,
       sleepResume: false,
@@ -24,7 +24,7 @@ const DEFAULT_RUNTIME_PROVIDERS = [
     name: "Convex Bash",
     description: "Low-cost lightweight runtime for quick tasks and follow-ups.",
     supportedSandboxSizes: ["small", "medium"],
-    supportedAgentProviders: ["claude", "codex"],
+    supportedAgentProviders: ["claude", "codex", "opencode", "cursor"],
     capabilities: {
       persistentFs: true,
       sleepResume: true,
@@ -38,7 +38,7 @@ const DEFAULT_RUNTIME_PROVIDERS = [
     name: "AgentOS Full Sandbox",
     description: "Ephemeral full sandbox with mountable workspace and idle resume support.",
     supportedSandboxSizes: ["small", "medium", "large"],
-    supportedAgentProviders: ["claude", "codex"],
+    supportedAgentProviders: ["claude", "codex", "opencode", "cursor"],
     capabilities: {
       persistentFs: true,
       sleepResume: true,
@@ -52,7 +52,7 @@ const DEFAULT_RUNTIME_PROVIDERS = [
     name: "Self-hosted Connector",
     description: "Customer-owned execution backend with the same control-plane contract.",
     supportedSandboxSizes: ["small", "medium", "large"],
-    supportedAgentProviders: ["none", "claude", "codex"],
+    supportedAgentProviders: ["none", "claude", "codex", "opencode", "cursor"],
     capabilities: {
       persistentFs: true,
       sleepResume: true,

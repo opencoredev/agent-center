@@ -18,7 +18,9 @@ import type { CommandExecutionController, ControlledSubprocess } from "./command
 import type { ExecutionBackend, WorkspaceHandle } from "./backends/types";
 import { type ClaudeExecutionHandle, startClaudeAgent } from "./claude-executor";
 import { type CodexExecutionHandle, startCodexAgent } from "./codex-executor";
+import { type CursorExecutionHandle, startCursorAgent } from "./cursor-executor";
 import { CancelledError } from "./errors";
+import { type OpenCodeExecutionHandle, startOpenCodeAgent } from "./opencode-executor";
 import { assertCommandAllowed } from "./permission-service";
 import { RunPersistence } from "./persistence";
 import { runFlow } from "./run-flow";
@@ -66,6 +68,8 @@ export class RunSession implements CommandExecutionController {
   #cancelRequested = false;
   #claudeHandle: ClaudeExecutionHandle | null = null;
   #codexHandle: CodexExecutionHandle | null = null;
+  #opencodeHandle: OpenCodeExecutionHandle | null = null;
+  #cursorHandle: CursorExecutionHandle | null = null;
   #controlPoller: ReturnType<typeof setInterval> | null = null;
   #disposed = false;
   #resolvedCodexCredential: {
@@ -229,6 +233,8 @@ export class RunSession implements CommandExecutionController {
           cleanupWorkspace: (status) => this.#cleanupWorkspace(status),
           executeClaudeAgent: () => this.#executeClaudeAgent(),
           executeCodexAgent: () => this.#executeCodexAgent(),
+          executeOpenCodeAgent: () => this.#executeOpenCodeAgent(),
+          executeCursorAgent: () => this.#executeCursorAgent(),
           executeCommand: (command, index, total) => this.#executeCommand(command, index, total),
           getFailureMessage: getRunnerErrorMessage,
           hasRepository: Boolean(this.#target.repoConnection),
@@ -574,6 +580,20 @@ export class RunSession implements CommandExecutionController {
       }, 2_000).unref();
     }
 
+    if (this.#opencodeHandle) {
+      this.#opencodeHandle.interrupt();
+      setTimeout(() => {
+        this.#opencodeHandle?.close();
+      }, 2_000).unref();
+    }
+
+    if (this.#cursorHandle) {
+      this.#cursorHandle.interrupt();
+      setTimeout(() => {
+        this.#cursorHandle?.close();
+      }, 2_000).unref();
+    }
+
     if (this.#currentProcess) {
       this.terminateProcess("SIGTERM");
       setTimeout(() => {
@@ -769,6 +789,100 @@ export class RunSession implements CommandExecutionController {
 
     if (!result.success) {
       throw new Error(`Codex agent session failed: ${result.error}`);
+    }
+  }
+
+  async #executeOpenCodeAgent() {
+    await this.#executeHostAuthCliAgent({
+      agentProvider: "opencode",
+      defaultModel: undefined,
+      displayName: "OpenCode",
+      start: (request) => startOpenCodeAgent(request),
+      setHandle: (handle) => {
+        this.#opencodeHandle = handle;
+      },
+    });
+  }
+
+  async #executeCursorAgent() {
+    await this.#executeHostAuthCliAgent({
+      agentProvider: "cursor",
+      defaultModel: undefined,
+      displayName: "Cursor",
+      start: (request) => startCursorAgent(request),
+      setHandle: (handle) => {
+        this.#cursorHandle = handle;
+      },
+    });
+  }
+
+  async #executeHostAuthCliAgent(options: {
+    agentProvider: "opencode" | "cursor";
+    defaultModel: string | undefined;
+    displayName: string;
+    start: (request: {
+      cwd: string;
+      model?: string;
+      prompt: string;
+      onEvent: (event: {
+        type: "assistant_message" | "result" | "error" | "log";
+        message: string;
+        payload?: Record<string, unknown>;
+      }) => Promise<void>;
+    }) => OpenCodeExecutionHandle | CursorExecutionHandle;
+    setHandle: (handle: OpenCodeExecutionHandle | CursorExecutionHandle | null) => void;
+  }) {
+    if (!this.#workspacePath) {
+      throw new Error("Workspace path was not prepared before agent execution");
+    }
+
+    const prompt = this.#target.run.config.agentPrompt ?? this.#target.run.prompt;
+    const model = this.#target.run.config.agentModel;
+
+    await this.#persistence.appendEvent({
+      eventType: "run.command.started",
+      level: "info",
+      message: `${options.displayName} agent session started`,
+      payload: {
+        agentProvider: options.agentProvider,
+        model: model ?? options.defaultModel,
+        prompt: prompt.slice(0, 200),
+      },
+    });
+
+    const handle = options.start({
+      cwd: this.#workspacePath,
+      model,
+      prompt,
+      onEvent: async (event) => {
+        await this.#persistence.appendLog(event.message, {
+          agentProvider: options.agentProvider,
+          eventType: event.type,
+          ...event.payload,
+        });
+      },
+    });
+
+    options.setHandle(handle);
+    const result = await handle.result.finally(() => {
+      options.setHandle(null);
+    });
+
+    await this.#persistence.appendEvent({
+      eventType: "run.command.finished",
+      level: result.success ? "info" : "error",
+      message: result.success
+        ? `${options.displayName} agent session completed`
+        : `${options.displayName} agent failed: ${result.error}`,
+      payload: {
+        agentProvider: options.agentProvider,
+        durationMs: result.durationMs,
+        success: result.success,
+      },
+    });
+
+    if (!result.success) {
+      throw new Error(`${options.displayName} agent session failed: ${result.error}`);
     }
   }
 
