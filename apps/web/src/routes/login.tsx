@@ -1,19 +1,67 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
-import { Loader2, Zap } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import { apiFetch } from "@/lib/api-client";
 import { getApiUrl } from "@/lib/config";
 import { useAuth } from "@/contexts/auth-context";
 
-export function LoginPage() {
+type AuthMode = "login" | "signup";
+
+interface AuthPageProps {
+  mode: AuthMode;
+}
+
+function getAuthCopy(mode: AuthMode) {
+  if (mode === "signup") {
+    return {
+      title: "Create your account",
+      description: "Choose a username and password to start building with Agent Center.",
+      button: "Sign up",
+      loading: "Creating account...",
+      alternateText: "Already have an account?",
+      alternateAction: "Sign in",
+      alternateHref: "/login",
+      passwordAutocomplete: "new-password",
+    };
+  }
+
+  return {
+    title: "Login to your account",
+    description: "Enter your credentials below to continue to Agent Center.",
+    button: "Login",
+    loading: "Logging in...",
+    alternateText: "Don't have an account?",
+    alternateAction: "Sign up",
+    alternateHref: "/signup",
+    passwordAutocomplete: "current-password",
+  };
+}
+
+function getErrorMessage(status: number, mode: AuthMode) {
+  if (status === 401) {
+    return "Invalid credentials";
+  }
+
+  if (status === 409) {
+    return "That username is already taken";
+  }
+
+  if (status === 403) {
+    return "Sign up is currently disabled";
+  }
+
+  return `${mode === "login" ? "Login" : "Sign up"} failed (${status})`;
+}
+
+export function AuthPage({ mode }: AuthPageProps) {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const copy = getAuthCopy(mode);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -25,49 +73,34 @@ export function LoginPage() {
 
     if (token) {
       login(token);
-      window.history.replaceState({}, "", "/login");
+      window.history.replaceState({}, "", window.location.pathname);
       void navigate({ to: "/" });
     }
 
     if (oauthError) {
       setError(`OAuth failed: ${oauthError}`);
-      window.history.replaceState({}, "", "/login");
+      window.history.replaceState({}, "", window.location.pathname);
     }
   }, [login, navigate]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      const res = await apiFetch(mode === "signin" ? "/api/auth/login" : "/api/auth/signup", {
+      const res = await apiFetch(mode === "login" ? "/api/auth/login" : "/api/auth/signup", {
         method: "POST",
         body: JSON.stringify({ username, password }),
       });
 
-      if (res.status === 401) {
-        setError("Invalid credentials");
-        return;
-      }
-
-      if (res.status === 409) {
-        setError("That username is already taken");
-        return;
-      }
-
-      if (res.status === 403) {
-        setError("Sign up is currently disabled");
-        return;
-      }
-
       if (!res.ok) {
-        let message = `${mode === "signin" ? "Sign in" : "Sign up"} failed (${res.status})`;
+        let message = getErrorMessage(res.status, mode);
         try {
           const body = (await res.json()) as { error?: { message?: string } };
           message = body.error?.message ?? message;
         } catch {
-          // Keep the status-based fallback when the response is not JSON.
+          // Keep the status fallback when the response is not JSON.
         }
         setError(message);
         return;
@@ -81,98 +114,89 @@ export function LoginPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   function handleGoogleLogin() {
     window.location.href = `${getApiUrl()}/api/auth/google/start`;
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[radial-gradient(ellipse_at_top,var(--muted)_0%,var(--background)_50%)] px-4">
-      <div className="w-full max-w-sm animate-page-enter">
-        {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-3">
-            <Zap className="w-5 h-5 text-primary" />
-          </div>
-          <h1 className="text-lg font-semibold text-foreground">Agent Center</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {mode === "signin" ? "Sign in to continue" : "Create your account"}
-          </p>
+    <div className="grid min-h-svh bg-background lg:grid-cols-2">
+      <div className="flex min-h-svh flex-col gap-4 p-6 md:p-10">
+        <div className="flex justify-center gap-2 md:justify-start">
+          <Link to="/" className="flex items-center gap-2 font-medium">
+            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              A
+            </span>
+            Agent Center
+          </Link>
         </div>
-
-        <Card>
-          <CardContent className="pt-6 space-y-4">
-            <div className="grid grid-cols-2 rounded-md bg-muted p-1">
-              <Button
-                type="button"
-                variant={mode === "signin" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => {
-                  setMode("signin");
-                  setError("");
-                }}
-              >
-                Sign in
-              </Button>
-              <Button
-                type="button"
-                variant={mode === "signup" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => {
-                  setMode("signup");
-                  setError("");
-                }}
-              >
-                Sign up
-              </Button>
-            </div>
-
-            {/* Google OAuth */}
-            <Button type="button" variant="outline" onClick={handleGoogleLogin} className="w-full">
-              Continue with Google
-            </Button>
-
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-px bg-border" />
-              <span className="text-xs text-muted-foreground uppercase tracking-wider">or</span>
-              <div className="flex-1 h-px bg-border" />
-            </div>
-
-            {/* Basic auth */}
-            <form onSubmit={handleSubmit} className="space-y-3">
-              <Input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Username"
-                required
-                autoComplete="username"
-              />
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                required
-                minLength={mode === "signup" ? 8 : undefined}
-                autoComplete={mode === "signin" ? "current-password" : "new-password"}
-              />
-              {error && <p className="text-xs text-destructive text-center">{error}</p>}
-              <Button type="submit" disabled={loading} className="w-full">
-                {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                {loading
-                  ? mode === "signin"
-                    ? "Signing in..."
-                    : "Creating account..."
-                  : mode === "signin"
-                    ? "Sign in"
-                    : "Sign up"}
-              </Button>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="w-full max-w-sm">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+              <div className="flex flex-col items-center gap-2 text-center">
+                <h1 className="text-2xl font-bold">{copy.title}</h1>
+                <p className="text-balance text-sm text-muted-foreground">{copy.description}</p>
+              </div>
+              <div className="grid gap-6">
+                <div className="grid gap-2">
+                  <Label htmlFor="username">Username</Label>
+                  <Input
+                    id="username"
+                    type="text"
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    placeholder="leo"
+                    required
+                    autoComplete="username"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    required
+                    minLength={mode === "signup" ? 8 : undefined}
+                    autoComplete={copy.passwordAutocomplete}
+                  />
+                </div>
+                {error && <p className="text-center text-sm text-destructive">{error}</p>}
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {loading ? copy.loading : copy.button}
+                </Button>
+                <div className="relative text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-border">
+                  <span className="relative z-10 bg-background px-2 text-muted-foreground">
+                    Or continue with
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleGoogleLogin}
+                >
+                  Continue with Google
+                </Button>
+              </div>
+              <div className="text-center text-sm">
+                {copy.alternateText}{" "}
+                <Link to={copy.alternateHref} className="underline underline-offset-4">
+                  {copy.alternateAction}
+                </Link>
+              </div>
             </form>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
+      <div className="hidden bg-muted lg:block" aria-hidden="true" />
     </div>
   );
+}
+
+export function LoginPage() {
+  return <AuthPage mode="login" />;
 }

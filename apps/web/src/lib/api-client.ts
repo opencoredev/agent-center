@@ -62,7 +62,7 @@ function formatApiError(error: AgentCenterApiError) {
 function normalizeClientError(error: unknown) {
   if (error instanceof AgentCenterApiError) {
     if (error.status === 401 && isAuthEnabled()) {
-      if (window.location.pathname !== "/login") {
+      if (window.location.pathname !== "/login" && window.location.pathname !== "/signup") {
         window.location.replace("/login");
       }
     }
