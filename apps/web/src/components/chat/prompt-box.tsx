@@ -522,10 +522,12 @@ function ModelSelector({
       }}
     >
       <PopoverTrigger asChild>
-        <button className="flex items-center gap-1.5 px-2.5 h-7 rounded-md text-xs transition-colors hover:bg-muted/80 cursor-pointer text-muted-foreground hover:text-foreground">
-          <ProviderLogo agent={selectedAgent} className="w-3.5 h-3.5 text-current" />
-          <span className="hidden sm:inline">{selectedModel.label}</span>
-          <ChevronDown className="w-3 h-3 opacity-50" />
+        <button className="flex h-7 max-w-[190px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs whitespace-nowrap transition-colors hover:bg-muted/80 cursor-pointer text-muted-foreground hover:text-foreground">
+          <ProviderLogo agent={selectedAgent} className="w-3.5 h-3.5 shrink-0 text-current" />
+          <span className="hidden min-w-0 max-w-[140px] truncate sm:inline">
+            {selectedModel.label}
+          </span>
+          <ChevronDown className="w-3 h-3 shrink-0 opacity-50" />
         </button>
       </PopoverTrigger>
       <PopoverContent

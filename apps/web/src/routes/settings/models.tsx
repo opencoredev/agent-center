@@ -73,7 +73,7 @@ interface HarnessSupportConfig {
   detail: string;
 }
 
-const CODEX_AUTH_IMPORT_COMMAND = `codex login && if command -v pbcopy >/dev/null 2>&1; then pbcopy < ~/.codex/auth.json && echo "Copied ~/.codex/auth.json to clipboard"; elif command -v wl-copy >/dev/null 2>&1; then wl-copy < ~/.codex/auth.json && echo "Copied ~/.codex/auth.json to clipboard"; elif command -v xclip >/dev/null 2>&1; then xclip -selection clipboard < ~/.codex/auth.json && echo "Copied ~/.codex/auth.json to clipboard"; else cat ~/.codex/auth.json; fi`;
+const CODEX_AUTH_IMPORT_COMMAND = `sh -lc 'codex login && if command -v pbcopy >/dev/null 2>&1; then pbcopy < ~/.codex/auth.json && echo "Copied ~/.codex/auth.json to clipboard"; elif command -v wl-copy >/dev/null 2>&1; then wl-copy < ~/.codex/auth.json && echo "Copied ~/.codex/auth.json to clipboard"; elif command -v xclip >/dev/null 2>&1; then xclip -selection clipboard < ~/.codex/auth.json && echo "Copied ~/.codex/auth.json to clipboard"; else cat ~/.codex/auth.json; fi'`;
 
 const HARNESS_SUPPORT_CONFIGS: HarnessSupportConfig[] = [
   {
@@ -179,12 +179,12 @@ function DefaultModelPicker({
       }}
     >
       <PopoverTrigger asChild>
-        <button className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer">
+        <button className="flex min-w-[260px] max-w-[340px] items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 whitespace-nowrap transition-colors hover:bg-muted/50 cursor-pointer">
           <ProviderLogo agent={selectedAgent} className="w-4 h-4 text-current" />
-          <span className="text-sm font-medium text-foreground">
+          <span className="min-w-0 flex-1 truncate text-left text-sm font-medium text-foreground">
             {selectedAgent.label}: {selectedModel.label}
           </span>
-          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground ml-1" />
+          <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-auto p-0 overflow-hidden" sideOffset={4}>
@@ -451,9 +451,9 @@ function ProviderConnectionCard({ config }: { config: ProviderConfig }) {
               <label className="text-xs font-medium text-foreground" htmlFor="codex-auth-json">
                 Paste your Codex account session
               </label>
-              <div className="mt-2 rounded-md border border-border/70 bg-background p-2">
-                <div className="flex items-start gap-2">
-                  <code className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-foreground">
+              <div className="mt-2 rounded-lg border border-border/70 bg-background p-2">
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 overflow-x-auto whitespace-pre rounded-md bg-muted/30 px-3 py-2 font-mono text-[11px] leading-5 text-foreground [scrollbar-width:thin]">
                     {CODEX_AUTH_IMPORT_COMMAND}
                   </code>
                   <Button
@@ -468,7 +468,7 @@ function ProviderConnectionCard({ config }: { config: ProviderConfig }) {
                   </Button>
                 </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                  Run this on macOS or Linux. It opens Codex login, then copies
+                  Works from fish, zsh, or bash. It opens Codex login, then copies
                   <code className="mx-1 rounded bg-muted px-1 py-0.5">~/.codex/auth.json</code>
                   to your clipboard when possible, or prints it for paste.
                 </p>

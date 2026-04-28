@@ -86,6 +86,7 @@ export function RepositoriesPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedInstallationId, setSelectedInstallationId] = useState<number | null>(null);
   const [showManualForm, setShowManualForm] = useState(false);
+  const [pendingRepoId, setPendingRepoId] = useState<number | null>(null);
 
   const installReturnParams = useMemo(() => {
     if (typeof window === "undefined") {
@@ -280,6 +281,7 @@ export function RepositoriesPage() {
       void queryClient.invalidateQueries({ queryKey: ["repo-connections"] });
       void queryClient.invalidateQueries({ queryKey: ["repo-connections", workspaceId] });
     },
+    onSettled: () => setPendingRepoId(null),
     onError: (err: Error) => setError(err.message),
   });
 
@@ -307,7 +309,7 @@ export function RepositoriesPage() {
       <div className="mb-8">
         <h1 className="text-xl font-semibold text-foreground">Repositories</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Connect GitHub repositories for your agent to work with.
+          Add GitHub repositories for your agent to work with.
         </p>
       </div>
 
@@ -438,7 +440,7 @@ export function RepositoriesPage() {
                       Available Repositories
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Connect repositories from the selected GitHub installation.
+                      Add repositories from the selected GitHub installation.
                     </p>
                   </div>
                   {installationId !== null ? (
@@ -460,38 +462,52 @@ export function RepositoriesPage() {
                   </div>
                 ) : availableRepos.length > 0 ? (
                   <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
-                    {availableRepos.map((installationRepo) => (
-                      <div key={installationRepo.id} className="flex items-center gap-3 px-4 py-3">
-                        <FolderGit2 className="w-4 h-4 text-muted-foreground shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground">
-                            {installationRepo.fullName}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            Default branch: {installationRepo.defaultBranch}
-                          </p>
+                    {availableRepos.map((installationRepo) => {
+                      const isAdding =
+                        connectInstalledRepoMutation.isPending &&
+                        pendingRepoId === installationRepo.id;
+
+                      return (
+                        <div
+                          key={installationRepo.id}
+                          className="flex items-center gap-3 px-4 py-3"
+                        >
+                          <FolderGit2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {installationRepo.fullName}
+                            </p>
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                              Default branch: {installationRepo.defaultBranch}
+                            </p>
+                          </div>
+                          <a
+                            href={installationRepo.htmlUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                          <Button
+                            size="sm"
+                            className="min-w-[82px] justify-center gap-1.5"
+                            disabled={
+                              connectInstalledRepoMutation.isPending ||
+                              !workspaces[0]?.id ||
+                              installationId === null
+                            }
+                            onClick={() => {
+                              setPendingRepoId(installationRepo.id);
+                              connectInstalledRepoMutation.mutate(installationRepo);
+                            }}
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            {isAdding ? "Adding..." : "Add"}
+                          </Button>
                         </div>
-                        <a
-                          href={installationRepo.htmlUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                        <Button
-                          size="sm"
-                          disabled={
-                            connectInstalledRepoMutation.isPending ||
-                            !workspaces[0]?.id ||
-                            installationId === null
-                          }
-                          onClick={() => connectInstalledRepoMutation.mutate(installationRepo)}
-                        >
-                          Connect
-                        </Button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="rounded-xl border border-dashed border-border bg-card/50 p-5">
