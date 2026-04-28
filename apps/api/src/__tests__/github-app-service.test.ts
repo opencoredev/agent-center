@@ -234,6 +234,7 @@ mock.module("@agent-center/github", () => ({
 }));
 
 mock.module("../repositories/workspace-repository", () => ({
+  createWorkspace: mock(async (values: Record<string, unknown>) => values),
   findWorkspaceById: mockFindWorkspaceById,
   listWorkspaces: mockListWorkspaces,
 }));

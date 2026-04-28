@@ -112,7 +112,11 @@ export function RepositoriesPage() {
     };
   }, []);
 
-  const { data: workspaces = [] } = useQuery({
+  const {
+    data: workspaces = [],
+    isLoading: workspacesLoading,
+    isFetching: workspacesFetching,
+  } = useQuery({
     queryKey: ["workspaces"],
     queryFn: () => apiGet<Workspace[]>("/api/workspaces"),
     staleTime: 60_000,
@@ -132,13 +136,21 @@ export function RepositoriesPage() {
     staleTime: 60_000,
   });
 
-  const { data: githubInstallUrl } = useQuery({
+  const {
+    data: githubInstallUrl,
+    isLoading: installUrlLoading,
+    isFetching: installUrlFetching,
+    error: installUrlError,
+  } = useQuery({
     queryKey: ["github-install-url", workspaceId],
     queryFn: () => apiGet<GitHubInstallUrl>(`/api/github/install-url?workspaceId=${workspaceId}`),
     staleTime: 5 * 60_000,
     enabled: githubAppStatus?.configured === true && workspaceId !== null,
   });
   const installUrl = githubInstallUrl?.installUrl ?? null;
+  const isPreparingConnect =
+    githubAppStatus?.configured === true &&
+    (workspacesLoading || workspacesFetching || installUrlLoading || installUrlFetching);
 
   const {
     data: installations = [],
@@ -318,7 +330,9 @@ export function RepositoriesPage() {
             <div className="flex-1">
               <p className="text-base font-semibold text-foreground">Connect with GitHub App</p>
               <p className="text-sm text-muted-foreground mt-1">
-                {githubAppStatus?.configured
+                {githubAppStatus === undefined
+                  ? "Checking GitHub App configuration..."
+                  : githubAppStatus.configured
                   ? `Install ${githubAppStatus.slug ? `@${githubAppStatus.slug}` : "the app"}, then choose repositories from your installations below.`
                   : "GitHub App is not configured in this environment."}
               </p>
@@ -330,15 +344,30 @@ export function RepositoriesPage() {
                   Connect GitHub
                 </a>
               </Button>
+            ) : githubAppStatus?.configured ? (
+              <Button size="sm" className="gap-1.5" disabled>
+                <Link2 className="w-3.5 h-3.5" />
+                {isPreparingConnect ? "Preparing..." : "Connect unavailable"}
+              </Button>
             ) : null}
           </div>
+
+          {githubAppStatus?.configured && !installUrl && !isPreparingConnect ? (
+            <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3">
+              <p className="text-sm text-destructive">
+                {installUrlError instanceof Error
+                  ? installUrlError.message
+                  : "Agent Center could not prepare the GitHub install link. Refresh and try again."}
+              </p>
+            </div>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
               className="gap-1.5"
-              disabled={!githubAppStatus?.configured || installationsFetching}
+              disabled={!githubAppStatus?.configured || workspaceId === null || installationsFetching}
               onClick={() => {
                 void refetchInstallations();
                 if (installationId !== null) {
@@ -355,6 +384,11 @@ export function RepositoriesPage() {
                   Don&apos;t see a repository? Add more organizations or repos
                 </a>
               </Button>
+            ) : null}
+            {githubAppStatus?.configured && workspaceId === null ? (
+              <span className="text-xs text-muted-foreground">
+                Preparing your workspace before GitHub can connect.
+              </span>
             ) : null}
           </div>
 

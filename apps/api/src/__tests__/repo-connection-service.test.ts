@@ -111,6 +111,7 @@ mock.module("@agent-center/github", () => ({
 }));
 
 mock.module("../repositories/workspace-repository", () => ({
+  createWorkspace: mock(async (values: Record<string, unknown>) => values),
   findWorkspaceById: mockFindWorkspaceById,
   listWorkspaces: mock(async () => [ownedWorkspace, otherWorkspace]),
 }));
@@ -131,6 +132,7 @@ mock.module("../services/serializers", () => ({
     createdAt: repoConnection.createdAt.toISOString(),
     updatedAt: repoConnection.updatedAt.toISOString(),
   }),
+  serializeWorkspace: (workspace: Record<string, unknown>) => workspace,
   serializePublicationState: () => ({
     status: "unpublished",
     pullRequest: null,

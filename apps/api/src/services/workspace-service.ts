@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { notFoundError } from "../http/errors";
 import {
   createWorkspace,
@@ -25,13 +27,25 @@ function assertWorkspaceAccess(workspace: Record<string, any>, userId?: string) 
 export const workspaceService = {
   async list(userId?: string) {
     const workspaces = await listWorkspaces();
-    const accessibleWorkspaces = userId
+    let accessibleWorkspaces = userId
       ? workspaces.filter(
           (workspace) =>
             workspace.ownerId === userId ||
             (workspace.ownerId === undefined && canUseOwnerlessWorkspace(userId)),
         )
       : workspaces;
+
+    if (userId && accessibleWorkspaces.length === 0) {
+      const ownerHash = createHash("sha256").update(userId).digest("hex").slice(0, 12);
+      const workspace = await createWorkspace({
+        slug: `personal-${ownerHash}`,
+        name: "Personal Workspace",
+        description: null,
+        metadata: {},
+        ownerId: userId,
+      });
+      accessibleWorkspaces = [workspace];
+    }
 
     return accessibleWorkspaces.map(serializeWorkspace);
   },

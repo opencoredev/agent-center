@@ -200,6 +200,7 @@ sourceModuleMocks.taskRepository = {
 };
 
 mock.module("../repositories/workspace-repository", () => ({
+  createWorkspace: mock(async (values: Record<string, unknown>) => values),
   findWorkspaceById: mockFindWorkspaceById,
 }));
 
@@ -219,6 +220,7 @@ mock.module("../services/github-app-service", () => ({
 }));
 
 mock.module("../services/serializers", () => ({
+  serializeWorkspace: (workspace: Record<string, unknown>) => workspace,
   serializePublicationState: (metadata: Record<string, unknown> | null | undefined) =>
     (metadata?.publication as Record<string, unknown> | undefined) ?? {
       status: "unpublished",

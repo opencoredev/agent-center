@@ -174,6 +174,7 @@ const mockUpdateRunner = mock(async () => ownedRunner);
 const mockUpdateRunnerRegistrationToken = mock(async () => activeRegistrationToken);
 
 mock.module("../repositories/workspace-repository", () => ({
+  createWorkspace: mock(async (values: Record<string, unknown>) => values),
   findWorkspaceById: mockFindWorkspaceById,
   listWorkspaces: mock(async () => [ownedWorkspace, otherWorkspace]),
 }));
@@ -192,6 +193,7 @@ mock.module("../repositories/runner-repository", () => ({
 }));
 
 mock.module("../services/serializers", () => ({
+  serializeWorkspace: (workspace: Record<string, unknown>) => workspace,
   serializePublicationState: () => ({
     status: "unpublished",
     pullRequest: null,
