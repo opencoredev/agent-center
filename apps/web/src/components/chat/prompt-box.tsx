@@ -16,6 +16,7 @@ import {
   Cloud,
   Monitor,
   Search,
+  Star,
 } from "lucide-react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from "convex/react";
@@ -26,187 +27,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { apiGet, apiPost } from "@/lib/api-client";
+import {
+  AGENTS,
+  DEFAULT_MODEL_BY_AGENT,
+  DEFAULT_REASONING_EFFORT_BY_AGENT,
+  MODELS,
+  ProviderLogo,
+  type AgentEntry,
+  type ModelEntry,
+} from "@/lib/agent-models";
 import { useControlPlaneEnabled } from "@/contexts/convex-context";
 import { getSelfHostedConnectorConfig } from "@/lib/execution-connectors";
+import { getRuntimeProviderStatus, type RuntimeProviderStatus } from "@/lib/runtime-providers";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-// ── Provider Logo ───────────────────────────────────────────────────────────
-
-function ProviderLogo({ provider, className }: { provider: string; className?: string }) {
-  return (
-    <img
-      src={`https://models.dev/logos/${provider}.svg`}
-      alt={provider}
-      className={className}
-      draggable={false}
-      loading="lazy"
-    />
-  );
-}
-
-// ── Agent & Model Data ──────────────────────────────────────────────────────
-
-export interface ModelEntry {
-  id: string;
-  agentId: string;
-  label: string;
-  description: string;
-  context: string;
-  speed: "Fast" | "Moderate" | "Slow";
-  reasoningEffortLevels?: ReadonlyArray<{
-    value: "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink";
-    label: string;
-    isDefault?: boolean;
-  }>;
-  supportsThinkingToggle?: boolean;
-  isDefault?: boolean;
-}
-
-export interface AgentEntry {
-  id: string;
-  label: string;
-  logoId: string;
-  credentialPath: string;
-}
-
-export type AgentReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink";
-
-export const AGENTS: AgentEntry[] = [
-  {
-    id: "claude",
-    label: "Claude Code",
-    logoId: "claude",
-    credentialPath: "/api/credentials/claude",
-  },
-  {
-    id: "codex",
-    label: "Codex",
-    logoId: "openai",
-    credentialPath: "/api/credentials/openai",
-  },
-];
-
-const DEFAULT_MODEL_BY_AGENT: Record<string, string> = {
-  claude: "claude-opus-4-6",
-  codex: "gpt-5.4",
-};
-
-const DEFAULT_REASONING_EFFORT_BY_AGENT: Partial<Record<AgentEntry["id"], AgentReasoningEffort>> = {
-  claude: "high",
-  codex: "high",
-};
-
-export const MODELS: ModelEntry[] = [
-  // ── Claude Code ──
-  {
-    id: "claude-opus-4-6",
-    agentId: "claude",
-    label: "Claude Opus 4.6",
-    description: "Most capable model for complex reasoning",
-    context: "1M",
-    speed: "Moderate",
-    reasoningEffortLevels: [
-      { value: "low", label: "Low" },
-      { value: "medium", label: "Medium" },
-      { value: "high", label: "High", isDefault: true },
-      { value: "max", label: "Max" },
-      { value: "ultrathink", label: "Ultrathink" },
-    ],
-    isDefault: true,
-  },
-  {
-    id: "claude-sonnet-4-6",
-    agentId: "claude",
-    label: "Claude Sonnet 4.6",
-    description: "Balanced speed and intelligence",
-    context: "200K",
-    speed: "Fast",
-    reasoningEffortLevels: [
-      { value: "low", label: "Low" },
-      { value: "medium", label: "Medium" },
-      { value: "high", label: "High", isDefault: true },
-      { value: "ultrathink", label: "Ultrathink" },
-    ],
-  },
-  {
-    id: "claude-opus-4-5",
-    agentId: "claude",
-    label: "Claude Opus 4.5",
-    description: "Previous-gen flagship reasoning",
-    context: "200K",
-    speed: "Moderate",
-    reasoningEffortLevels: [
-      { value: "low", label: "Low" },
-      { value: "medium", label: "Medium" },
-      { value: "high", label: "High", isDefault: true },
-      { value: "max", label: "Max" },
-    ],
-  },
-  {
-    id: "claude-haiku-4-5",
-    agentId: "claude",
-    label: "Claude Haiku 4.5",
-    description: "Fastest Claude for simple tasks",
-    context: "200K",
-    speed: "Fast",
-    supportsThinkingToggle: true,
-  },
-  // ── Codex ──
-  {
-    id: "gpt-5.4",
-    agentId: "codex",
-    label: "GPT-5.4",
-    description: "Latest frontier model",
-    context: "1M",
-    speed: "Moderate",
-    reasoningEffortLevels: [
-      { value: "low", label: "Low" },
-      { value: "medium", label: "Medium" },
-      { value: "high", label: "High", isDefault: true },
-      { value: "xhigh", label: "Extra High" },
-    ],
-    isDefault: true,
-  },
-  {
-    id: "gpt-5.4-mini",
-    agentId: "codex",
-    label: "GPT-5.4 Mini",
-    description: "Compact and cost-efficient",
-    context: "128K",
-    speed: "Fast",
-    reasoningEffortLevels: [
-      { value: "low", label: "Low" },
-      { value: "medium", label: "Medium", isDefault: true },
-      { value: "high", label: "High" },
-    ],
-  },
-  {
-    id: "gpt-5.3-codex",
-    agentId: "codex",
-    label: "GPT-5.3 Codex",
-    description: "Optimized for code generation",
-    context: "192K",
-    speed: "Fast",
-    reasoningEffortLevels: [
-      { value: "low", label: "Low" },
-      { value: "medium", label: "Medium", isDefault: true },
-      { value: "high", label: "High" },
-    ],
-  },
-  {
-    id: "o3",
-    agentId: "codex",
-    label: "o3",
-    description: "Advanced reasoning model",
-    context: "200K",
-    speed: "Slow",
-    reasoningEffortLevels: [
-      { value: "medium", label: "Medium" },
-      { value: "high", label: "High", isDefault: true },
-      { value: "xhigh", label: "Extra High" },
-    ],
-  },
-];
+export type { AgentReasoningEffort } from "@/lib/agent-models";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -593,21 +429,79 @@ function RepoSelector({
 
 // ── Model selector ───────────────────────────────────────────────────────────
 
+function isAgentSelectable(
+  agent: AgentEntry,
+  credentialStatuses: Record<string, CredentialStatus>,
+) {
+  if (agent.disabled || agent.comingSoon || !agent.credentialPath) return false;
+  return credentialStatuses[agent.id]?.connected === true;
+}
+
 function ModelSelector({
   selectedModelId,
+  credentialStatuses,
+  isCredentialLoading,
   onSelect,
 }: {
   selectedModelId: string;
+  credentialStatuses: Record<string, CredentialStatus>;
+  isCredentialLoading: boolean;
   onSelect: (model: ModelEntry) => void;
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
+  const [favoriteModelIds, setFavoriteModelIds] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("ac_favorite_models") ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
 
   const selectedModel = MODELS.find((m) => m.id === selectedModelId) ?? MODELS[0]!;
   const selectedAgent = AGENTS.find((agent) => agent.id === selectedModel.agentId) ?? AGENTS[0]!;
-  const activeAgentId = hoveredAgent ?? selectedAgent.id;
-  const activeModels = MODELS.filter((model) => model.agentId === activeAgentId);
+  const resolvedActiveAgentId = activeAgentId ?? selectedAgent.id;
+  const activeAgent =
+    AGENTS.find((agent) => agent.id === resolvedActiveAgentId) ?? selectedAgent ?? AGENTS[0]!;
+  const activeAgentConnected = isAgentSelectable(activeAgent, credentialStatuses);
+  const normalizedSearch = deferredSearch.trim().toLowerCase();
+  const favorites = MODELS.filter((model) => favoriteModelIds.has(model.id));
+  const activeModels = MODELS.filter((model) => model.agentId === activeAgent.id);
+  const filteredModels = (
+    normalizedSearch
+      ? MODELS.filter((model) => {
+          const agent = AGENTS.find((entry) => entry.id === model.agentId);
+          return [model.label, model.description, model.context, agent?.label]
+            .filter(Boolean)
+            .some((value) => value!.toLowerCase().includes(normalizedSearch));
+        })
+      : [...favorites, ...activeModels]
+  ).filter((model, index, models) => models.findIndex((entry) => entry.id === model.id) === index);
+
+  const persistFavorites = (nextFavorites: Set<string>) => {
+    setFavoriteModelIds(nextFavorites);
+    localStorage.setItem("ac_favorite_models", JSON.stringify([...nextFavorites]));
+  };
+
+  const toggleFavorite = (modelId: string) => {
+    const nextFavorites = new Set(favoriteModelIds);
+    if (nextFavorites.has(modelId)) {
+      nextFavorites.delete(modelId);
+    } else {
+      nextFavorites.add(modelId);
+    }
+    persistFavorites(nextFavorites);
+  };
+
+  const connectLabel =
+    activeAgent.disabled || activeAgent.comingSoon
+      ? "Backend support needed"
+      : isCredentialLoading
+        ? "Checking connection..."
+        : `Connect ${activeAgent.label}`;
 
   return (
     <Popover
@@ -615,86 +509,205 @@ function ModelSelector({
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
         if (!nextOpen) {
-          setHoveredAgent(null);
+          setActiveAgentId(null);
+          setSearch("");
         }
       }}
     >
       <PopoverTrigger asChild>
         <button className="flex items-center gap-1.5 px-2.5 h-7 rounded-md text-xs transition-colors hover:bg-muted/80 cursor-pointer text-muted-foreground hover:text-foreground">
-          <ProviderLogo provider={selectedAgent.logoId} className="w-3.5 h-3.5 dark:invert" />
+          <ProviderLogo agent={selectedAgent} className="w-3.5 h-3.5 text-current" />
           <span className="hidden sm:inline">{selectedModel.label}</span>
           <ChevronDown className="w-3 h-3 opacity-50" />
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-[420px] max-sm:w-[calc(100vw-2rem)] p-0 overflow-hidden"
+        className="w-[560px] max-sm:w-[calc(100vw-2rem)] p-0 overflow-hidden"
         sideOffset={8}
       >
-        <div className="flex">
-          <div className="w-[150px] shrink-0 border-r border-border/40 py-1 px-1">
+        <div className="flex min-h-[360px] bg-popover">
+          <div className="w-14 shrink-0 border-r border-border/50 py-2 px-1.5">
             {AGENTS.map((agent) => {
-              const isActive = activeAgentId === agent.id;
+              const isActive = activeAgent.id === agent.id;
+              const isConnected = isAgentSelectable(agent, credentialStatuses);
               return (
                 <button
                   key={agent.id}
-                  onMouseEnter={() => setHoveredAgent(agent.id)}
-                  className={`flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-sm transition-colors cursor-pointer ${
-                    isActive ? "bg-accent" : "hover:bg-muted/50"
-                  }`}
+                  type="button"
+                  title={agent.label}
+                  onClick={() => setActiveAgentId(agent.id)}
+                  className={cn(
+                    "relative flex h-11 w-full items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground",
+                    isActive && "bg-muted text-foreground",
+                    !isConnected && !isActive && "opacity-55",
+                  )}
                 >
-                  <ProviderLogo provider={agent.logoId} className="w-4 h-4 dark:invert" />
-                  <span className="font-medium text-foreground flex-1 text-left truncate">
-                    {agent.label}
-                  </span>
-                  <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
+                  {isActive && (
+                    <span className="absolute left-0 h-6 w-0.5 rounded-full bg-primary" />
+                  )}
+                  <ProviderLogo agent={agent} className="h-5 w-5 text-current" />
                 </button>
               );
             })}
           </div>
-          <div
-            className="flex-1 min-w-0 overflow-y-auto max-h-[320px] py-1 px-1"
-            style={{ scrollbarWidth: "thin" }}
-          >
-            {activeModels.map((model) => {
-              const isSelected = model.id === selectedModelId;
-              return (
-                <button
-                  key={model.id}
-                  onClick={() => {
-                    onSelect(model);
-                    setOpen(false);
-                    setHoveredAgent(null);
-                  }}
-                  className={`flex items-center gap-2 w-full px-2.5 py-2 rounded-md transition-colors cursor-pointer ${
-                    isSelected ? "bg-accent" : "hover:bg-muted/50"
-                  }`}
-                >
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-foreground">{model.label}</span>
-                      <span className="text-[10px] text-muted-foreground/50 font-mono">
-                        {model.context}
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="border-b border-border/50 p-2">
+              <div className="flex h-10 items-center gap-2 rounded-md border border-border/70 bg-background/50 px-3">
+                <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search models..."
+                  className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+            </div>
+
+            <div className="relative min-h-0 flex-1">
+              <div
+                className={cn(
+                  "max-h-[304px] overflow-y-auto p-2 transition",
+                  !activeAgentConnected && !normalizedSearch && "blur-[1.5px]",
+                )}
+                style={{ scrollbarWidth: "thin" }}
+              >
+                {filteredModels.map((model, index) => {
+                  const agent = AGENTS.find((entry) => entry.id === model.agentId) ?? activeAgent;
+                  const agentConnected = isAgentSelectable(agent, credentialStatuses);
+                  const isDisabled = model.disabled || model.comingSoon || !agentConnected;
+                  const isSelected = model.id === selectedModelId;
+                  const isFavorite = favoriteModelIds.has(model.id);
+                  const shortcut = index < 9 ? `⌘${index + 1}` : null;
+
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => {
+                        if (isDisabled) return;
+                        onSelect(model);
+                        setOpen(false);
+                        setActiveAgentId(null);
+                        setSearch("");
+                      }}
+                      className={cn(
+                        "group mb-1 flex min-h-[66px] w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors",
+                        isDisabled
+                          ? "cursor-not-allowed opacity-55"
+                          : "cursor-pointer hover:bg-muted/60",
+                        isSelected && !isDisabled && "bg-muted",
+                      )}
+                    >
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        title={isFavorite ? "Remove favorite" : "Add favorite"}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          toggleFavorite(model.id);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            toggleFavorite(model.id);
+                          }
+                        }}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                      >
+                        <Star
+                          className={cn("h-4 w-4", isFavorite && "fill-current text-primary")}
+                        />
                       </span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground/60 mt-0.5 truncate">
-                      {model.description}
-                    </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium text-foreground">
+                            {model.label}
+                          </span>
+                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                            {model.context}
+                          </span>
+                          {model.comingSoon && (
+                            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                              Soon
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <ProviderLogo agent={agent} className="h-3 w-3 text-current" />
+                          <span className="truncate">{agent.label}</span>
+                          <span className="text-muted-foreground/40">·</span>
+                          <span className="truncate">{model.description}</span>
+                        </div>
+                      </div>
+                      {shortcut && (
+                        <span className="hidden shrink-0 rounded-md bg-muted px-1.5 py-1 font-mono text-[10px] text-muted-foreground sm:inline-flex">
+                          {shortcut}
+                        </span>
+                      )}
+                      {isSelected && !isDisabled && (
+                        <Check className="h-4 w-4 shrink-0 text-primary" />
+                      )}
+                    </button>
+                  );
+                })}
+
+                {filteredModels.length === 0 && (
+                  <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+                    No models match that search.
                   </div>
-                  {isSelected && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
-                </button>
-              );
-            })}
-            <div className="border-t border-border/40 pt-2 px-0.5 mt-1">
+                )}
+              </div>
+
+              {!activeAgentConnected && !normalizedSearch && (
+                <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 rounded-md border border-border bg-popover/95 p-4 shadow-lg">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-foreground">
+                      <ProviderLogo agent={activeAgent} className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">{activeAgent.label}</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        {activeAgent.disabledReason ??
+                          `Connect ${activeAgent.label} before choosing its models.`}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={activeAgent.disabled || activeAgent.comingSoon || isCredentialLoading}
+                    onClick={() => {
+                      if (activeAgent.disabled || activeAgent.comingSoon) return;
+                      setOpen(false);
+                      navigate({ to: "/settings/models" });
+                    }}
+                    className={cn(
+                      "mt-4 flex h-9 w-full items-center justify-center rounded-md px-3 text-sm font-medium transition-colors",
+                      activeAgent.disabled || activeAgent.comingSoon || isCredentialLoading
+                        ? "cursor-not-allowed bg-muted text-muted-foreground"
+                        : "bg-primary text-primary-foreground hover:bg-primary/90",
+                    )}
+                  >
+                    {connectLabel}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-border/50 p-1.5">
               <button
                 onClick={() => {
                   setOpen(false);
-                  setHoveredAgent(null);
+                  setActiveAgentId(null);
+                  setSearch("");
                   navigate({ to: "/settings/models" });
                 }}
-                className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-md text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
               >
-                <Settings className="w-3 h-3" />
+                <Settings className="h-3.5 w-3.5" />
                 <span>Manage models</span>
               </button>
             </div>
@@ -889,21 +902,46 @@ function BranchSelector({
 
 // ── Sandbox mode selector ────────────────────────────────────────────────────
 
-export type SandboxMode = "local" | "cloud_light" | "cloud_full" | "self_hosted";
+export type SandboxMode = "local" | "cloud_light" | "cloud_full" | "e2b" | "self_hosted";
 
 const LAUNCH_READY_SANDBOX_MODES = new Set<SandboxMode>(["local", "cloud_light", "cloud_full"]);
+const HOSTED_PRODUCTION_FALLBACK_SANDBOX_MODE: SandboxMode = "cloud_light";
 
 function isSandboxMode(value: string | null): value is SandboxMode {
   return (
     value === "local" ||
     value === "cloud_light" ||
     value === "cloud_full" ||
+    value === "e2b" ||
     value === "self_hosted"
   );
 }
 
 function isLaunchReadySandboxMode(mode: SandboxMode) {
   return LAUNCH_READY_SANDBOX_MODES.has(mode);
+}
+
+function isHostedProductionUi() {
+  if (!import.meta.env.PROD) return false;
+  if (Boolean(import.meta.env.VITE_API_URL)) return true;
+
+  if (typeof window === "undefined") return false;
+  return (
+    window.location.hostname === "agentcenter.sh" ||
+    window.location.hostname.endsWith(".agentcenter.sh")
+  );
+}
+
+function defaultSandboxMode() {
+  return isHostedProductionUi() ? HOSTED_PRODUCTION_FALLBACK_SANDBOX_MODE : "local";
+}
+
+function isHostedProductionHiddenSandboxMode(mode: SandboxMode) {
+  return isHostedProductionUi() && (mode === "local" || mode === "self_hosted");
+}
+
+function isSelectableSandboxMode(mode: SandboxMode) {
+  return isLaunchReadySandboxMode(mode) && !isHostedProductionHiddenSandboxMode(mode);
 }
 
 export function runtimeForSandboxMode(mode: SandboxMode): ExecutionRuntime {
@@ -932,6 +970,14 @@ export function runtimeForSandboxMode(mode: SandboxMode): ExecutionRuntime {
         idlePolicy: "retain",
         resumeOnActivity: true,
       };
+    case "e2b":
+      return {
+        target: "cloud",
+        provider: "e2b",
+        sandboxProfile: "full",
+        idlePolicy: "terminate",
+        resumeOnActivity: false,
+      };
     case "local":
     default:
       return {
@@ -949,6 +995,8 @@ export function sandboxModeForProviderKey(key: string): SandboxMode {
       return "cloud_light";
     case "agent_os":
       return "cloud_full";
+    case "e2b":
+      return "e2b";
     case "self_hosted_runner":
       return "self_hosted";
     default:
@@ -970,8 +1018,21 @@ function SandboxSelector({
     controlPlaneApi.runtimeProviders.list,
     controlPlaneEnabled ? {} : "skip",
   ) as RuntimeProviderRecord[] | undefined;
+  const { data: runtimeProviderStatus } = useQuery({
+    queryKey: ["runtime-providers"],
+    queryFn: getRuntimeProviderStatus,
+    staleTime: 30_000,
+  });
 
   const selfHostedConnector = getSelfHostedConnectorConfig();
+  const hiddenProviderIds = isHostedProductionUi()
+    ? new Set(
+        runtimeProviderStatus?.hostedUiPolicy.productionHiddenProviders ?? [
+          "legacy_local",
+          "self_hosted_runner",
+        ],
+      )
+    : new Set<string>();
   const fallbackOptions: {
     value: SandboxMode;
     label: string;
@@ -998,6 +1059,13 @@ function SandboxSelector({
       desc: "Full workspace sandbox backed by the current managed runner",
     },
     {
+      value: "e2b",
+      label: "E2B",
+      icon: Cloud,
+      desc: "Cloud sandbox status is loading...",
+      disabled: true,
+    },
+    {
       value: "self_hosted",
       label: selfHostedConnector?.label ?? "Self-hosted",
       icon: Settings,
@@ -1008,7 +1076,23 @@ function SandboxSelector({
     },
   ];
 
-  const options =
+  const apiRuntimeOptions =
+    runtimeProviderStatus?.providers.map((provider: RuntimeProviderStatus) => ({
+      value: sandboxModeForProviderKey(provider.id),
+      label: provider.label,
+      icon:
+        provider.target === "self_hosted" ? Settings : provider.target === "cloud" ? Cloud : Monitor,
+      desc: provider.launchReady
+        ? provider.configured
+          ? "Configured and launch-ready"
+          : "Launch-ready after configuration"
+        : provider.configured
+          ? "Configured, not launch-ready"
+          : "Not configured, not launch-ready",
+      disabled: !provider.launchReady,
+    })) ?? [];
+
+  const convexOptions =
     runtimeProviders && runtimeProviders.length > 0
       ? [
           fallbackOptions[0]!,
@@ -1034,6 +1118,16 @@ function SandboxSelector({
             })),
         ]
       : fallbackOptions;
+
+  const optionByMode = new Map<SandboxMode, (typeof fallbackOptions)[number]>();
+  for (const opt of [...convexOptions, ...apiRuntimeOptions]) {
+    optionByMode.set(opt.value, opt);
+  }
+  const options = Array.from(optionByMode.values()).filter((opt) => {
+    if (opt.value === "local") return !hiddenProviderIds.has("legacy_local");
+    if (opt.value === "self_hosted") return !hiddenProviderIds.has("self_hosted_runner");
+    return true;
+  });
 
   const selected = options.find((o) => o.value === mode) ?? options[0]!;
   const Icon = selected.icon;
@@ -1141,12 +1235,12 @@ export function PromptBox({
   const [selectedRepo, setSelectedRepo] = useState<RepoConnection | null>(null);
   const [sandboxMode, setSandboxMode] = useState<SandboxMode>(() => {
     if (defaultConfig?.sandboxMode) {
-      return isLaunchReadySandboxMode(defaultConfig.sandboxMode)
+      return isSelectableSandboxMode(defaultConfig.sandboxMode)
         ? defaultConfig.sandboxMode
-        : "local";
+        : defaultSandboxMode();
     }
     const stored = localStorage.getItem("ac_sandbox_mode");
-    return isSandboxMode(stored) && isLaunchReadySandboxMode(stored) ? stored : "local";
+    return isSandboxMode(stored) && isSelectableSandboxMode(stored) ? stored : defaultSandboxMode();
   });
   const [contextOpen, setContextOpen] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
@@ -1178,17 +1272,15 @@ export function PromptBox({
     queryKey: ["prompt-credentials"],
     queryFn: async () => {
       const entries = await Promise.all(
-        AGENTS.map(
+        AGENTS.filter((agent) => agent.credentialPath).map(
           async (agent) =>
-            [agent.id, await apiGet<CredentialStatus>(agent.credentialPath)] as const,
+            [agent.id, await apiGet<CredentialStatus>(agent.credentialPath!)] as const,
         ),
       );
       return Object.fromEntries(entries) as Record<string, CredentialStatus>;
     },
     staleTime: 30_000,
   });
-  const selectedCredential = credentialStatuses[selectedAgent.id];
-
   useEffect(() => {
     if (defaultValue !== undefined) {
       setValue(defaultValue);
@@ -1205,7 +1297,7 @@ export function PromptBox({
 
   useEffect(() => {
     if (isCredentialLoading) return;
-    if (selectedCredential?.connected !== false) return;
+    if (isAgentSelectable(selectedAgent, credentialStatuses)) return;
 
     const fallbackAgent = AGENTS.find((agent) => credentialStatuses[agent.id]?.connected === true);
     if (!fallbackAgent || fallbackAgent.id === selectedAgent.id) return;
@@ -1222,12 +1314,13 @@ export function PromptBox({
     setReasoningEffort(fallbackModel ? getDefaultReasoningEffort(fallbackModel) : undefined);
     setThinkingEnabled(fallbackModel?.supportsThinkingToggle ? true : undefined);
     localStorage.setItem("ac_default_model", fallbackModelId);
-  }, [credentialStatuses, isCredentialLoading, selectedAgent.id, selectedCredential?.connected]);
+  }, [credentialStatuses, isCredentialLoading, selectedAgent]);
 
   useEffect(() => {
-    if (isLaunchReadySandboxMode(sandboxMode)) return;
-    setSandboxMode("local");
-    localStorage.setItem("ac_sandbox_mode", "local");
+    if (isSelectableSandboxMode(sandboxMode)) return;
+    const fallbackMode = defaultSandboxMode();
+    setSandboxMode(fallbackMode);
+    localStorage.setItem("ac_sandbox_mode", fallbackMode);
   }, [sandboxMode]);
 
   const emitConfig = useCallback(
@@ -1308,7 +1401,7 @@ export function PromptBox({
   const handleSubmit = useCallback(
     (mode: "send" | "queue" | "steer" = "send") => {
       if (isSubmitting) return;
-      if (!isCredentialLoading && selectedCredential?.connected === false) return;
+      if (!isCredentialLoading && !isAgentSelectable(selectedAgent, credentialStatuses)) return;
       if (files.some((file) => file.status === "uploading")) return;
       const trimmed = value.trim();
       const uploadedFiles = files.filter((file) => file.status === "uploaded");
@@ -1346,7 +1439,8 @@ export function PromptBox({
       onSteerSubmit,
       onStop,
       onSubmit,
-      selectedCredential?.connected,
+      credentialStatuses,
+      selectedAgent,
       value,
     ],
   );
@@ -1551,7 +1645,7 @@ export function PromptBox({
     }
   };
 
-  const hasProviderCredentials = selectedCredential?.connected !== false;
+  const hasProviderCredentials = isAgentSelectable(selectedAgent, credentialStatuses);
   const hasPendingUploads = files.some((file) => file.status === "uploading");
 
   const resolvedPlaceholder =
@@ -1669,7 +1763,12 @@ export function PromptBox({
 
             <div className="w-px h-4 bg-border/50" />
 
-            <ModelSelector selectedModelId={selectedModelId} onSelect={handleModelPick} />
+            <ModelSelector
+              selectedModelId={selectedModelId}
+              credentialStatuses={credentialStatuses}
+              isCredentialLoading={isCredentialLoading}
+              onSelect={handleModelPick}
+            />
 
             <TraitsSelector
               model={selectedModel}

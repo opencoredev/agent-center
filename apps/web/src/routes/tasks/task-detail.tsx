@@ -37,7 +37,8 @@ import {
   ReasoningTrigger,
   useReasoning,
 } from '@/components/ai-elements/reasoning';
-import { AGENTS, MODELS, PromptBox, sandboxModeForProviderKey, type SandboxMode } from '@/components/chat/prompt-box';
+import { PromptBox, sandboxModeForProviderKey, type SandboxMode } from '@/components/chat/prompt-box';
+import { AGENTS, MODELS, ProviderLogo } from '@/lib/agent-models';
 import { RunDiffSheet } from '@/components/tasks/run-diff-sheet';
 import { ZERO_ENABLED } from '@/hooks/use-zero';
 import { useTaskDetail, useRunEvents } from '@/hooks/use-zero-queries';
@@ -1964,11 +1965,10 @@ export function TaskDetailPage() {
         </h1>
 
         <div className="hidden lg:flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-2.5 py-1 text-[11px] text-muted-foreground">
-          <img
-            src={`https://models.dev/logos/${modelPresentation.logoId}.svg`}
-            alt={modelPresentation.agentLabel}
-            className="h-3.5 w-3.5 dark:invert"
-            draggable={false}
+          <ProviderLogo
+            logoId={modelPresentation.logoId}
+            title={modelPresentation.agentLabel}
+            className="h-3.5 w-3.5 text-current"
           />
           <span>{modelPresentation.modelLabel}</span>
         </div>

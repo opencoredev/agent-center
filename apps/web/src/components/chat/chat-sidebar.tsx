@@ -161,7 +161,10 @@ export function ChatSidebar({ onCollapse }: { onCollapse: () => void }) {
       {/* Header */}
       <div className="p-3 pb-2">
         <div className="flex items-center justify-between px-1 pb-3">
-          <div className="w-8" />
+          <span className="block h-8 w-8" aria-hidden="true">
+            <img src="/logo-light.svg" alt="" className="h-8 w-8 dark:hidden" />
+            <img src="/logo-dark.svg" alt="" className="hidden h-8 w-8 dark:block" />
+          </span>
           <span className="text-[15px] font-semibold tracking-tight text-sidebar-foreground">
             Agent Center
           </span>

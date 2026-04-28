@@ -10,7 +10,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Check, ChevronDown, ChevronRight } from 'lucide-react';
-import { AGENTS, MODELS, type ModelEntry, type AgentEntry } from '@/components/chat/prompt-box';
+import { AGENTS, MODELS, ProviderLogo, type AgentEntry, type ModelEntry } from '@/lib/agent-models';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -30,7 +30,7 @@ interface ProviderConfig {
   consoleUrl: string;
   consoleDomain: string;
   keyPlaceholder: string;
-  logoUrl: string;
+  logoId: AgentEntry['logoId'];
 }
 
 const PROVIDER_CONFIGS: ProviderConfig[] = [
@@ -42,7 +42,7 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
     consoleUrl: 'https://console.anthropic.com',
     consoleDomain: 'console.anthropic.com',
     keyPlaceholder: 'sk-ant-...',
-    logoUrl: 'https://models.dev/logos/claude.svg',
+    logoId: 'anthropic',
   },
   {
     id: 'openai',
@@ -52,15 +52,9 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
     consoleUrl: 'https://platform.openai.com/api-keys',
     consoleDomain: 'platform.openai.com',
     keyPlaceholder: 'sk-...',
-    logoUrl: 'https://models.dev/logos/openai.svg',
+    logoId: 'openai',
   },
 ];
-
-// ── Provider Logo ───────────────────────────────────────────────────────────
-
-function ProviderLogo({ url, alt, className }: { url: string; alt: string; className?: string }) {
-  return <img src={url} alt={alt} className={className} draggable={false} loading="lazy" />;
-}
 
 // ── Default Model Picker ────────────────────────────────────────────────────
 
@@ -73,18 +67,25 @@ function DefaultModelPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
+  const selectableAgents = AGENTS.filter((agent) => !agent.disabled && !agent.comingSoon);
 
-  const selectedModel = MODELS.find((m) => m.id === selectedModelId) ?? MODELS[0]!;
-  const selectedAgent = AGENTS.find((a) => a.id === selectedModel.agentId) ?? AGENTS[0]!;
+  const selectedModel =
+    MODELS.find((m) => m.id === selectedModelId && !m.disabled && !m.comingSoon) ??
+    MODELS.find((m) => !m.disabled && !m.comingSoon) ??
+    MODELS[0]!;
+  const selectedAgent =
+    selectableAgents.find((a) => a.id === selectedModel.agentId) ?? selectableAgents[0] ?? AGENTS[0]!;
 
   const activeAgentId = hoveredAgent ?? selectedAgent.id;
-  const activeModels = MODELS.filter((m) => m.agentId === activeAgentId);
+  const activeModels = MODELS.filter(
+    (m) => m.agentId === activeAgentId && !m.disabled && !m.comingSoon,
+  );
 
   return (
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setHoveredAgent(null); }}>
       <PopoverTrigger asChild>
         <button className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer">
-          <ProviderLogo url={`https://models.dev/logos/${selectedAgent.logoId}.svg`} alt={selectedAgent.label} className="w-4 h-4 dark:invert" />
+          <ProviderLogo agent={selectedAgent} className="w-4 h-4 text-current" />
           <span className="text-sm font-medium text-foreground">
             {selectedAgent.label}: {selectedModel.label}
           </span>
@@ -95,7 +96,7 @@ function DefaultModelPicker({
         <div className="flex w-[400px]">
           {/* Agent list */}
           <div className="w-[150px] shrink-0 border-r border-border/40 py-1 px-1">
-            {AGENTS.map((agent) => {
+            {selectableAgents.map((agent) => {
               const isActive = activeAgentId === agent.id;
               return (
                 <button
@@ -105,7 +106,7 @@ function DefaultModelPicker({
                     isActive ? 'bg-accent' : 'hover:bg-muted/50'
                   }`}
                 >
-                  <ProviderLogo url={`https://models.dev/logos/${agent.logoId}.svg`} alt={agent.label} className="w-4 h-4 dark:invert" />
+                  <ProviderLogo agent={agent} className="w-4 h-4 text-current" />
                   <span className="font-medium text-foreground flex-1 text-left truncate">{agent.label}</span>
                   <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
                 </button>
@@ -175,7 +176,7 @@ function ApiKeyRow({ config }: { config: ProviderConfig }) {
     <div className="flex items-start gap-4 py-4 border-b border-border/50 last:border-0">
       {/* Provider info */}
       <div className="flex items-center gap-3 w-[140px] shrink-0 pt-1">
-        <ProviderLogo url={config.logoUrl} alt={config.title} className="w-5 h-5 dark:invert" />
+        <ProviderLogo logoId={config.logoId} className="w-5 h-5 text-current" />
         <div>
           <p className="text-sm font-medium text-foreground">{config.title}</p>
           {isLoading ? (

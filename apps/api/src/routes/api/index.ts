@@ -14,6 +14,7 @@ import { projectRoutes } from "./projects";
 import { repoConnectionRoutes } from "./repo-connections";
 import { runnerRoutes } from "./runners";
 import { runRoutes } from "./runs";
+import { runtimeRoutes } from "./runtime";
 import { taskRoutes } from "./tasks";
 import { workspaceRoutes } from "./workspaces";
 
@@ -30,6 +31,7 @@ apiRoutes.route("/workspaces", workspaceRoutes);
 apiRoutes.route("/projects", projectRoutes);
 apiRoutes.route("/repo-connections", repoConnectionRoutes);
 apiRoutes.route("/runners", runnerRoutes);
+apiRoutes.route("/runtime", runtimeRoutes);
 apiRoutes.route("/tasks", taskRoutes);
 apiRoutes.route("/runs", runRoutes);
 apiRoutes.route("/automations", automationRoutes);
