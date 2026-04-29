@@ -4,6 +4,7 @@ import { api } from "@agent-center/control-plane/api";
 
 import { ApiError } from "../http/errors";
 import { apiEnv } from "../env";
+import { asConvexId } from "../repositories/convex-repository-utils";
 import { convexServiceClient } from "./convex-service-client";
 
 type Provider = "claude" | "openai";
@@ -182,6 +183,44 @@ function decryptOpenAIIdToken(metadata: unknown, key: string) {
   return typeof openAIMetadata?.idToken === "string" ? openAIMetadata.idToken : undefined;
 }
 
+function resolveStoredCredentialRow(
+  provider: Provider,
+  row: any,
+): ResolvedCredential | undefined {
+  if (row?.source === "api_key" && row.encryptedApiKey) {
+    const key = getEncryptionKey();
+    return {
+      type: "api_key",
+      value: decrypt(row.encryptedApiKey, key),
+    };
+  }
+
+  if (
+    provider === "openai" &&
+    row?.source === "oauth" &&
+    row.encryptedAccessToken &&
+    row.encryptedRefreshToken
+  ) {
+    const key = getEncryptionKey();
+    const accessToken = decrypt(row.encryptedAccessToken, key);
+    const refreshToken = decrypt(row.encryptedRefreshToken, key);
+    const idToken = decryptOpenAIIdToken(row.metadata, key);
+
+    return {
+      type: "auth_json",
+      value: JSON.stringify({
+        tokens: {
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          ...(idToken ? { id_token: idToken } : {}),
+        },
+      }),
+    };
+  }
+
+  return undefined;
+}
+
 async function resolveOpenAICredential(userId: string): Promise<ResolvedCredential> {
   const row = await convexServiceClient.query(api.serviceApi.getCredential, {
     provider: "openai",
@@ -238,13 +277,28 @@ async function resolveCodexCredential(userId: string): Promise<ResolvedCredentia
   return resolveOpenAICredential(userId);
 }
 
-function resolveRunnerEnvCredential(
+async function resolveWorkspaceOwnerProviderCredential(
   provider: Provider,
   workspaceId: string,
   envFallbackKey: string,
   errorCode: string,
   errorMessage: string,
-): ResolvedCredential {
+): Promise<ResolvedCredential> {
+  const workspace = await convexServiceClient.query(api.serviceApi.getWorkspaceById, {
+    workspaceId: asConvexId<"workspaces">(workspaceId),
+  });
+
+  if (workspace?.ownerId) {
+    const row = await convexServiceClient.query(api.serviceApi.getCredential, {
+      provider,
+      userId: workspace.ownerId,
+    });
+    const credential = resolveStoredCredentialRow(provider, row);
+    if (credential) {
+      return credential;
+    }
+  }
+
   const envApiKey = process.env[envFallbackKey];
   if (envApiKey) {
     return { type: "api_key", value: envApiKey };
@@ -254,7 +308,7 @@ function resolveRunnerEnvCredential(
     provider,
     workspaceId,
     requiresWorkspaceScopedCredential: true,
-    workspaceScopedCredentialLookupImplemented: false,
+    workspaceScopedCredentialLookupImplemented: true,
   });
 }
 
@@ -284,35 +338,9 @@ async function resolveGlobalProviderCredential(
     userId: null,
   });
 
-  if (row?.source === "api_key" && row.encryptedApiKey) {
-    const key = getEncryptionKey();
-    return {
-      type: "api_key",
-      value: decrypt(row.encryptedApiKey, key),
-    };
-  }
-
-  if (
-    provider === "openai" &&
-    row?.source === "oauth" &&
-    row.encryptedAccessToken &&
-    row.encryptedRefreshToken
-  ) {
-    const key = getEncryptionKey();
-    const accessToken = decrypt(row.encryptedAccessToken, key);
-    const refreshToken = decrypt(row.encryptedRefreshToken, key);
-    const idToken = decryptOpenAIIdToken(row.metadata, key);
-
-    return {
-      type: "auth_json",
-      value: JSON.stringify({
-        tokens: {
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          ...(idToken ? { id_token: idToken } : {}),
-        },
-      }),
-    };
+  const credential = resolveStoredCredentialRow(provider, row);
+  if (credential) {
+    return credential;
   }
 
   throw new ApiError(422, errorCode, errorMessage, {
@@ -337,12 +365,12 @@ async function resolveRunnerClaudeCredential(workspaceId: string): Promise<Resol
     );
   }
 
-  return resolveRunnerEnvCredential(
+  return resolveWorkspaceOwnerProviderCredential(
     "claude",
     workspaceId,
     "ANTHROPIC_API_KEY",
     "no_runner_claude_credentials",
-    "No runner-safe Claude credentials configured. Production runners currently support env-backed credentials only for this workspace.",
+    "No Claude account is connected for this workspace owner. Connect Claude in Settings -> Models, then retry.",
   );
 }
 
@@ -360,12 +388,12 @@ async function resolveRunnerOpenAICredential(workspaceId: string): Promise<Resol
     );
   }
 
-  return resolveRunnerEnvCredential(
+  return resolveWorkspaceOwnerProviderCredential(
     "openai",
     workspaceId,
     "OPENAI_API_KEY",
     "no_runner_openai_credentials",
-    "No runner-safe OpenAI credentials configured. Production runners currently support env-backed credentials only for this workspace.",
+    "No Codex account is connected for this workspace owner. Connect Codex in Settings -> Models, then retry.",
   );
 }
 

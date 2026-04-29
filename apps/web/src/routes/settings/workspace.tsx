@@ -56,8 +56,8 @@ export function WorkspacePage() {
       {
         key: 'convex_bash',
         kind: 'lightweight',
-        name: 'Convex Bash',
-        description: 'Low-cost runtime for quick tasks and follow-ups.',
+        name: 'Hosted Cloud',
+        description: 'Managed lightweight cloud runtime for quick tasks and follow-ups.',
       },
       {
         key: 'agent_os',
@@ -88,7 +88,7 @@ export function WorkspacePage() {
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Workspace & Runtimes</h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Manage workspace identity, runtime availability, and self-hosted execution from one place.
+          Manage workspace identity and hosted runtime availability from one place.
         </p>
       </div>
 
@@ -136,7 +136,7 @@ export function WorkspacePage() {
               <div>
                 <p className="text-sm font-medium text-foreground">Runtime modes</p>
                 <p className="text-xs text-muted-foreground">
-                  These are the same runtime choices shown in the task composer.
+                  These are the same hosted runtime choices shown in the task composer.
                 </p>
               </div>
               <div className="flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-3 py-1 text-[11px] text-muted-foreground">
@@ -162,8 +162,14 @@ export function WorkspacePage() {
                           <Icon className="h-4 w-4 text-muted-foreground" />
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-foreground">{runtime.name}</p>
-                          <p className="text-xs text-muted-foreground">{runtime.description}</p>
+                          <p className="text-sm font-medium text-foreground">
+                            {runtime.key === 'convex_bash' ? 'Hosted Cloud' : runtime.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {runtime.key === 'convex_bash'
+                              ? 'Managed lightweight cloud runtime for quick tasks and follow-ups.'
+                              : runtime.description}
+                          </p>
                         </div>
                       </div>
                       <span
@@ -196,7 +202,7 @@ export function WorkspacePage() {
                 <Cloud className="h-4 w-4 text-muted-foreground" />
               </div>
               <div>
-                <p className="text-sm font-medium text-foreground">Convex control plane</p>
+                <p className="text-sm font-medium text-foreground">Hosted control plane</p>
                 <p className="text-xs text-muted-foreground">Realtime orchestration, runtime registry, and shared state.</p>
               </div>
             </div>

@@ -59,7 +59,8 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
     credentialPath: "/api/credentials/openai",
     logoId: "openai",
     connectKind: "codex-auth",
-    description: "Connect your Codex account session so Codex can run tasks in Agent Center.",
+    description:
+      "Connect your Codex account session. Agent Center masks it here, sends it over HTTPS, and stores it encrypted for this workspace.",
     connectedDescription: "Codex account connected for this workspace.",
     connectLabel: "Connect Codex",
   },
@@ -73,22 +74,22 @@ interface HarnessSupportConfig {
   detail: string;
 }
 
-const CODEX_AUTH_IMPORT_COMMAND = `sh -lc 'codex login && if command -v pbcopy >/dev/null 2>&1; then pbcopy < ~/.codex/auth.json && echo "Copied ~/.codex/auth.json to clipboard"; elif command -v wl-copy >/dev/null 2>&1; then wl-copy < ~/.codex/auth.json && echo "Copied ~/.codex/auth.json to clipboard"; elif command -v xclip >/dev/null 2>&1; then xclip -selection clipboard < ~/.codex/auth.json && echo "Copied ~/.codex/auth.json to clipboard"; else cat ~/.codex/auth.json; fi'`;
+const CODEX_AUTH_IMPORT_COMMAND = `/bin/sh -lc 'codex login && auth_file="$HOME/.codex/auth.json"; if command -v pbcopy >/dev/null 2>&1; then pbcopy < "$auth_file" && echo "Copied encrypted Codex session transfer"; elif command -v wl-copy >/dev/null 2>&1; then wl-copy < "$auth_file" && echo "Copied encrypted Codex session transfer"; elif command -v xclip >/dev/null 2>&1; then xclip -selection clipboard < "$auth_file" && echo "Copied encrypted Codex session transfer"; else cat "$auth_file"; fi'`;
 
 const HARNESS_SUPPORT_CONFIGS: HarnessSupportConfig[] = [
   {
     id: "opencode",
     title: "OpenCode",
     logoId: "opencode",
-    description: "Cloud harness support for OpenCode is coming soon.",
-    detail: "Agent Center will manage this account connection here when hosted support is available.",
+    description: "Hosted OpenCode support is coming soon.",
+    detail: "No local setup is needed here. Agent Center will manage this hosted account connection when support is available.",
   },
   {
     id: "cursor",
     title: "Cursor",
     logoId: "cursor",
-    description: "Cloud harness support for Cursor is coming soon.",
-    detail: "Agent Center will manage this account connection here when hosted support is available.",
+    description: "Hosted Cursor support is coming soon.",
+    detail: "No local setup is needed here. Agent Center will manage this hosted account connection when support is available.",
   },
 ];
 
@@ -449,7 +450,7 @@ function ProviderConnectionCard({ config }: { config: ProviderConfig }) {
               }}
             >
               <label className="text-xs font-medium text-foreground" htmlFor="codex-auth-json">
-                Paste your Codex account session
+                Paste your encrypted Codex session transfer
               </label>
               <div className="mt-2 rounded-lg border border-border/70 bg-background p-2">
                 <div className="flex items-center gap-2">
@@ -467,10 +468,13 @@ function ProviderConnectionCard({ config }: { config: ProviderConfig }) {
                     {copyCommandLabel}
                   </Button>
                 </div>
-                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                  Works from fish, zsh, or bash. It opens Codex login, then copies
+                <p className="mt-2 flex gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                  <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-info" />
+                  <span>
+                    Fish-safe: paste the command exactly as copied. It opens Codex login, then copies
                   <code className="mx-1 rounded bg-muted px-1 py-0.5">~/.codex/auth.json</code>
-                  to your clipboard when possible, or prints it for paste.
+                    without printing it when your clipboard tool is available.
+                  </span>
                 </p>
               </div>
               <textarea
@@ -479,12 +483,13 @@ function ProviderConnectionCard({ config }: { config: ProviderConfig }) {
                 onChange={(event) => setCodexAuthJson(event.target.value)}
                 spellCheck={false}
                 className="mt-2 min-h-[120px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                placeholder='Contents of ~/.codex/auth.json after running "codex login"'
+                placeholder="Paste the copied session transfer here"
+                style={{ WebkitTextSecurity: codexAuthJson ? "disc" : undefined } as React.CSSProperties}
               />
               <div className="mt-2 flex items-center justify-between gap-3">
                 <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  Paste the auth JSON here to connect your Codex account session to this Agent
-                  Center workspace.
+                  Agent Center receives this over HTTPS and encrypts it before storage. The masked
+                  field keeps the token details off screen while you paste.
                 </p>
                 <Button
                   type="submit"

@@ -107,8 +107,33 @@ const mockConvexQuery = mock(async (_ref: unknown, args: unknown) => {
     args,
   };
 
+  if (args && typeof args === "object" && "workspaceId" in args) {
+    const workspaceId = args.workspaceId;
+    return (
+      mockSelectResult.find(
+        (row) =>
+          row &&
+          typeof row === "object" &&
+          ("id" in row || "_id" in row) &&
+          ((row as { id?: unknown }).id === workspaceId ||
+            (row as { _id?: unknown })._id === workspaceId),
+      ) ?? null
+    );
+  }
+
   if (args && typeof args === "object" && "provider" in args) {
-    return mockSelectResult[0] ?? null;
+    const provider = args.provider;
+    const expectedUserId = "userId" in args ? args.userId : undefined;
+    return (
+      mockSelectResult.find((row) => {
+        if (!row || typeof row !== "object") return false;
+        const record = row as { provider?: unknown; userId?: unknown };
+        if (record.provider !== provider) return false;
+        if (!("userId" in args)) return true;
+        if (!("userId" in record)) return true;
+        return record.userId === expectedUserId || (record.userId == null && expectedUserId == null);
+      }) ?? null
+    );
   }
 
   if (args && typeof args === "object" && "username" in args) {
@@ -186,6 +211,7 @@ mock.module("../env", () => ({
 }));
 
 const { credentialService } = await import("../services/credential-service");
+const { apiEnv } = await import("../env");
 const { authMiddleware } = await import("../middleware/auth");
 const { tokenStore } = await import("../middleware/basic-auth");
 const { authLoginRoutes } = await import("../routes/api/auth/login");
@@ -263,6 +289,7 @@ describe("credential-service", () => {
     tokenStore.clear();
     mockConvexQuery.mockClear();
     mockConvexMutation.mockClear();
+    (apiEnv as { NODE_ENV: string }).NODE_ENV = "development";
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENAI_API_KEY;
     delete process.env.RUNNER_ALLOW_GLOBAL_PROVIDER_CREDENTIALS;
@@ -681,6 +708,7 @@ describe("credential-service", () => {
 
       mockSelectResult.push({
         id: "cred-openai-1",
+        userId: "user-1",
         provider: "openai",
         source: "oauth",
         encryptedApiKey: null,
@@ -736,6 +764,98 @@ describe("credential-service", () => {
 
     test("returns env-backed OpenAI credentials for self-hosted runners", async () => {
       process.env.OPENAI_API_KEY = "sk-openai-runner-safe-key";
+
+      const result = await credentialService.resolveRunnerOpenAICredential("workspace-1");
+
+      expect(result).toEqual({
+        type: "api_key",
+        value: "sk-openai-runner-safe-key",
+      });
+    });
+
+    test("resolves production Claude credentials from the workspace owner account", async () => {
+      (apiEnv as { NODE_ENV: string }).NODE_ENV = "production";
+      const encKey = "test-encryption-key-for-unit-tests";
+      const encryptedApiKey = encrypt("sk-ant-owner-key", encKey);
+
+      mockSelectResult.push(
+        {
+          id: "workspace-1",
+          ownerId: "user-owner-1",
+        },
+        {
+          id: "cred-claude-1",
+          userId: "user-owner-1",
+          provider: "claude",
+          source: "api_key",
+          encryptedApiKey,
+          encryptedAccessToken: null,
+          encryptedRefreshToken: null,
+          tokenExpiresAt: null,
+          metadata: {},
+        },
+      );
+
+      const result = await credentialService.resolveRunnerClaudeCredential("workspace-1");
+
+      expect(result).toEqual({
+        type: "api_key",
+        value: "sk-ant-owner-key",
+      });
+      expect(mockConvexQuery.mock.calls.map(([, args]) => args)).toEqual([
+        { workspaceId: "workspace-1" },
+        { provider: "claude", userId: "user-owner-1" },
+      ]);
+    });
+
+    test("resolves production Codex oauth credentials from the workspace owner account", async () => {
+      (apiEnv as { NODE_ENV: string }).NODE_ENV = "production";
+      const encKey = "test-encryption-key-for-unit-tests";
+      const encryptedAccessToken = encrypt("oauth-access-token", encKey);
+      const encryptedRefreshToken = encrypt("oauth-refresh-token", encKey);
+      const encryptedIdToken = encrypt("oauth-id-token", encKey);
+
+      mockSelectResult.push(
+        {
+          id: "workspace-1",
+          ownerId: "user-owner-1",
+        },
+        {
+          id: "cred-openai-1",
+          userId: "user-owner-1",
+          provider: "openai",
+          source: "oauth",
+          encryptedApiKey: null,
+          encryptedAccessToken,
+          encryptedRefreshToken,
+          tokenExpiresAt: null,
+          metadata: { encryptedIdToken },
+        },
+      );
+
+      const result = await credentialService.resolveRunnerOpenAICredential("workspace-1");
+
+      expect(result.type).toBe("auth_json");
+      expect(JSON.parse(result.value)).toEqual({
+        tokens: {
+          access_token: "oauth-access-token",
+          refresh_token: "oauth-refresh-token",
+          id_token: "oauth-id-token",
+        },
+      });
+      expect(mockConvexQuery.mock.calls.map(([, args]) => args)).toEqual([
+        { workspaceId: "workspace-1" },
+        { provider: "openai", userId: "user-owner-1" },
+      ]);
+    });
+
+    test("falls back to env credentials in production when the workspace owner has none", async () => {
+      (apiEnv as { NODE_ENV: string }).NODE_ENV = "production";
+      process.env.OPENAI_API_KEY = "sk-openai-runner-safe-key";
+      mockSelectResult.push({
+        id: "workspace-1",
+        ownerId: "user-owner-1",
+      });
 
       const result = await credentialService.resolveRunnerOpenAICredential("workspace-1");
 

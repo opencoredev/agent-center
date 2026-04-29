@@ -961,7 +961,12 @@ function isSelectableSandboxMode(mode: SandboxMode) {
 
 function getRuntimeSetupDescription(providerKey: string, fallback: string) {
   if (providerKey !== "convex_bash") return fallback;
-  return "Hosted cloud runtime managed by Agent Center";
+  return "Managed cloud runtime for quick hosted tasks";
+}
+
+function getRuntimeProviderLabel(providerKey: string, fallback: string) {
+  if (providerKey === "convex_bash") return "Hosted Cloud";
+  return fallback;
 }
 
 export function runtimeForSandboxMode(mode: SandboxMode): ExecutionRuntime {
@@ -1070,7 +1075,7 @@ function SandboxSelector({
       value: "cloud_light",
       label: "Hosted Cloud",
       icon: Cloud,
-      desc: "Hosted cloud runtime managed by Agent Center",
+      desc: "Managed cloud runtime for quick hosted tasks",
     },
     {
       value: "cloud_full",
@@ -1097,27 +1102,29 @@ function SandboxSelector({
   ];
 
   const apiRuntimeOptions =
-    runtimeProviderStatus?.providers.map((provider: RuntimeProviderStatus) => ({
-      value: sandboxModeForProviderKey(provider.id),
-      label: provider.label,
-      icon:
-        provider.target === "self_hosted"
-          ? Settings
-          : provider.target === "cloud"
-            ? Cloud
-            : Monitor,
-      desc: getRuntimeSetupDescription(
-        provider.id,
-        provider.launchReady
-          ? provider.configured
-            ? "Configured and launch-ready"
-            : "Launch-ready after configuration"
-          : provider.configured
-            ? "Configured, not launch-ready"
-            : "Not configured, not launch-ready",
-      ),
-      disabled: !provider.launchReady,
-    })) ?? [];
+    runtimeProviderStatus?.providers
+      .filter((provider: RuntimeProviderStatus) => provider.launchReady || !isHostedProductionUi())
+      .map((provider: RuntimeProviderStatus) => ({
+        value: sandboxModeForProviderKey(provider.id),
+        label: getRuntimeProviderLabel(provider.id, provider.label),
+        icon:
+          provider.target === "self_hosted"
+            ? Settings
+            : provider.target === "cloud"
+              ? Cloud
+              : Monitor,
+        desc: getRuntimeSetupDescription(
+          provider.id,
+          provider.launchReady
+            ? provider.configured
+              ? "Configured and launch-ready"
+              : "Launch-ready after configuration"
+            : provider.configured
+              ? "Configured, not launch-ready"
+              : "Not configured, not launch-ready",
+        ),
+        disabled: !provider.launchReady,
+      })) ?? [];
 
   const convexOptions =
     runtimeProviders && runtimeProviders.length > 0
@@ -1130,7 +1137,7 @@ function SandboxSelector({
               label:
                 provider.key === "self_hosted_runner"
                   ? (selfHostedConnector?.label ?? provider.name)
-                  : provider.name,
+                  : getRuntimeProviderLabel(provider.key, provider.name),
               icon:
                 provider.kind === "self_hosted"
                   ? Settings
