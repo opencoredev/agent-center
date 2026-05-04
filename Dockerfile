@@ -5,6 +5,7 @@ ENV CI=1
 COPY package.json bun.lock tsconfig.base.json turbo.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/control-plane/package.json apps/control-plane/package.json
+# The hosted runner service also watches this root Dockerfile in Railway.
 COPY apps/runner/package.json apps/runner/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/worker/package.json apps/worker/package.json
