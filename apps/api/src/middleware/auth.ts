@@ -5,6 +5,7 @@ import { createMiddleware } from "hono/factory";
 
 import { ApiError } from "../http/errors";
 import { getLocalBasicAuthUserId, isDevelopmentAuthDisabled } from "../http/auth-user";
+import { apiEnv } from "../env";
 import { convexServiceClient } from "../services/convex-service-client";
 import { hashSessionToken } from "../services/session-token-service";
 
@@ -35,6 +36,10 @@ function isFrontendPath(path: string): boolean {
     !path.startsWith("/internal/") &&
     path !== "/health"
   );
+}
+
+function isRunnerRegistrationTokenCreate(path: string, method: string): boolean {
+  return path === "/api/runners/registration-tokens" && method === "POST";
 }
 
 /**
@@ -68,6 +73,13 @@ export const authMiddleware = createMiddleware(async (context, next) => {
   }
 
   const token = authHeader.slice(7);
+
+  if (
+    isRunnerRegistrationTokenCreate(path, context.req.method) &&
+    token === apiEnv.AGENT_CENTER_CONVEX_SERVICE_TOKEN
+  ) {
+    return next();
+  }
 
   // Strategy 1: API key (prefixed with ac_)
   if (token.startsWith("ac_")) {

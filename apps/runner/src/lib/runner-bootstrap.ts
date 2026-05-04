@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { runnerRuntimeEnv } from "../env";
@@ -96,6 +96,14 @@ async function readPersistedRunnerState(
 async function persistRunnerState(statePath: string, state: PersistedRunnerState) {
   await mkdir(dirname(statePath), { recursive: true });
   await writeFile(statePath, JSON.stringify(state, null, 2), "utf8");
+}
+
+async function removePersistedRunnerState(statePath: string, logger: BootstrapLogger) {
+  try {
+    await rm(statePath, { force: true });
+  } catch (error) {
+    logger.warn(`[runner] failed to remove stale auth state at ${statePath}`, error);
+  }
 }
 
 async function registerRunner(input: {
@@ -247,7 +255,9 @@ export async function ensureRunnerApiToken(
   const statePath = options.statePath ?? runnerRuntimeEnv.RUNNER_STATE_PATH;
   const apiUrl = options.apiUrl ?? runnerRuntimeEnv.RUNNER_API_URL;
   const bootstrapToken = trimToken(
-    options.bootstrapToken ?? runnerRuntimeEnv.RUNNER_BOOTSTRAP_TOKEN,
+    options.bootstrapToken ??
+      (runnerRuntimeEnv.RUNNER_BOOTSTRAP_TOKEN ||
+        runnerRuntimeEnv.AGENT_CENTER_CONVEX_SERVICE_TOKEN),
   );
 
   try {
@@ -289,4 +299,25 @@ export async function ensureRunnerApiToken(
     clearRunnerApiToken();
     return initial;
   }
+}
+
+export async function refreshRunnerApiToken(
+  input: {
+    workspaceId: string;
+    runnerName?: string;
+  },
+  options: BootstrapRunnerAuthOptions = {},
+): Promise<BootstrapRunnerAuthResult> {
+  const logger = options.logger ?? console;
+  const statePath = options.statePath ?? runnerRuntimeEnv.RUNNER_STATE_PATH;
+
+  clearRunnerApiToken();
+  await removePersistedRunnerState(statePath, logger);
+
+  return ensureRunnerApiToken(input, {
+    ...options,
+    envApiToken: "",
+    registrationToken: "",
+    statePath,
+  });
 }

@@ -225,6 +225,9 @@ function createAuthTestApp() {
   app.get("/api/protected", (context) =>
     context.json({ ok: true, userId: context.get("userId") ?? null }),
   );
+  app.post("/api/runners/registration-tokens", (context) =>
+    context.json({ ok: true, userId: context.get("userId") ?? null }),
+  );
   app.onError((error, _context) => {
     const apiError =
       error instanceof ApiError ? error : new ApiError(500, "internal_error", "Unexpected error");
@@ -336,6 +339,35 @@ describe("credential-service", () => {
 
       const response = await createAuthTestApp().request("/api/protected", {
         headers: { Authorization: "Bearer ac_test" },
+      });
+
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({ code: "unauthorized" });
+    });
+
+    test("allows the service token to create runner registration tokens", async () => {
+      (apiEnv as { AGENT_CENTER_CONVEX_SERVICE_TOKEN: string }).AGENT_CENTER_CONVEX_SERVICE_TOKEN =
+        "service-bootstrap-token";
+
+      const response = await createAuthTestApp().request("/api/runners/registration-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer service-bootstrap-token",
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true, userId: null });
+    });
+
+    test("does not allow the service token on general protected API routes", async () => {
+      (apiEnv as { AGENT_CENTER_CONVEX_SERVICE_TOKEN: string }).AGENT_CENTER_CONVEX_SERVICE_TOKEN =
+        "service-bootstrap-token";
+
+      const response = await createAuthTestApp().request("/api/protected", {
+        headers: {
+          authorization: "Bearer service-bootstrap-token",
+        },
       });
 
       expect(response.status).toBe(401);

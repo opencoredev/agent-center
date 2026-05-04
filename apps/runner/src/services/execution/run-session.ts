@@ -5,7 +5,7 @@ import { Effect } from "effect";
 
 import { getRunnerErrorMessage } from "../../effect/errors";
 import type { ActiveRunSnapshot, RunControlResponse } from "../../internal/protocol";
-import { ensureRunnerApiToken } from "../../lib/runner-bootstrap";
+import { ensureRunnerApiToken, refreshRunnerApiToken } from "../../lib/runner-bootstrap";
 import {
   getControlIntent,
   type ControlAction,
@@ -668,15 +668,9 @@ export class RunSession implements CommandExecutionController {
       credentialEnv = { ANTHROPIC_API_KEY: anthropicApiKey };
     } else {
       try {
-        await this.#ensureRunnerCloudAuth();
-        const data = await fetchInternalApiJson<{ data: { type: string; value: string } }>(
-          "/internal/credentials/claude/resolve",
-          undefined,
-          {
-            baseUrl: runnerRuntimeEnv.RUNNER_API_URL,
-            token: runnerRuntimeEnv.RUNNER_API_TOKEN,
-          },
-        );
+        const data = await this.#fetchRunnerInternalApiJson<{
+          data: { type: string; value: string };
+        }>("/internal/credentials/claude/resolve");
         credentialEnv = { ANTHROPIC_API_KEY: data.data.value };
       } catch (error) {
         await this.#logCredentialResolutionFailure("claude", error);
@@ -907,15 +901,9 @@ export class RunSession implements CommandExecutionController {
     }
 
     try {
-      await this.#ensureRunnerCloudAuth();
-      const data = await fetchInternalApiJson<{ data: { type: string; value: string } }>(
-        "/internal/credentials/openai/resolve",
-        undefined,
-        {
-          baseUrl: runnerRuntimeEnv.RUNNER_API_URL,
-          token: runnerRuntimeEnv.RUNNER_API_TOKEN,
-        },
-      );
+      const data = await this.#fetchRunnerInternalApiJson<{
+        data: { type: string; value: string };
+      }>("/internal/credentials/openai/resolve");
       this.#resolvedCodexCredential = {
         authJson: data.data.type === "auth_json" ? data.data.value : null,
         openAiApiKey: data.data.type === "api_key" ? data.data.value : null,
@@ -933,6 +921,31 @@ export class RunSession implements CommandExecutionController {
       workspaceId: this.#target.workspace.id,
       runnerName: "Local Runner",
     });
+  }
+
+  async #fetchRunnerInternalApiJson<T>(path: string) {
+    await this.#ensureRunnerCloudAuth();
+
+    try {
+      return await fetchInternalApiJson<T>(path, undefined, {
+        baseUrl: runnerRuntimeEnv.RUNNER_API_URL,
+        token: runnerRuntimeEnv.RUNNER_API_TOKEN,
+      });
+    } catch (error) {
+      if (!(error instanceof InternalApiAuthError) || error.code !== "runner_unauthorized") {
+        throw error;
+      }
+
+      await refreshRunnerApiToken({
+        workspaceId: this.#target.workspace.id,
+        runnerName: "Local Runner",
+      });
+
+      return fetchInternalApiJson<T>(path, undefined, {
+        baseUrl: runnerRuntimeEnv.RUNNER_API_URL,
+        token: runnerRuntimeEnv.RUNNER_API_TOKEN,
+      });
+    }
   }
 
   async #logCredentialResolutionFailure(provider: "claude" | "openai", error: unknown) {

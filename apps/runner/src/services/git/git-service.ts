@@ -7,8 +7,8 @@ import { createGitHubProvider } from "../../../../../packages/github/src/index.t
 import { GitCommandError, RunnerStateError, inferGitHint, toLineTail } from "../../effect/errors";
 import { runEffectOrThrow } from "../../effect/runtime";
 import { runnerRuntimeEnv } from "../../env";
-import { fetchInternalApiJson } from "../../lib/internal-api";
-import { ensureRunnerApiToken } from "../../lib/runner-bootstrap";
+import { InternalApiAuthError, fetchInternalApiJson } from "../../lib/internal-api";
+import { ensureRunnerApiToken, refreshRunnerApiToken } from "../../lib/runner-bootstrap";
 import { shellQuote } from "../../lib/shell";
 import type { LoadedRunTarget } from "../../repositories/run-repository";
 import type { CommandExecutionController } from "../execution/command-executor";
@@ -145,14 +145,29 @@ export class GitService {
       runnerName: "Local Runner",
     });
 
-    const response = await fetchInternalApiJson<{ data: { token: string } }>(
-      `/internal/github/repo-connections/${repoConnection.id}/installation-token`,
-      undefined,
-      {
+    const path = `/internal/github/repo-connections/${repoConnection.id}/installation-token`;
+    let response: { data: { token: string } };
+
+    try {
+      response = await fetchInternalApiJson<{ data: { token: string } }>(path, undefined, {
         baseUrl: runnerRuntimeEnv.RUNNER_API_URL,
         token: runnerRuntimeEnv.RUNNER_API_TOKEN,
-      },
-    );
+      });
+    } catch (error) {
+      if (!(error instanceof InternalApiAuthError) || error.code !== "runner_unauthorized") {
+        throw error;
+      }
+
+      await refreshRunnerApiToken({
+        workspaceId: target.workspace.id,
+        runnerName: "Local Runner",
+      });
+
+      response = await fetchInternalApiJson<{ data: { token: string } }>(path, undefined, {
+        baseUrl: runnerRuntimeEnv.RUNNER_API_URL,
+        token: runnerRuntimeEnv.RUNNER_API_TOKEN,
+      });
+    }
 
     return response.data.token;
   }

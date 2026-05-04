@@ -11,6 +11,7 @@ import type { InternalApiFetch } from "../lib/internal-api";
 const tempDirs: string[] = [];
 const initialRunnerApiToken = runnerRuntimeEnv.RUNNER_API_TOKEN;
 const initialProcessRunnerApiToken = process.env.RUNNER_API_TOKEN;
+const initialServiceToken = runnerRuntimeEnv.AGENT_CENTER_CONVEX_SERVICE_TOKEN;
 
 async function createTempStatePath(name: string) {
   const directory = await mkdtemp(join(tmpdir(), "runner-bootstrap-"));
@@ -26,6 +27,7 @@ afterEach(async () => {
   );
 
   runnerRuntimeEnv.RUNNER_API_TOKEN = initialRunnerApiToken;
+  runnerRuntimeEnv.AGENT_CENTER_CONVEX_SERVICE_TOKEN = initialServiceToken;
   if (initialProcessRunnerApiToken === undefined) {
     delete process.env.RUNNER_API_TOKEN;
   } else {
@@ -213,8 +215,143 @@ describe("runner-bootstrap", () => {
     ]);
   });
 
+  test("uses the Convex service token as the default auto-registration bootstrap token", async () => {
+    const statePath = await createTempStatePath("runner-state.json");
+    runnerRuntimeEnv.AGENT_CENTER_CONVEX_SERVICE_TOKEN = "service-bootstrap-token";
+
+    const fetchImpl: InternalApiFetch = async (url, init) => {
+      if (url.toString() === "http://api.example.test/api/runners/registration-tokens") {
+        const headers = init?.headers;
+        expect(headers instanceof Headers).toBe(true);
+        expect((headers as Headers).get("authorization")).toBe("Bearer service-bootstrap-token");
+
+        return new Response(
+          JSON.stringify({
+            data: {
+              registrationToken: "acr_reg_auto",
+            },
+          }),
+          {
+            headers: { "content-type": "application/json" },
+            status: 201,
+          },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          data: {
+            authToken: "acr_runner_auto",
+            runner: {
+              id: "runner_auto",
+              workspaceId: "workspace_auto",
+              name: "Local Runner",
+            },
+          },
+        }),
+        {
+          headers: { "content-type": "application/json" },
+          status: 201,
+        },
+      );
+    };
+
+    const { ensureRunnerApiToken } = await import("../lib/runner-bootstrap");
+
+    const result = await ensureRunnerApiToken(
+      {
+        workspaceId: "workspace_auto",
+      },
+      {
+        apiUrl: "http://api.example.test",
+        envApiToken: "",
+        fetchImpl,
+        registrationToken: "",
+        statePath,
+      },
+    );
+
+    expect(result.source).toBe("auto_registration");
+    expect(result.token).toBe("acr_runner_auto");
+  });
+
+  test("refreshes a stale token by skipping env and persisted auth state", async () => {
+    const statePath = await createTempStatePath("runner-state.json");
+    await Bun.write(
+      statePath,
+      JSON.stringify({
+        apiToken: "stale-persisted-runner-token",
+        persistedAt: new Date().toISOString(),
+        runner: null,
+      }),
+    );
+
+    runnerRuntimeEnv.RUNNER_API_TOKEN = "stale-env-runner-token";
+    process.env.RUNNER_API_TOKEN = "stale-env-runner-token";
+
+    const calls: string[] = [];
+    const fetchImpl: InternalApiFetch = async (url) => {
+      calls.push(url.toString());
+
+      if (url.toString() === "http://api.example.test/api/runners/registration-tokens") {
+        return new Response(
+          JSON.stringify({
+            data: {
+              registrationToken: "acr_reg_refreshed",
+            },
+          }),
+          {
+            headers: { "content-type": "application/json" },
+            status: 201,
+          },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          data: {
+            authToken: "acr_runner_refreshed",
+            runner: {
+              id: "runner_refreshed",
+              workspaceId: "workspace_auto",
+              name: "Local Runner",
+            },
+          },
+        }),
+        {
+          headers: { "content-type": "application/json" },
+          status: 201,
+        },
+      );
+    };
+
+    const { refreshRunnerApiToken } = await import("../lib/runner-bootstrap");
+
+    const result = await refreshRunnerApiToken(
+      {
+        workspaceId: "workspace_auto",
+      },
+      {
+        apiUrl: "http://api.example.test",
+        bootstrapToken: "service-bootstrap-token",
+        fetchImpl,
+        statePath,
+      },
+    );
+
+    expect(result.source).toBe("auto_registration");
+    expect(result.token).toBe("acr_runner_refreshed");
+    expect(runnerRuntimeEnv.RUNNER_API_TOKEN).toBe("acr_runner_refreshed");
+    expect(process.env.RUNNER_API_TOKEN).toBe("acr_runner_refreshed");
+    expect(calls).toEqual([
+      "http://api.example.test/api/runners/registration-tokens",
+      "http://api.example.test/api/runners/register",
+    ]);
+  });
+
   test("does not auto-register without a bootstrap token", async () => {
     const statePath = await createTempStatePath("runner-state.json");
+    runnerRuntimeEnv.AGENT_CENTER_CONVEX_SERVICE_TOKEN = "";
     let fetchCalled = false;
     const fetchImpl: InternalApiFetch = async () => {
       fetchCalled = true;
