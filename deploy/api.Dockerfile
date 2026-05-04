@@ -38,7 +38,7 @@ FROM oven/bun:1.3.5-debian AS runtime-deps
 WORKDIR /app
 ENV CI=1
 
-# API deploys independently in Railway; keep this Dockerfile as its watched surface.
+# API deploys independently in Railway; keep internal route fixes on this watched surface.
 COPY package.json bun.lock tsconfig.base.json turbo.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/control-plane/package.json apps/control-plane/package.json
