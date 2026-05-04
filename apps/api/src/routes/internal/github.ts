@@ -7,11 +7,7 @@ import { runnerAuthMiddleware } from "../../middleware/runner-auth";
 import { findRepoConnectionByWorkspaceAndId } from "../../repositories/repo-connection-repository";
 import { githubAppService } from "../../services/github-app-service";
 import { ApiError } from "../../http/errors";
-import { z } from "zod";
-
-const repoConnectionIdParamsSchema = z.object({
-  repoConnectionId: z.uuid(),
-});
+import { repoConnectionIdParamsSchema } from "../../validators/common";
 
 export const internalGitHubRoutes = new Hono<ApiEnv>();
 
