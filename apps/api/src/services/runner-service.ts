@@ -196,7 +196,7 @@ export const runnerService = {
     };
   },
 
-  async authenticate(token: string) {
+  async authenticate(token: string, options: { allowRevoked?: boolean } = {}) {
     if (token.startsWith(RUNNER_REGISTRATION_TOKEN_PREFIX)) {
       throw new ApiError(
         401,
@@ -211,7 +211,7 @@ export const runnerService = {
 
     const runner = await findRunnerByAuthKeyHash(hashToken(token));
 
-    if (runner === undefined || runner.revokedAt !== null) {
+    if (runner === undefined || (runner.revokedAt !== null && !options.allowRevoked)) {
       throw new ApiError(401, "runner_unauthorized", "Invalid or revoked runner token");
     }
 

@@ -28,11 +28,13 @@ const ownedRunner = {
   authKeyPrefix: runnerTokenValue.slice(0, 15),
   authKeyHash: createHash("sha256").update(runnerTokenValue).digest("hex"),
   lastSeenAt: createdAt,
-  revokedAt: null,
+  revokedAt: null as Date | null,
   createdByUserId: "user-1",
   createdAt,
   updatedAt,
 };
+
+let currentRunner = ownedRunner;
 
 const activeRegistrationToken = {
   id: "reg-1",
@@ -145,8 +147,8 @@ const mockFindActiveRunnerRegistrationTokenByHash = mock(async (tokenHash: strin
 
 const mockCreateRunnerRegistrationToken = mock(async () => activeRegistrationToken);
 const mockFindRunnerByAuthKeyHash = mock(async (authKeyHash: string) => {
-  if (authKeyHash === ownedRunner.authKeyHash) {
-    return ownedRunner;
+  if (authKeyHash === currentRunner.authKeyHash) {
+    return currentRunner;
   }
 
   return undefined;
@@ -240,6 +242,7 @@ mock.restore();
 describe("runner-service", () => {
   beforeEach(() => {
     registrationTokenConsumed = false;
+    currentRunner = ownedRunner;
     mockFindWorkspaceById.mockClear();
     mockFindActiveRunnerRegistrationTokenByHash.mockClear();
     mockCreateRunnerRegistrationToken.mockClear();
@@ -304,5 +307,39 @@ describe("runner-service", () => {
       expect((error as { code: string }).code).toBe("runner_unauthorized");
       expect((error as { status: number }).status).toBe(401);
     }
+  });
+
+  test("rejects revoked runner tokens by default", async () => {
+    currentRunner = {
+      ...ownedRunner,
+      revokedAt: new Date("2026-01-05T00:00:00.000Z"),
+    };
+
+    try {
+      await runnerService.authenticate(runnerTokenValue);
+
+      expect.unreachable("should have thrown");
+    } catch (error: unknown) {
+      expect((error as { code: string }).code).toBe("runner_unauthorized");
+      expect((error as { status: number }).status).toBe(401);
+    }
+  });
+
+  test("can allow a stored revoked runner token for scoped recovery routes", async () => {
+    currentRunner = {
+      ...ownedRunner,
+      revokedAt: new Date("2026-01-05T00:00:00.000Z"),
+    };
+
+    const result = await runnerService.authenticate(runnerTokenValue, {
+      allowRevoked: true,
+    });
+
+    expect(result).toMatchObject({
+      id: currentRunner.id,
+      workspaceId: currentRunner.workspaceId,
+      revokedAt: currentRunner.revokedAt,
+    });
+    expect(mockUpdateRunner).toHaveBeenCalledTimes(1);
   });
 });
