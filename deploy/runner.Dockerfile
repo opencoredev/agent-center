@@ -2,6 +2,7 @@ FROM oven/bun:1.3.5-debian AS runtime-deps
 WORKDIR /app
 ENV CI=1
 
+# Keep this image scoped to the runner service so Railway can redeploy it independently.
 COPY package.json bun.lock tsconfig.base.json turbo.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/control-plane/package.json apps/control-plane/package.json
