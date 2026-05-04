@@ -53,6 +53,39 @@ describe("internal-api", () => {
     ).rejects.toBeInstanceOf(InternalApiAuthError);
   });
 
+  test("preserves structured auth codes outside credential routes", async () => {
+    const fetchImpl: InternalApiFetch = async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: "runner_unauthorized",
+            message: "Invalid or revoked runner token",
+          },
+          requestId: "req-test",
+        }),
+        { status: 401, statusText: "Unauthorized" },
+      );
+    };
+
+    try {
+      await fetchInternalApiJson(
+        "/internal/github/repo-connections/repo-1/installation-token",
+        undefined,
+        {
+          baseUrl: "http://api.example.test",
+          fetchImpl,
+          token: "stale-runner-token",
+        },
+      );
+      expect.unreachable("should have thrown");
+    } catch (error) {
+      expect(error).toBeInstanceOf(InternalApiAuthError);
+      const internalError = error as InternalApiAuthError;
+      expect(internalError.code).toBe("runner_unauthorized");
+      expect(internalError.body).toContain("Invalid or revoked runner token");
+    }
+  });
+
   test("does not expose credential route response bodies on errors", async () => {
     const fetchImpl: InternalApiFetch = async () => {
       return new Response(

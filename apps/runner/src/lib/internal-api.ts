@@ -94,7 +94,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function parseCredentialErrorDetails(body: string | null) {
+function parseApiErrorDetails(body: string | null) {
   if (!body) {
     return {};
   }
@@ -112,7 +112,7 @@ function parseCredentialErrorDetails(body: string | null) {
 }
 
 function buildCredentialErrorMessage(status: number, statusText: string, body: string | null) {
-  const details = parseCredentialErrorDetails(body);
+  const details = parseApiErrorDetails(body);
   const code = details.code ? `, code ${details.code}` : "";
   const provider = details.provider ? `, provider ${details.provider}` : "";
   return {
@@ -134,6 +134,7 @@ export async function fetchInternalApiJson<T>(
 
   if (!response.ok) {
     const body = await readResponseBody(response);
+    const errorDetails = parseApiErrorDetails(body);
     const credentialError = isCredentialRoute(path)
       ? buildCredentialErrorMessage(response.status, response.statusText, body)
       : null;
@@ -142,15 +143,15 @@ export async function fetchInternalApiJson<T>(
       response.status === 401 || response.status === 403
         ? new InternalApiAuthError(message, {
             body: credentialError ? null : body,
-            code: credentialError?.code,
-            provider: credentialError?.provider,
+            code: credentialError?.code ?? errorDetails.code,
+            provider: credentialError?.provider ?? errorDetails.provider,
             status: response.status,
             url,
           })
         : new InternalApiError(message, {
             body: credentialError ? null : body,
-            code: credentialError?.code,
-            provider: credentialError?.provider,
+            code: credentialError?.code ?? errorDetails.code,
+            provider: credentialError?.provider ?? errorDetails.provider,
             status: response.status,
             url,
           });
