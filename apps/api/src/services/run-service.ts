@@ -973,7 +973,7 @@ export const runService = {
 
     await assertTaskAccess(task, userId);
 
-    const taskRuns = await listRunsForTask(taskId);
+    const taskRuns = await listRunsForTask(task.id);
     return taskRuns.map(serializeRun);
   },
 

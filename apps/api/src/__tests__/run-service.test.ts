@@ -131,6 +131,7 @@ const mockUpdateRun = mock(async (_runId: string, values: Record<string, unknown
   ...values,
 }));
 const mockAppendRunEvent = mock(async () => undefined);
+const mockListRunsForTask = mock(async () => []);
 const mockFindTaskById = mock(async () => ({
   ...taskRecord,
 }));
@@ -182,7 +183,7 @@ mock.module("../repositories/run-repository", () => ({
   findRunById: mockFindRunById,
   listRunEvents: mock(async () => []),
   listRunLogEvents: mock(async () => []),
-  listRunsForTask: mock(async () => []),
+  listRunsForTask: mockListRunsForTask,
   updateRun: mockUpdateRun,
 }));
 
@@ -286,6 +287,7 @@ describe("run-service publish", () => {
     createSandboxRepository();
     mockCreatePullRequest.mockClear();
     mockFindRunById.mockClear();
+    mockListRunsForTask.mockClear();
     mockUpdateRun.mockClear();
     mockAppendRunEvent.mockClear();
     mockFindTaskById.mockClear();
@@ -375,6 +377,19 @@ describe("run-service publish", () => {
       code: "workspace_forbidden",
       status: 403,
     });
+  });
+
+  test("lists runs using the resolved task id when the route id is a thread id", async () => {
+    mockFindTaskById.mockImplementationOnce(async () => ({
+      ...taskRecord,
+      id: runRecord.taskId,
+      threadId: "thread-route-id",
+    }));
+
+    await runService.listByTask("thread-route-id", "user-1");
+
+    expect(mockFindTaskById).toHaveBeenCalledWith("thread-route-id");
+    expect(mockListRunsForTask).toHaveBeenCalledWith(runRecord.taskId);
   });
 
   test("persists failed publication state after the branch has been pushed", async () => {

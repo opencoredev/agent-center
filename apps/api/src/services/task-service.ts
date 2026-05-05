@@ -225,7 +225,7 @@ export const taskService = {
 
     await assertTaskAccess(task, userId);
 
-    const updatedTask = await updateTask(taskId, {
+    const updatedTask = await updateTask(task.id, {
       title: input.title ?? task.title,
       metadata: input.metadata ?? task.metadata,
       updatedAt: new Date(),
@@ -360,20 +360,20 @@ export const taskService = {
 
     await assertTaskAccess(task, userId);
 
-    const latestRun = await findLatestRunForTask(taskId);
+    const latestRun = await findLatestRunForTask(task.id);
 
     if (latestRun !== undefined && isActiveRunStatus(latestRun.status)) {
       throw conflictError("Task already has an active run", {
         runId: latestRun.id,
         status: latestRun.status,
-        taskId,
+        taskId: task.id,
       });
     }
 
     return runService.create(
       {
         ...input,
-        taskId,
+        taskId: task.id,
       },
       "retry",
       userId,

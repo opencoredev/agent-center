@@ -19,10 +19,33 @@ export function listTasks(filters: TaskListFilters) {
 }
 
 export async function findTaskById(taskId: string) {
-  const task = await convexServiceClient.query(api.serviceApi.getTask, {
-    taskId: asConvexId<"tasks">(taskId),
-  });
+  try {
+    const task = await convexServiceClient.query(api.serviceApi.getTask, {
+      taskId: asConvexId<"tasks">(taskId),
+    });
+
+    if (task !== null) {
+      return task;
+    }
+  } catch (error) {
+    if (!isTaskIdValidationError(error)) {
+      throw error;
+    }
+  }
+
+  const task = (await listTasks({})).find(
+    (candidate) => candidate.id === taskId || candidate.threadId === taskId,
+  );
   return task ?? undefined;
+}
+
+function isTaskIdValidationError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    (message.includes("ArgumentValidationError") && message.includes("tasks")) ||
+    message.includes("does not match v.id(\"tasks\")") ||
+    message.includes("does not match the table name in validator")
+  );
 }
 
 export async function findTaskByGitHubDeliveryId(deliveryId: string) {
