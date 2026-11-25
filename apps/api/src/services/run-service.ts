@@ -566,20 +566,29 @@ function buildGitEnv() {
   return env;
 }
 
-const URL_CREDENTIALS_PATTERN = /([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi;
+const URL_CREDENTIALS_PATTERN = /([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi;
 
-function redactUrlCredentials(value: string) {
-  return value.replace(URL_CREDENTIALS_PATTERN, "$1[REDACTED]@");
+function redactCredentials(value: string, secrets: readonly string[]) {
+  const withoutSecrets = secrets.reduce(
+    (redacted, secret) => (secret ? redacted.replaceAll(secret, "[REDACTED]") : redacted),
+    value,
+  );
+  return withoutSecrets.replace(URL_CREDENTIALS_PATTERN, "$1[REDACTED]@");
 }
 
-async function runGitCommandChecked(workspacePath: string, args: string[], message: string) {
+async function runGitCommandChecked(
+  workspacePath: string,
+  args: string[],
+  message: string,
+  secrets: readonly string[] = [],
+) {
   const result = await runGitCommand(workspacePath, args);
 
   if (result.exitCode !== 0) {
     throw new ApiError(500, "git_command_failed", message, {
-      args: args.map(redactUrlCredentials),
-      stderr: redactUrlCredentials(result.stderr),
-      stdout: redactUrlCredentials(result.stdout),
+      args: args.map((arg) => redactCredentials(arg, secrets)),
+      stderr: redactCredentials(result.stderr, secrets),
+      stdout: redactCredentials(result.stdout, secrets),
       workspacePath,
     });
   }
@@ -911,6 +920,7 @@ async function pushPublishBranch(input: {
     input.workspacePath,
     ["push", cloneUrl.unwrap(), pushMetadata.refspec],
     "Failed to push the publish branch to GitHub",
+    input.token ? [input.token] : [],
   );
 }
 

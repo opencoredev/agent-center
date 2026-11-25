@@ -428,6 +428,24 @@ describe("run-service publish", () => {
     );
   });
 
+  test("redacts the installation token from git push output", async () => {
+    const hookPath = join(workspacePath, ".git", "hooks", "pre-push");
+    writeFileSync(
+      hookPath,
+      '#!/bin/sh\necho "remote rejected for ghs_installation_token" >&2\nexit 1\n',
+      {
+        mode: 0o755,
+      },
+    );
+
+    const error = await runService.publish(runRecord.id, "user-1").catch((caught) => caught);
+
+    expect(error).toMatchObject({ code: "git_command_failed", status: 500 });
+    const details = error.details as { stderr: string };
+    expect(details.stderr).toContain("remote rejected for [REDACTED]");
+    expect(JSON.stringify(error.details)).not.toContain("ghs_installation_token");
+  });
+
   test("falls back to the automation identity when the app bot cannot be resolved", async () => {
     mockResolveBotCommitAuthor.mockImplementationOnce(async () => ({
       email: "automation@agent.center",
