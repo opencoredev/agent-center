@@ -1,3 +1,5 @@
+import { toPublicConnectionMetadata } from "@agent-center/shared";
+
 type TimestampValue = Date | number | string;
 
 type ApiRecord = Record<string, any>;
@@ -116,7 +118,7 @@ export function serializeRepoConnection(repoConnection: RepoConnectionRecord) {
     repo: repoConnection.repo,
     defaultBranch: repoConnection.defaultBranch,
     authType: repoConnection.authType,
-    connectionMetadata: repoConnection.connectionMetadata,
+    connectionMetadata: toPublicConnectionMetadata(repoConnection.connectionMetadata),
     createdAt: toIsoString(repoConnection.createdAt),
     updatedAt: toIsoString(repoConnection.updatedAt),
   };

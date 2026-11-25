@@ -36,6 +36,57 @@ function resolveGitBinary() {
   return preferred.find((value) => existsSync(value)) ?? "git";
 }
 
+interface GitRemote {
+  url: string;
+  env: Record<string, string>;
+}
+
+/**
+ * Moves credentials out of a clone URL and into a per-command HTTP header, so git never
+ * writes them to `.git/config` where workspace processes could read them.
+ */
+function toGitRemote(rawUrl: string): GitRemote {
+  const url = URL.canParse(rawUrl) ? new URL(rawUrl) : null;
+
+  if (!url || !["http:", "https:"].includes(url.protocol) || (!url.username && !url.password)) {
+    return { url: rawUrl, env: {} };
+  }
+
+  const credentials = `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`;
+  url.username = "";
+  url.password = "";
+
+  // Workspace config can name hooks, helpers and transports that would inherit the header,
+  // so authenticated commands override them.
+  const config: Array<[string, string]> = [
+    [
+      `http.${url.origin}/.extraHeader`,
+      `Authorization: Basic ${Buffer.from(credentials).toString("base64")}`,
+    ],
+    ["core.hooksPath", "/dev/null"],
+    ["core.fsmonitor", "false"],
+    ["core.alternateRefsCommand", "true"],
+    ["gc.auto", "0"],
+    ["maintenance.auto", "false"],
+    ["core.askPass", ""],
+    ["credential.helper", ""],
+    ["protocol.allow", "never"],
+    ...["ext", "fd", "file", "git", "http", "https", "ssh"].map((name): [string, string] => [
+      `protocol.${name}.allow`,
+      `${name}:` === url.protocol ? "always" : "never",
+    ]),
+    ["http.sslVerify", "true"],
+  ];
+  const env: Record<string, string> = { GIT_CONFIG_COUNT: String(config.length) };
+
+  for (const [index, [key, value]] of config.entries()) {
+    env[`GIT_CONFIG_KEY_${index}`] = key;
+    env[`GIT_CONFIG_VALUE_${index}`] = value;
+  }
+
+  return { url: url.toString(), env };
+}
+
 function buildGitLogPayload(phase: string, stream: "stderr" | "stdout") {
   return {
     phase,
@@ -61,12 +112,12 @@ export class GitService {
     await runEffectOrThrow(this.#prepareBranchEffect(target, context), "Branch preparation");
   }
 
-  #cloneRepositoryEffect(target: LoadedRunTarget, context: GitStepContext) {
+  #resolveRemoteEffect(target: LoadedRunTarget) {
     return Effect.gen(this, function* () {
       const repoConnection = target.repoConnection;
 
       if (!repoConnection) {
-        return;
+        return null;
       }
 
       if (repoConnection.provider !== "github") {
@@ -96,23 +147,38 @@ export class GitService {
         token,
       });
 
+      return { ...toGitRemote(cloneUrl.unwrap()), redactedUrl: cloneUrl.redactedUrl };
+    });
+  }
+
+  #cloneRepositoryEffect(target: LoadedRunTarget, context: GitStepContext) {
+    return Effect.gen(this, function* () {
+      const repoConnection = target.repoConnection;
+      const remote = yield* this.#resolveRemoteEffect(target);
+
+      if (!repoConnection || !remote) {
+        return null;
+      }
+
       yield* Effect.tryPromise(() =>
         context.persistence.appendEvent({
           eventType: "repo.clone.started",
           level: "info",
           message: `Cloning ${repoConnection.owner}/${repoConnection.repo}`,
           payload: {
-            cloneUrl: cloneUrl.redactedUrl,
+            cloneUrl: remote.redactedUrl,
             provider: repoConnection.provider,
           },
         }),
       );
 
       yield* this.#runGitCommandEffect(
-        `${shellQuote(this.#gitBinary)} clone --origin origin ${shellQuote(cloneUrl.unwrap())} .`,
+        `${shellQuote(this.#gitBinary)} clone --origin origin ${shellQuote(remote.url)} .`,
         context,
         "clone",
         5 * 60_000,
+        true,
+        remote.env,
       );
 
       yield* Effect.tryPromise(() =>
@@ -126,6 +192,8 @@ export class GitService {
           },
         }),
       );
+
+      return remote;
     });
   }
 
@@ -186,8 +254,17 @@ export class GitService {
         false,
       ).pipe(Effect.map((result) => result.exitCode === 0));
 
-      if (!hasGitRepo) {
-        yield* this.#cloneRepositoryEffect(target, context);
+      const remote = hasGitRepo
+        ? yield* this.#resolveRemoteEffect(target)
+        : yield* this.#cloneRepositoryEffect(target, context);
+
+      if (hasGitRepo && remote) {
+        // Older clones kept the token in the origin URL; replace it with the plain URL.
+        yield* this.#runGitCommandEffect(
+          `${shellQuote(this.#gitBinary)} remote set-url origin ${shellQuote(remote.url)}`,
+          context,
+          "git",
+        );
       }
 
       const baseBranch =
@@ -197,10 +274,16 @@ export class GitService {
         "main";
       const branchName = target.run.branchName;
 
+      // Fetching by URL keeps workspace remote settings such as remote.origin.vcs out of it.
       yield* this.#runGitCommandEffect(
-        `${shellQuote(this.#gitBinary)} fetch origin --prune`,
+        remote
+          ? `${shellQuote(this.#gitBinary)} fetch --prune ${shellQuote(remote.url)} ${shellQuote("+refs/heads/*:refs/remotes/origin/*")}`
+          : `${shellQuote(this.#gitBinary)} fetch origin --prune`,
         context,
         "git",
+        undefined,
+        true,
+        remote?.env,
       );
 
       if (branchName) {
@@ -245,6 +328,7 @@ export class GitService {
     phase: string,
     timeoutMs = 60_000,
     rejectOnFailure = true,
+    env: Record<string, string> = {},
   ) {
     return Effect.tryPromise({
       try: async () => {
@@ -255,6 +339,7 @@ export class GitService {
           control: context.control,
           cwd: context.workspacePath,
           env: {
+            ...env,
             GIT_TERMINAL_PROMPT: "0",
           },
           onStderrLine: async (line) => {

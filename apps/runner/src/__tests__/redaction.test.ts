@@ -44,4 +44,12 @@ describe("redaction", () => {
       ),
     ).toBe("Authorization: Bearer [REDACTED] [REDACTED] [REDACTED]");
   });
+
+  test("redacts git credentials in basic headers, token prefixes and URLs", () => {
+    expect(
+      redactString(
+        "Authorization: Basic eC1hY2Nlc3MtdG9rZW46Z2hzX2FiYw== ghs_abcdefghijklmnopqrstuvwxyz https://x-access-token:secret@github.com/o/r.git",
+      ),
+    ).toBe("Authorization: Basic [REDACTED] [REDACTED] https://[REDACTED]@github.com/o/r.git");
+  });
 });
