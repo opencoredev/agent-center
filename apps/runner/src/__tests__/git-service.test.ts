@@ -3,12 +3,14 @@ import { describe, expect, mock, test } from "bun:test";
 process.env.CONVEX_URL ??= "https://convex.test";
 process.env.AGENT_CENTER_CONVEX_SERVICE_TOKEN ??= "service-token";
 
+let cloneUrl = "https://x-access-token:ghs_secret_clone_token@github.com/acme/app.git";
+
 mock.module("../../../../packages/github/src/index.ts", () => ({
   createGitHubProvider: () => ({
     buildCloneUrl: () => ({
       redactedUrl: "https://x-access-token:[REDACTED]@github.com/acme/app.git",
       usesAuthentication: true,
-      unwrap: () => "https://x-access-token:ghs_secret_clone_token@github.com/acme/app.git",
+      unwrap: () => cloneUrl,
     }),
   }),
 }));
@@ -53,6 +55,15 @@ async function prepare(hasRepo: boolean) {
   return executed;
 }
 
+function configOverrides(env: Record<string, string>) {
+  return Object.fromEntries(
+    Array.from({ length: Number(env.GIT_CONFIG_COUNT) }, (_, index) => [
+      env[`GIT_CONFIG_KEY_${index}`],
+      env[`GIT_CONFIG_VALUE_${index}`],
+    ]),
+  );
+}
+
 function find(executed: ExecutedCommand[], fragment: string) {
   const match = executed.find(({ command }) => command.includes(fragment));
   if (!match) throw new Error(`No git command containing "${fragment}"`);
@@ -69,23 +80,23 @@ describe("GitService credentials", () => {
     expect(clone.env.GIT_CONFIG_VALUE_0).toBe(
       `Authorization: Basic ${Buffer.from("x-access-token:ghs_secret_clone_token").toString("base64")}`,
     );
-    const overrides = Object.fromEntries(
-      Array.from({ length: Number(clone.env.GIT_CONFIG_COUNT) }, (_, index) => [
-        clone.env[`GIT_CONFIG_KEY_${index}`],
-        clone.env[`GIT_CONFIG_VALUE_${index}`],
-      ]),
-    );
-    expect(overrides).toMatchObject({
+    expect(configOverrides(clone.env)).toMatchObject({
       "core.hooksPath": "/dev/null",
       "core.fsmonitor": "false",
+      "core.alternateRefsCommand": "true",
       "core.askPass": "",
       "credential.helper": "",
       "protocol.allow": "never",
       "protocol.ext.allow": "never",
       "protocol.file.allow": "never",
+      "protocol.http.allow": "never",
       "protocol.https.allow": "always",
     });
-    expect(find(executed, "fetch origin --prune").env).toEqual(clone.env);
+    const fetch = find(executed, " fetch ");
+    expect(fetch.command).toContain(
+      "fetch --prune 'https://github.com/acme/app.git' '+refs/heads/*:refs/remotes/origin/*'",
+    );
+    expect(fetch.env).toEqual(clone.env);
     expect(executed.map(({ command }) => command).join("\n")).not.toContain(
       "ghs_secret_clone_token",
     );
@@ -99,8 +110,25 @@ describe("GitService credentials", () => {
       command.includes("remote set-url origin 'https://github.com/acme/app.git'"),
     );
     expect(setUrl).toBeGreaterThan(-1);
-    expect(setUrl).toBeLessThan(commands.findIndex((command) => command.includes("fetch origin")));
+    expect(setUrl).toBeLessThan(commands.findIndex((command) => command.includes(" fetch ")));
     expect(commands.some((command) => command.includes(" clone "))).toBe(false);
     expect(commands.join("\n")).not.toContain("ghs_secret_clone_token");
+  });
+
+  test("keeps the transport of an http base URL", async () => {
+    cloneUrl = "http://token:pat_secret_value@git.internal.example/acme/app.git";
+    try {
+      const executed = await prepare(false);
+      const clone = find(executed, " clone ");
+
+      expect(clone.command).toContain("'http://git.internal.example/acme/app.git'");
+      expect(configOverrides(clone.env)).toMatchObject({
+        "http.http://git.internal.example/.extraHeader": `Authorization: Basic ${Buffer.from("token:pat_secret_value").toString("base64")}`,
+        "protocol.http.allow": "always",
+        "protocol.https.allow": "never",
+      });
+    } finally {
+      cloneUrl = "https://x-access-token:ghs_secret_clone_token@github.com/acme/app.git";
+    }
   });
 });

@@ -65,14 +65,14 @@ function toGitRemote(rawUrl: string): GitRemote {
     ],
     ["core.hooksPath", "/dev/null"],
     ["core.fsmonitor", "false"],
+    ["core.alternateRefsCommand", "true"],
     ["core.askPass", ""],
     ["credential.helper", ""],
     ["protocol.allow", "never"],
-    ...["ext", "fd", "file", "git", "http", "ssh"].map((name): [string, string] => [
+    ...["ext", "fd", "file", "git", "http", "https", "ssh"].map((name): [string, string] => [
       `protocol.${name}.allow`,
-      "never",
+      `${name}:` === url.protocol ? "always" : "never",
     ]),
-    ["protocol.https.allow", "always"],
     ["http.sslVerify", "true"],
   ];
   const env: Record<string, string> = { GIT_CONFIG_COUNT: String(config.length) };
@@ -272,8 +272,11 @@ export class GitService {
         "main";
       const branchName = target.run.branchName;
 
+      // Fetching by URL keeps workspace remote settings such as remote.origin.vcs out of it.
       yield* this.#runGitCommandEffect(
-        `${shellQuote(this.#gitBinary)} fetch origin --prune`,
+        remote
+          ? `${shellQuote(this.#gitBinary)} fetch --prune ${shellQuote(remote.url)} ${shellQuote("+refs/heads/*:refs/remotes/origin/*")}`
+          : `${shellQuote(this.#gitBinary)} fetch origin --prune`,
         context,
         "git",
         undefined,
