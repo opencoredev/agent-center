@@ -7,6 +7,7 @@ import {
   requireOwnedWorkspace,
   requireOwnedWorkspaceDocument,
 } from "./lib";
+import { toPublicConnectionMetadata } from "../../../packages/shared/src/providers/connection-metadata";
 
 export const listByWorkspace = query({
   args: {
@@ -15,10 +16,14 @@ export const listByWorkspace = query({
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
     await requireOwnedWorkspace(ctx, args.workspaceId);
-    return await ctx.db
+    const connections = await ctx.db
       .query("repoConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
+    return connections.map((connection) => ({
+      ...connection,
+      connectionMetadata: toPublicConnectionMetadata(connection.connectionMetadata) ?? undefined,
+    }));
   },
 });
 

@@ -5,4 +5,5 @@ export const REPO_AUTH_TYPES = ["pat"] as const satisfies readonly [string, ...s
 export type RepoProvider = (typeof REPO_PROVIDERS)[number];
 export type RepoAuthType = (typeof REPO_AUTH_TYPES)[number] | (string & {});
 
+export * from "./connection-metadata";
 export * from "./contracts";

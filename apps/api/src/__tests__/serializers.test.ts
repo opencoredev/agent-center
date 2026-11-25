@@ -16,12 +16,13 @@ const connection = {
 };
 
 describe("serializeRepoConnection", () => {
-  test("leaves stored tokens out of connection metadata", () => {
+  test("leaves stored tokens and URL credentials out of connection metadata", () => {
     const serialized = serializeRepoConnection({
       ...connection,
       connectionMetadata: {
         installationId: 42,
-        baseUrl: "https://github.example.com",
+        baseUrl: "https://x-access-token:ghp_url_token@github.example.com",
+        apiBaseUrl: "https://api.github.example.com",
         token: "ghp_token",
         accessToken: "gho_token",
         pat: "ghp_pat",
@@ -31,8 +32,10 @@ describe("serializeRepoConnection", () => {
 
     expect(serialized.connectionMetadata).toEqual({
       installationId: 42,
-      baseUrl: "https://github.example.com",
+      baseUrl: "https://github.example.com/",
+      apiBaseUrl: "https://api.github.example.com",
     });
+    expect(JSON.stringify(serialized)).not.toContain("ghp_");
   });
 
   test("keeps empty metadata empty", () => {
