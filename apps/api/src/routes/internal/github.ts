@@ -33,7 +33,11 @@ internalGitHubRoutes.get(
       (repoConnection.connectionMetadata as Record<string, unknown> | null)?.installationId,
     );
 
-    if (!Number.isInteger(installationId) || installationId <= 0) {
+    if (
+      repoConnection.authType !== "github_app_installation" ||
+      !Number.isInteger(installationId) ||
+      installationId <= 0
+    ) {
       throw new ApiError(
         400,
         "repo_connection_not_installation_backed",
