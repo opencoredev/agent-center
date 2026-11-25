@@ -270,9 +270,12 @@ export class GitHubProvider implements GitProvider {
     } = {},
   ): ResolvedRepositoryRequest {
     const connectionMetadata = asGitHubConnectionMetadata(input.connectionMetadata);
-    const baseUrl = resolveBaseUrl(input.baseUrl ?? connectionMetadata?.baseUrl ?? this.#baseUrl);
+    // Installation tokens come from this server's GitHub App, so they only ever go to the
+    // server-configured host, never to a destination stored on the connection.
+    const destination = input.authType === "github_app_installation" ? null : connectionMetadata;
+    const baseUrl = resolveBaseUrl(input.baseUrl ?? destination?.baseUrl ?? this.#baseUrl);
     const apiBaseUrl = resolveApiBaseUrl({
-      apiBaseUrl: input.apiBaseUrl ?? connectionMetadata?.apiBaseUrl ?? this.#apiBaseUrl,
+      apiBaseUrl: input.apiBaseUrl ?? destination?.apiBaseUrl ?? this.#apiBaseUrl,
       baseUrl,
     });
     const token = this.#resolveToken({
