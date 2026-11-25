@@ -6,6 +6,7 @@ import { join } from "node:path";
 let originPath = "";
 let workspacePath = "";
 let sandboxRoot = "";
+let pushUrlOverride: string | null = null;
 
 const mockCreatePullRequest = mock(async (input: Record<string, unknown>) => ({
   id: "pr-1",
@@ -27,7 +28,7 @@ mock.module("@agent-center/github", () => ({
       usesAuthentication: false,
       toJSON: () => originPath,
       toString: () => originPath,
-      unwrap: () => originPath,
+      unwrap: () => pushUrlOverride ?? originPath,
     }),
     buildBranchPushMetadata: ({ branchName }: { branchName: string }) => ({
       remoteName: "origin",
@@ -301,6 +302,7 @@ describe("run-service publish", () => {
   });
 
   afterEach(() => {
+    pushUrlOverride = null;
     if (sandboxRoot) {
       rmSync(sandboxRoot, {
         force: true,
@@ -411,6 +413,19 @@ describe("run-service publish", () => {
         sandboxRoot,
       ),
     ).toBeTruthy();
+  });
+
+  test("redacts the authenticated push URL from git failure details", async () => {
+    pushUrlOverride = "http://x-access-token:ghs_secret_push_token@127.0.0.1:9/missing.git";
+
+    const error = await runService.publish(runRecord.id, "user-1").catch((caught) => caught);
+
+    expect(error).toMatchObject({ code: "git_command_failed", status: 500 });
+    const serialized = JSON.stringify(error.details);
+    expect(serialized).not.toContain("ghs_secret_push_token");
+    expect((error.details as { args: string[] }).args[1]).toBe(
+      "http://[REDACTED]@127.0.0.1:9/missing.git",
+    );
   });
 
   test("falls back to the automation identity when the app bot cannot be resolved", async () => {
