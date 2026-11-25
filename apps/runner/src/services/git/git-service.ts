@@ -46,9 +46,9 @@ interface GitRemote {
  * writes them to `.git/config` where workspace processes could read them.
  */
 function toGitRemote(rawUrl: string): GitRemote {
-  const url = new URL(rawUrl);
+  const url = URL.canParse(rawUrl) ? new URL(rawUrl) : null;
 
-  if (!url.username && !url.password) {
+  if (!url || !["http:", "https:"].includes(url.protocol) || (!url.username && !url.password)) {
     return { url: rawUrl, env: {} };
   }
 
@@ -66,6 +66,8 @@ function toGitRemote(rawUrl: string): GitRemote {
     ["core.hooksPath", "/dev/null"],
     ["core.fsmonitor", "false"],
     ["core.alternateRefsCommand", "true"],
+    ["gc.auto", "0"],
+    ["maintenance.auto", "false"],
     ["core.askPass", ""],
     ["credential.helper", ""],
     ["protocol.allow", "never"],

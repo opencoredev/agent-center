@@ -84,6 +84,8 @@ describe("GitService credentials", () => {
       "core.hooksPath": "/dev/null",
       "core.fsmonitor": "false",
       "core.alternateRefsCommand": "true",
+      "gc.auto": "0",
+      "maintenance.auto": "false",
       "core.askPass": "",
       "credential.helper": "",
       "protocol.allow": "never",
@@ -127,6 +129,19 @@ describe("GitService credentials", () => {
         "protocol.http.allow": "always",
         "protocol.https.allow": "never",
       });
+    } finally {
+      cloneUrl = "https://x-access-token:ghs_secret_clone_token@github.com/acme/app.git";
+    }
+  });
+
+  test("leaves ssh URLs and their username untouched", async () => {
+    cloneUrl = "ssh://git@github.com/acme/app.git";
+    try {
+      const executed = await prepare(false);
+      const clone = find(executed, " clone ");
+
+      expect(clone.command).toContain("'ssh://git@github.com/acme/app.git'");
+      expect(clone.env.GIT_CONFIG_COUNT).toBeUndefined();
     } finally {
       cloneUrl = "https://x-access-token:ghs_secret_clone_token@github.com/acme/app.git";
     }
