@@ -36,6 +36,36 @@ function resolveGitBinary() {
   return preferred.find((value) => existsSync(value)) ?? "git";
 }
 
+interface GitRemote {
+  url: string;
+  env: Record<string, string>;
+}
+
+/**
+ * Moves credentials out of a clone URL and into a per-command HTTP header, so git never
+ * writes them to `.git/config` where workspace processes could read them.
+ */
+function toGitRemote(rawUrl: string): GitRemote {
+  const url = new URL(rawUrl);
+
+  if (!url.username && !url.password) {
+    return { url: rawUrl, env: {} };
+  }
+
+  const credentials = `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`;
+  url.username = "";
+  url.password = "";
+
+  return {
+    url: url.toString(),
+    env: {
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: `http.${url.origin}/.extraHeader`,
+      GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(credentials).toString("base64")}`,
+    },
+  };
+}
+
 function buildGitLogPayload(phase: string, stream: "stderr" | "stdout") {
   return {
     phase,
@@ -61,12 +91,12 @@ export class GitService {
     await runEffectOrThrow(this.#prepareBranchEffect(target, context), "Branch preparation");
   }
 
-  #cloneRepositoryEffect(target: LoadedRunTarget, context: GitStepContext) {
+  #resolveRemoteEffect(target: LoadedRunTarget) {
     return Effect.gen(this, function* () {
       const repoConnection = target.repoConnection;
 
       if (!repoConnection) {
-        return;
+        return null;
       }
 
       if (repoConnection.provider !== "github") {
@@ -96,23 +126,38 @@ export class GitService {
         token,
       });
 
+      return { ...toGitRemote(cloneUrl.unwrap()), redactedUrl: cloneUrl.redactedUrl };
+    });
+  }
+
+  #cloneRepositoryEffect(target: LoadedRunTarget, context: GitStepContext) {
+    return Effect.gen(this, function* () {
+      const repoConnection = target.repoConnection;
+      const remote = yield* this.#resolveRemoteEffect(target);
+
+      if (!repoConnection || !remote) {
+        return null;
+      }
+
       yield* Effect.tryPromise(() =>
         context.persistence.appendEvent({
           eventType: "repo.clone.started",
           level: "info",
           message: `Cloning ${repoConnection.owner}/${repoConnection.repo}`,
           payload: {
-            cloneUrl: cloneUrl.redactedUrl,
+            cloneUrl: remote.redactedUrl,
             provider: repoConnection.provider,
           },
         }),
       );
 
       yield* this.#runGitCommandEffect(
-        `${shellQuote(this.#gitBinary)} clone --origin origin ${shellQuote(cloneUrl.unwrap())} .`,
+        `${shellQuote(this.#gitBinary)} clone --origin origin ${shellQuote(remote.url)} .`,
         context,
         "clone",
         5 * 60_000,
+        true,
+        remote.env,
       );
 
       yield* Effect.tryPromise(() =>
@@ -126,6 +171,8 @@ export class GitService {
           },
         }),
       );
+
+      return remote;
     });
   }
 
@@ -186,8 +233,17 @@ export class GitService {
         false,
       ).pipe(Effect.map((result) => result.exitCode === 0));
 
-      if (!hasGitRepo) {
-        yield* this.#cloneRepositoryEffect(target, context);
+      const remote = hasGitRepo
+        ? yield* this.#resolveRemoteEffect(target)
+        : yield* this.#cloneRepositoryEffect(target, context);
+
+      if (hasGitRepo && remote) {
+        // Older clones kept the token in the origin URL; replace it with the plain URL.
+        yield* this.#runGitCommandEffect(
+          `${shellQuote(this.#gitBinary)} remote set-url origin ${shellQuote(remote.url)}`,
+          context,
+          "git",
+        );
       }
 
       const baseBranch =
@@ -201,6 +257,9 @@ export class GitService {
         `${shellQuote(this.#gitBinary)} fetch origin --prune`,
         context,
         "git",
+        undefined,
+        true,
+        remote?.env,
       );
 
       if (branchName) {
@@ -245,6 +304,7 @@ export class GitService {
     phase: string,
     timeoutMs = 60_000,
     rejectOnFailure = true,
+    env: Record<string, string> = {},
   ) {
     return Effect.tryPromise({
       try: async () => {
@@ -255,6 +315,7 @@ export class GitService {
           control: context.control,
           cwd: context.workspacePath,
           env: {
+            ...env,
             GIT_TERMINAL_PROMPT: "0",
           },
           onStderrLine: async (line) => {
