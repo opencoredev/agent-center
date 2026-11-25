@@ -106,6 +106,18 @@ export function serializeProject(project: ProjectRecord) {
   };
 }
 
+const CONNECTION_SECRET_KEYS = new Set(["accessToken", "pat", "personalAccessToken", "token"]);
+
+function withoutConnectionSecrets(metadata: unknown): Record<string, unknown> | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+
+  return Object.fromEntries(
+    Object.entries(metadata).filter(([key]) => !CONNECTION_SECRET_KEYS.has(key)),
+  );
+}
+
 export function serializeRepoConnection(repoConnection: RepoConnectionRecord) {
   return {
     id: repoConnection.id,
@@ -116,7 +128,7 @@ export function serializeRepoConnection(repoConnection: RepoConnectionRecord) {
     repo: repoConnection.repo,
     defaultBranch: repoConnection.defaultBranch,
     authType: repoConnection.authType,
-    connectionMetadata: repoConnection.connectionMetadata,
+    connectionMetadata: withoutConnectionSecrets(repoConnection.connectionMetadata),
     createdAt: toIsoString(repoConnection.createdAt),
     updatedAt: toIsoString(repoConnection.updatedAt),
   };
