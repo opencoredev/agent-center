@@ -7,7 +7,6 @@ let originPath = "";
 let workspacePath = "";
 let sandboxRoot = "";
 let pushUrlOverride: string | null = null;
-let pushUsesAuthentication = false;
 
 const mockCreatePullRequest = mock(async (input: Record<string, unknown>) => ({
   id: "pr-1",
@@ -26,7 +25,7 @@ mock.module("@agent-center/github", () => ({
   createGitHubProvider: () => ({
     buildCloneUrl: () => ({
       redactedUrl: originPath,
-      usesAuthentication: pushUsesAuthentication,
+      usesAuthentication: false,
       toJSON: () => originPath,
       toString: () => originPath,
       unwrap: () => pushUrlOverride ?? originPath,
@@ -304,7 +303,6 @@ describe("run-service publish", () => {
 
   afterEach(() => {
     pushUrlOverride = null;
-    pushUsesAuthentication = false;
     if (sandboxRoot) {
       rmSync(sandboxRoot, {
         force: true,
@@ -430,8 +428,7 @@ describe("run-service publish", () => {
     );
   });
 
-  test("omits git output from failure details for an authenticated push", async () => {
-    pushUsesAuthentication = true;
+  test("omits git output from push failure details", async () => {
     const hookPath = join(workspacePath, ".git", "hooks", "pre-push");
     writeFileSync(hookPath, '#!/bin/sh\necho "rejected ghs_provider_token" >&2\nexit 1\n', {
       mode: 0o755,

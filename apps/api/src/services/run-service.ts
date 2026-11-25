@@ -576,7 +576,7 @@ async function runGitCommandChecked(
   workspacePath: string,
   args: string[],
   message: string,
-  { authenticated = false }: { authenticated?: boolean } = {},
+  { omitOutput = false }: { omitOutput?: boolean } = {},
 ) {
   const result = await runGitCommand(workspacePath, args);
 
@@ -584,7 +584,7 @@ async function runGitCommandChecked(
     throw new ApiError(500, "git_command_failed", message, {
       args: args.map(redactUrlCredentials),
       exitCode: result.exitCode,
-      ...(authenticated
+      ...(omitOutput
         ? {}
         : {
             stderr: redactUrlCredentials(result.stderr),
@@ -921,7 +921,7 @@ async function pushPublishBranch(input: {
     input.workspacePath,
     ["push", cloneUrl.unwrap(), pushMetadata.refspec],
     "Failed to push the publish branch to GitHub",
-    { authenticated: cloneUrl.usesAuthentication },
+    { omitOutput: true },
   );
 }
 
