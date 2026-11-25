@@ -7,6 +7,7 @@ let originPath = "";
 let workspacePath = "";
 let sandboxRoot = "";
 let pushUrlOverride: string | null = null;
+let pushUsesAuthentication = false;
 
 const mockCreatePullRequest = mock(async (input: Record<string, unknown>) => ({
   id: "pr-1",
@@ -25,7 +26,7 @@ mock.module("@agent-center/github", () => ({
   createGitHubProvider: () => ({
     buildCloneUrl: () => ({
       redactedUrl: originPath,
-      usesAuthentication: false,
+      usesAuthentication: pushUsesAuthentication,
       toJSON: () => originPath,
       toString: () => originPath,
       unwrap: () => pushUrlOverride ?? originPath,
@@ -303,6 +304,7 @@ describe("run-service publish", () => {
 
   afterEach(() => {
     pushUrlOverride = null;
+    pushUsesAuthentication = false;
     if (sandboxRoot) {
       rmSync(sandboxRoot, {
         force: true,
@@ -428,22 +430,20 @@ describe("run-service publish", () => {
     );
   });
 
-  test("redacts the installation token from git push output", async () => {
+  test("omits git output from failure details for an authenticated push", async () => {
+    pushUsesAuthentication = true;
     const hookPath = join(workspacePath, ".git", "hooks", "pre-push");
-    writeFileSync(
-      hookPath,
-      '#!/bin/sh\necho "remote rejected for ghs_installation_token" >&2\nexit 1\n',
-      {
-        mode: 0o755,
-      },
-    );
+    writeFileSync(hookPath, '#!/bin/sh\necho "rejected ghs_provider_token" >&2\nexit 1\n', {
+      mode: 0o755,
+    });
 
     const error = await runService.publish(runRecord.id, "user-1").catch((caught) => caught);
 
     expect(error).toMatchObject({ code: "git_command_failed", status: 500 });
-    const details = error.details as { stderr: string };
-    expect(details.stderr).toContain("remote rejected for [REDACTED]");
-    expect(JSON.stringify(error.details)).not.toContain("ghs_installation_token");
+    expect(error.details).toMatchObject({ exitCode: 1 });
+    expect(error.details).not.toHaveProperty("stderr");
+    expect(error.details).not.toHaveProperty("stdout");
+    expect(JSON.stringify(error.details)).not.toContain("ghs_provider_token");
   });
 
   test("falls back to the automation identity when the app bot cannot be resolved", async () => {
