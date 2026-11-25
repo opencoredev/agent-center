@@ -3,6 +3,9 @@ const REDACTED = "[REDACTED]";
 const TOKEN_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\b(Authorization\s*:\s*Bearer\s+)([A-Za-z0-9._~+/=-]{12,})/gi, `$1${REDACTED}`],
   [/\b(Bearer\s+)([A-Za-z0-9._~+/=-]{12,})/gi, `$1${REDACTED}`],
+  [/\b(Basic\s+)([A-Za-z0-9+/=]{12,})/gi, `$1${REDACTED}`],
+  [/\b(?:gh[opsur]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, REDACTED],
+  [/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi, `$1${REDACTED}@`],
   [/\b((?:access|refresh|id)_token["'\s:=]+)([A-Za-z0-9._~+/=-]{12,})/gi, `$1${REDACTED}`],
   [
     /\b((?:api[_-]?key|token|secret|session|authorization)["'\s:=]+)([A-Za-z0-9._~+/=-]{12,})/gi,

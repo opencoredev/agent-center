@@ -69,6 +69,22 @@ describe("GitService credentials", () => {
     expect(clone.env.GIT_CONFIG_VALUE_0).toBe(
       `Authorization: Basic ${Buffer.from("x-access-token:ghs_secret_clone_token").toString("base64")}`,
     );
+    const overrides = Object.fromEntries(
+      Array.from({ length: Number(clone.env.GIT_CONFIG_COUNT) }, (_, index) => [
+        clone.env[`GIT_CONFIG_KEY_${index}`],
+        clone.env[`GIT_CONFIG_VALUE_${index}`],
+      ]),
+    );
+    expect(overrides).toMatchObject({
+      "core.hooksPath": "/dev/null",
+      "core.fsmonitor": "false",
+      "core.askPass": "",
+      "credential.helper": "",
+      "protocol.allow": "never",
+      "protocol.ext.allow": "never",
+      "protocol.file.allow": "never",
+      "protocol.https.allow": "always",
+    });
     expect(find(executed, "fetch origin --prune").env).toEqual(clone.env);
     expect(executed.map(({ command }) => command).join("\n")).not.toContain(
       "ghs_secret_clone_token",

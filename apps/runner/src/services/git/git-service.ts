@@ -56,14 +56,33 @@ function toGitRemote(rawUrl: string): GitRemote {
   url.username = "";
   url.password = "";
 
-  return {
-    url: url.toString(),
-    env: {
-      GIT_CONFIG_COUNT: "1",
-      GIT_CONFIG_KEY_0: `http.${url.origin}/.extraHeader`,
-      GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(credentials).toString("base64")}`,
-    },
-  };
+  // Workspace config can name hooks, helpers and transports that would inherit the header,
+  // so authenticated commands override them.
+  const config: Array<[string, string]> = [
+    [
+      `http.${url.origin}/.extraHeader`,
+      `Authorization: Basic ${Buffer.from(credentials).toString("base64")}`,
+    ],
+    ["core.hooksPath", "/dev/null"],
+    ["core.fsmonitor", "false"],
+    ["core.askPass", ""],
+    ["credential.helper", ""],
+    ["protocol.allow", "never"],
+    ...["ext", "fd", "file", "git", "http", "ssh"].map((name): [string, string] => [
+      `protocol.${name}.allow`,
+      "never",
+    ]),
+    ["protocol.https.allow", "always"],
+    ["http.sslVerify", "true"],
+  ];
+  const env: Record<string, string> = { GIT_CONFIG_COUNT: String(config.length) };
+
+  for (const [index, [key, value]] of config.entries()) {
+    env[`GIT_CONFIG_KEY_${index}`] = key;
+    env[`GIT_CONFIG_VALUE_${index}`] = value;
+  }
+
+  return { url: url.toString(), env };
 }
 
 function buildGitLogPayload(phase: string, stream: "stderr" | "stdout") {
