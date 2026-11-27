@@ -566,14 +566,30 @@ function buildGitEnv() {
   return env;
 }
 
-async function runGitCommandChecked(workspacePath: string, args: string[], message: string) {
+const URL_CREDENTIALS_PATTERN = /([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi;
+
+function redactUrlCredentials(value: string) {
+  return value.replace(URL_CREDENTIALS_PATTERN, "$1[REDACTED]@");
+}
+
+async function runGitCommandChecked(
+  workspacePath: string,
+  args: string[],
+  message: string,
+  { omitOutput = false }: { omitOutput?: boolean } = {},
+) {
   const result = await runGitCommand(workspacePath, args);
 
   if (result.exitCode !== 0) {
     throw new ApiError(500, "git_command_failed", message, {
-      args,
-      stderr: result.stderr,
-      stdout: result.stdout,
+      args: args.map(redactUrlCredentials),
+      exitCode: result.exitCode,
+      ...(omitOutput
+        ? {}
+        : {
+            stderr: redactUrlCredentials(result.stderr),
+            stdout: redactUrlCredentials(result.stdout),
+          }),
       workspacePath,
     });
   }
@@ -905,6 +921,7 @@ async function pushPublishBranch(input: {
     input.workspacePath,
     ["push", cloneUrl.unwrap(), pushMetadata.refspec],
     "Failed to push the publish branch to GitHub",
+    { omitOutput: true },
   );
 }
 
